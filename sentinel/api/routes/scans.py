@@ -12,6 +12,7 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Response, status
 from pydantic import BaseModel, Field
+
 from sentinel.core.finding import BountyScope
 from sentinel.core.scan_context import generate_session_id
 

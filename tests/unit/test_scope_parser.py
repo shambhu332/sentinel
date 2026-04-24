@@ -10,7 +10,6 @@ import pytest
 
 from sentinel.scope.scope_parser import ScopeParser, ScopeSourceError, parse_scope
 
-
 # ---------- Fixtures ----------
 
 HACKERONE_HTML = """

@@ -9,7 +9,6 @@ Legal: use only against targets you have explicit written permission to test.
 """
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 

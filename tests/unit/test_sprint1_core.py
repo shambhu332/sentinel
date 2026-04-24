@@ -105,7 +105,8 @@ def test_scan_context_missing_apk(tmp_path):
         )
 
 def test_scan_context_bad_sensitivity(tmp_path):
-    apk = tmp_path / "a.apk"; apk.write_bytes(b"x")
+    apk = tmp_path / "a.apk"
+    apk.write_bytes(b"x")
     with pytest.raises(ValueError):
         ScanContext(
             session_id=generate_session_id(),
