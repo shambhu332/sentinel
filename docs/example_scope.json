@@ -1,0 +1,34 @@
+{
+  "program_name": "Example Bounty Program",
+  "platform": "hackerone",
+  "in_scope_packages": [
+    "com.example.mobile",
+    "com.example.ios"
+  ],
+  "in_scope_domains": [
+    "api.example.com",
+    "*.example.com"
+  ],
+  "out_of_scope_packages": [
+    "com.example.legacy"
+  ],
+  "out_of_scope_domains": [
+    "status.example.com",
+    "blog.example.com"
+  ],
+  "excluded_vuln_classes": [
+    "Self-XSS",
+    "CSRF in logout"
+  ],
+  "forbidden_techniques": [
+    "dos",
+    "social-engineering",
+    "automated-scanning"
+  ],
+  "reward_ranges": {
+    "critical": [5000, 50000],
+    "high": [1000, 5000],
+    "medium": [500, 1000],
+    "low": [100, 500]
+  }
+}

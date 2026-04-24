@@ -17,3 +17,11 @@ dist/
 build/
 node_modules/
 frontend/dist/
+.env
+.env
+*.jks
+*.keystore
+burp_state*
+node_modules/
+.idea/
+build/
