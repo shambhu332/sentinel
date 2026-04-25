@@ -5,6 +5,10 @@ Runs JADX as a subprocess with resource limits and path traversal protection.
 
 Important: JADX returns exit code 1 when *any* class fails to decompile, even
 if 99% of the output is valid. We treat exit-code-1-with-output as success.
+
+Flags chosen for cross-version compatibility — only flags that have existed
+in JADX since 1.0 are used. Modern flags like --no-res-lists or
+--no-inline-anonymous are not supported in older builds.
 """
 from __future__ import annotations
 
@@ -19,7 +23,6 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_TIMEOUT = 300  # 5 minutes
 MAX_OUTPUT_SIZE_MB = 500
-# JADX JVM heap — default 1GB can OOM on medium APKs. 4GB is safe.
 JADX_JVM_HEAP = "4g"
 
 
@@ -38,10 +41,7 @@ class JadxResult(NamedTuple):
 
 
 class JadxRunner:
-    """Async subprocess wrapper for JADX.
-
-    Security: no shell=True, absolute paths, output size cap, hard timeout.
-    """
+    """Async subprocess wrapper for JADX."""
 
     def __init__(self, jadx_path: str | None = None, timeout: int = DEFAULT_TIMEOUT) -> None:
         self._jadx_path = jadx_path or shutil.which("jadx")
@@ -50,15 +50,7 @@ class JadxRunner:
         self._timeout = timeout
 
     async def decompile(self, apk_path: Path, output_dir: Path) -> JadxResult:
-        """Decompile APK into output_dir. Returns result with counts and paths.
-
-        Args:
-            apk_path: absolute path to the APK file
-            output_dir: directory where Java sources will be written
-
-        Raises:
-            JadxError on hard failure (no output produced)
-        """
+        """Decompile APK into output_dir using minimal universally-supported flags."""
         apk_path = apk_path.expanduser().resolve()
         output_dir = output_dir.expanduser().resolve()
 
@@ -69,19 +61,17 @@ class JadxRunner:
 
         output_dir.mkdir(parents=True, exist_ok=True)
 
+        # Minimal flags — only the most basic ones that have existed since
+        # JADX 1.0. -d sets output dir, --show-bad-code keeps partial output
+        # rather than aborting on failed classes.
         cmd = [
             self._jadx_path,
-            "--output-dir", str(output_dir),
+            "-d", str(output_dir),
             "--show-bad-code",
-            "--no-res-lists",
-            "--threads-count", "4",
-            "--no-inline-anonymous",
-            "--escape-unicode",
             str(apk_path),
         ]
 
         logger.info("Running JADX: %s", " ".join(cmd))
-        logger.debug("JADX output_dir resolved to: %s", output_dir)
 
         try:
             env = os.environ.copy()
@@ -110,23 +100,13 @@ class JadxRunner:
         stderr_text = stderr.decode("utf-8", errors="replace")[:5000]
         stdout_text = stdout.decode("utf-8", errors="replace")[:5000]
 
-        # Diagnostic: log what JADX printed and what's actually in output_dir
         logger.info("JADX exited with code %d", exit_code)
         if stdout_text.strip():
             logger.debug("JADX stdout: %s", stdout_text[:1000])
         if stderr_text.strip():
             logger.debug("JADX stderr: %s", stderr_text[:1000])
 
-        # List what got written to output_dir
-        if output_dir.exists():
-            entries = list(output_dir.iterdir())
-            logger.info(
-                "JADX output_dir contains %d entries: %s",
-                len(entries),
-                [e.name for e in entries[:10]],
-            )
-
-        # Count Java files anywhere under output_dir (handles all JADX layouts)
+        # Count Java files anywhere under output_dir
         java_files = list(output_dir.rglob("*.java"))
         java_count = len(java_files)
         logger.info("Found %d .java files in %s", java_count, output_dir)
@@ -140,15 +120,14 @@ class JadxRunner:
 
         resources_dir = output_dir / "resources"
 
-        # Only fail if NOTHING was produced. Exit code 1 with valid output is
-        # JADX's normal "some classes had warnings" signal.
+        # Only fail if NOTHING was produced
         if java_count == 0:
             raise JadxError(
                 f"JADX produced no Java files (exit {exit_code}). "
-                f"stdout: {stdout_text[:200]} | stderr: {stderr_text[:200]} | "
-                f"output_dir: {output_dir} | exists: {output_dir.exists()}"
+                f"stdout: {stdout_text[:200]} | stderr: {stderr_text[:200]}"
             )
 
+        # Size sanity check
         try:
             total_size = sum(
                 f.stat().st_size for f in output_dir.rglob("*") if f.is_file()
