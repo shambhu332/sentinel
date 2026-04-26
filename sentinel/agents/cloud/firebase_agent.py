@@ -65,7 +65,7 @@ class FirebaseMisconfigAgent(BaseAgent):
     VULN_CLASS = "Firebase Misconfiguration"
     PHASE = "static"
 
-    def is_applicable(self) -> bool:
+    async def is_applicable(self) -> bool:
         """F_001 applies whenever JADX produced decompiled source."""
         ctx = self._context
         if ctx.decompiled_dir is None or not ctx.decompiled_dir.exists():

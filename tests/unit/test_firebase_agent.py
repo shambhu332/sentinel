@@ -60,15 +60,16 @@ async def test_not_applicable_when_no_decompiled_dir(memory, tmp_path):
         workspace=tmp_path,
         scope=BountyScope(),
     )
-    # decompiled_dir is None
+    # decompiled_dir is None — agent should refuse to run
     agent = FirebaseMisconfigAgent(context=ctx, memory=memory)
-    assert agent.is_applicable() is False
+    assert await agent.is_applicable() is False
 
 
 @pytest.mark.asyncio
 async def test_applicable_with_decompiled_dir(memory, basic_context):
+    """Agent runs when JADX produced a decompiled directory."""
     agent = FirebaseMisconfigAgent(context=basic_context, memory=memory)
-    assert agent.is_applicable() is True
+    assert await agent.is_applicable() is True
 
 
 # ---------- candidate extraction ----------
