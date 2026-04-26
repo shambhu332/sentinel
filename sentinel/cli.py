@@ -11,8 +11,33 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import sys
+import warnings
 from datetime import datetime, timezone
 from pathlib import Path
+
+# ---------- Silence noisy third-party libraries ----------
+# Must happen BEFORE importing anything that triggers their loggers.
+os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
+os.environ.setdefault("CHROMA_TELEMETRY_DISABLED", "True")
+os.environ.setdefault("POSTHOG_DISABLED", "True")
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+
+# Silence androguard's chatty debug logger and ChromaDB's telemetry
+for noisy in ("androguard", "androguard.core", "androguard.core.apk",
+              "androguard.core.axml", "androguard.core.api_specific_resources",
+              "chromadb", "chromadb.telemetry", "chromadb.telemetry.product",
+              "posthog", "urllib3"):
+    logging.getLogger(noisy).setLevel(logging.WARNING)
+
+# Loguru is what androguard actually uses; silence it specifically
+try:
+    from loguru import logger as _loguru_logger
+    _loguru_logger.remove()
+    _loguru_logger.add(sys.stderr, level="WARNING")
+except ImportError:
+    pass
 
 import click
 from rich.console import Console
