@@ -259,9 +259,9 @@ class FirebaseMisconfigAgent(BaseAgent):
                                 sample: str, status_code: int) -> Finding:
         """Build a Critical Firebase finding ready for HackerOne submission."""
         return self._make_finding(
+            vuln_class=self.VULN_CLASS,
             severity=Severity.CRITICAL,
             confidence=0.95,
-            title=f"Publicly readable Firebase Realtime Database: {project_id}",
             recommendation=(
                 f"Configure Firebase Realtime Database security rules at "
                 f"{url}/.settings/rules.json to require authentication. "
@@ -280,15 +280,16 @@ class FirebaseMisconfigAgent(BaseAgent):
                     f"Send GET request: curl '{url}/.json' "
                     f"to retrieve database contents without authentication."
                 ),
+                "title": f"Publicly readable Firebase Realtime Database: {project_id}",
             },
         )
 
     def _make_info_finding(self, project_id: str, info: dict[str, Any]) -> Finding:
         """Lower-severity record for Firestore/Storage candidates we didn't probe."""
         return self._make_finding(
+            vuln_class=self.VULN_CLASS,
             severity=Severity.INFO,
             confidence=0.7,
-            title=f"Firebase {info['type']} endpoint detected: {project_id}",
             recommendation=(
                 f"Review {info['type']} security rules manually. SENTINEL "
                 f"has not probed this endpoint type — verify it requires "
@@ -299,5 +300,6 @@ class FirebaseMisconfigAgent(BaseAgent):
                 "url": info["url"],
                 "type": info["type"],
                 "discovered_in_files": info["sources"][:10],
+                "title": f"Firebase {info['type']} endpoint detected: {project_id}",
             },
         )
