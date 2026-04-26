@@ -25,3 +25,8 @@ burp_state*
 node_modules/
 .idea/
 build/
+
+# Runtime artifacts
+workspace/
+data/
+scan-results.json
