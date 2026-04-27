@@ -131,6 +131,7 @@ async def _run_scan(
 ) -> None:
     """Async implementation of the scan command."""
     from sentinel.agents.cloud import FirebaseMisconfigAgent
+    from sentinel.agents.platform import ContentProviderIDORAgent
     from sentinel.agents.special import PipelineSmokeTestAgent
     from sentinel.core.finding import BountyScope
     from sentinel.core.orchestrator import Orchestrator
@@ -183,7 +184,11 @@ async def _run_scan(
         orch = Orchestrator(
             context=ctx,
             memory=memory,
-            agents=[PipelineSmokeTestAgent, FirebaseMisconfigAgent],
+            agents=[
+                PipelineSmokeTestAgent,
+                FirebaseMisconfigAgent,
+                ContentProviderIDORAgent,
+            ],
         )
 
         with console.status("[bold cyan]Running scan...[/]", spinner="dots"):

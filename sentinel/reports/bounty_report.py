@@ -9,7 +9,7 @@ that HackerOne, Bugcrowd, and Intigriti reviewers expect:
 4. Proof of concept (raw evidence from the agent)
 5. Impact (what an attacker can do with this)
 6. Remediation (how to fix it)
-7. References (CWE, OWASP MASVS, Firebase docs)
+7. References (CWE, OWASP MASVS, vendor docs)
 
 Reports are written to disk as markdown for easy copy-paste into the
 bounty platform's submission form.
@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from sentinel.core.finding import Finding, Severity
+
 
 SEVERITY_BADGE = {
     Severity.CRITICAL: "🔴 Critical",
@@ -49,6 +50,27 @@ _CLASS_REFERENCES: dict[str, dict[str, Any]] = {
             "this can expose user PII, authentication tokens, financial data, private "
             "messages, internal configuration, and any other application state. The "
             "leaked credentials may be re-used to attack other services."
+        ),
+    },
+    "Exposed Content Provider": {
+        "cwe": "CWE-926 (Improper Export of Android Components)",
+        "owasp_masvs": "MASVS-PLATFORM-1, MASVS-CODE-2",
+        "category": "Insecure Inter-Process Communication",
+        "references": [
+            "https://developer.android.com/guide/topics/providers/content-provider-creating",
+            "https://mas.owasp.org/MASVS/06-MASVS-PLATFORM/",
+            "https://cwe.mitre.org/data/definitions/926.html",
+            "https://cwe.mitre.org/data/definitions/89.html",
+        ],
+        "default_impact": (
+            "Any app installed on the device can interact with this Content Provider "
+            "without holding any special permissions. Depending on the provider's "
+            "implementation, this enables one or more of: dumping the application's "
+            "private database tables (PII, credentials, payment records); injecting "
+            "arbitrary SQL through unsanitised selection arguments; reading arbitrary "
+            "files inside the app's sandbox via openFile() path traversal. A malicious "
+            "app on the device requires no user interaction and no permission grants "
+            "to perform these queries — the exposed provider is the entire vulnerability."
         ),
     },
 }
@@ -167,6 +189,24 @@ def _build_summary(finding: Finding, package: str) -> str:
             f"This allows any internet user to retrieve all data stored in the database "
             f"including any PII, credentials, or business data the application has saved."
         )
+    if finding.vuln_class == "Exposed Content Provider":
+        evidence = finding.evidence
+        provider = evidence.get("provider", "<unknown>")
+        guard_state = ("with no permission guard" if not evidence.get("has_any_guard")
+                       else "with a permission guard that may be holdable by attacker apps")
+        return (
+            f"The Android application `{package}` exports a Content Provider "
+            f"`{provider}` {guard_state}. Exported Content Providers are an "
+            f"inter-process communication endpoint accessible to every other "
+            f"application installed on the device. The implementation contains "
+            f"{evidence.get('sqli_indicators_found', 0)} SQL injection indicator(s); "
+            f"openFile() is "
+            f"{'risky' if evidence.get('openfile_risky') else 'not flagged'}; "
+            f"unrestricted full-table dump is "
+            f"{'present' if evidence.get('full_dump_risky') else 'not detected'}. "
+            f"A malicious app on the device can interact with this provider "
+            f"without user interaction or permission prompts."
+        )
     return (
         f"SENTINEL detected a {finding.vuln_class} issue in `{package}`. "
         f"Confidence: {finding.confidence:.0%}."
@@ -185,16 +225,36 @@ def _build_steps(finding: Finding, package: str) -> list[str]:
              f"`{', '.join(files[:3]) if files else '(see evidence above)'}`."),
             (f"Confirm the URL: `{url}`. This is the application's Firebase Realtime "
              f"Database backend."),
-            ("Send an unauthenticated HTTPS GET request to the database root with "
-             "`/.json` appended:"),
+            (f"Send an unauthenticated HTTPS GET request to the database root with "
+             f"`/.json` appended:"),
             f"```bash\ncurl -s '{probe}'\n```",
             ("Observe that the request returns HTTP 200 with the full database contents "
              "as a JSON payload, with no authentication required."),
             ("Inspect the returned data — any PII, credentials, or business data visible "
              "in the response confirms the impact."),
         ]
+    if finding.vuln_class == "Exposed Content Provider":
+        provider = finding.evidence.get("provider", "")
+        provider_lower = provider.lower()
+        source_file = finding.evidence.get("source_file") or "(see evidence)"
+        return [
+            f"Install the target application `{package}` on a test device or emulator.",
+            (f"Inspect AndroidManifest.xml of the application — the provider "
+             f"`{provider}` is declared with `android:exported=\"true\"` and "
+             f"with no permission attributes."),
+            (f"Decompile the APK and inspect the provider implementation in "
+             f"`{source_file}`."),
+            "From any test app on the same device (or via adb shell), query the provider:",
+            f"```bash\nadb shell content query --uri content://{provider_lower}/\n```",
+            ("Observe that the query returns rows from the application's private "
+             "database without any authentication."),
+            ("If the implementation builds raw SQL using the `selection` argument, "
+             "test SQL injection by passing a malicious selection:"),
+            (f"```bash\nadb shell content query --uri content://{provider_lower}/ "
+             f"--where \"1=1) UNION SELECT name,sql FROM sqlite_master WHERE (1=1\"\n```"),
+        ]
     return [
-        "Reproduce the issue using the evidence in this report.",
+        f"Reproduce the issue using the evidence in this report.",
         f"Inspect application package: `{package}`.",
     ]
 
