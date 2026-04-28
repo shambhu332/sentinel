@@ -54,7 +54,7 @@ def basic_context(tmp_path):
 async def test_n002_no_findings_when_clean(memory, basic_context):
     """Clean app with HTTPS only and no manifest flag → no finding."""
     java = basic_context.decompiled_dir / "Api.java"
-    java.write_text('private static final String BASE = "https://api.example.com";')
+    java.write_text('private static final String BASE = "https://api.acmeprod.com";')
 
     agent = CleartextTrafficAgent(context=basic_context, memory=memory)
     findings = await agent.analyze()
@@ -78,8 +78,8 @@ async def test_n002_http_urls_in_code_emit_finding(memory, basic_context):
     """Hardcoded http:// URLs → Low or Medium depending on count."""
     java = basic_context.decompiled_dir / "Net.java"
     java.write_text(
-        'String url1 = "http://api.example.com/v1/users";\n'
-        'String url2 = "http://api.example.com/v1/posts";\n'
+        'String url1 = "http://api.acmeprod.com/v1/users";\n'
+        'String url2 = "http://api.acmeprod.com/v1/posts";\n'
     )
 
     agent = CleartextTrafficAgent(context=basic_context, memory=memory)
@@ -93,7 +93,7 @@ async def test_n002_combined_signals_emit_high(memory, basic_context):
     """Manifest flag AND http URLs → High."""
     basic_context.manifest["uses_cleartext_traffic"] = True
     java = basic_context.decompiled_dir / "Api.java"
-    java.write_text('String x = "http://insecure.example.com/login";')
+    java.write_text('String x = "http://insecure.acmeprod.com/login";')
 
     agent = CleartextTrafficAgent(context=basic_context, memory=memory)
     findings = await agent.analyze()
@@ -130,10 +130,15 @@ async def test_a004_no_findings_on_clean_code(memory, basic_context):
 
 @pytest.mark.asyncio
 async def test_a004_detects_aws_access_key(memory, basic_context):
-    """AWS access key pattern should fire as Critical."""
+    """AWS access key pattern should fire as Critical.
+
+    Use a synthetic key that doesn't contain 'EXAMPLE' (which is AWS's documented
+    placeholder marker). The agent's false-positive filter intentionally rejects
+    lines containing 'example' so we can't use the canonical AWS docs key here.
+    """
     java = basic_context.decompiled_dir / "Aws.java"
     java.write_text(
-        'private static final String AWS_KEY = "AKIAIOSFODNN7EXAMPLE";\n'
+        'private static final String AWS_KEY = "AKIAQH7XPZ4N3KLMNOPQ";\n'
     )
 
     agent = HardcodedSecretsAgent(context=basic_context, memory=memory)
@@ -146,6 +151,7 @@ async def test_a004_detects_aws_access_key(memory, basic_context):
 
 @pytest.mark.asyncio
 async def test_a004_detects_google_api_key(memory, basic_context):
+    """Google API key pattern should fire as High."""
     java = basic_context.decompiled_dir / "Maps.java"
     java.write_text(
         'String mapsKey = "AIzaSyDxKL3jK7NHgL8a9XyzZ1234567890abcdEFG";\n'
