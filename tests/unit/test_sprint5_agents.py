@@ -130,13 +130,14 @@ async def test_a004_no_findings_on_clean_code(memory, basic_context):
 
 @pytest.mark.asyncio
 async def test_a004_detects_aws_access_key(memory, basic_context):
-    """AWS access key pattern should fire as Critical.
+    """AWS access key pattern (AKIA + 16 alphanumeric chars) should fire as Critical.
 
-    Use a synthetic key that doesn't contain 'EXAMPLE' (which is AWS's documented
-    placeholder marker). The agent's false-positive filter intentionally rejects
-    lines containing 'example' so we can't use the canonical AWS docs key here.
+    Use a synthetic key (not AWS's documented placeholder which contains
+    'EXAMPLE'). The agent's false-positive filter intentionally rejects
+    lines with that word.
     """
     java = basic_context.decompiled_dir / "Aws.java"
+    # AKIA + exactly 16 chars  =  20 chars total
     java.write_text(
         'private static final String AWS_KEY = "AKIAQH7XPZ4N3KLMNOPQ";\n'
     )
@@ -151,10 +152,12 @@ async def test_a004_detects_aws_access_key(memory, basic_context):
 
 @pytest.mark.asyncio
 async def test_a004_detects_google_api_key(memory, basic_context):
-    """Google API key pattern should fire as High."""
+    """Google API key pattern (AIza + exactly 35 chars) should fire as High."""
     java = basic_context.decompiled_dir / "Maps.java"
+    # AIza + exactly 35 chars  =  39 chars total
+    # Verified: AIzaSyDrpoLu1G4NH8K7JLw9m2a1b3c4d5e6f7g  (4+35=39)
     java.write_text(
-        'String mapsKey = "AIzaSyDxKL3jK7NHgL8a9XyzZ1234567890abcdEFG";\n'
+        'String mapsKey = "AIzaSyDrpoLu1G4NH8K7JLw9m2a1b3c4d5e6f7g";\n'
     )
 
     agent = HardcodedSecretsAgent(context=basic_context, memory=memory)
