@@ -136,10 +136,15 @@ async def _run_scan(
     """Async implementation of the scan command."""
     from sentinel.agents.auth import HardcodedSecretsAgent
     from sentinel.agents.cloud import FirebaseMisconfigAgent
+    from sentinel.agents.crypto import WeakCryptoAgent
     from sentinel.agents.data_storage import WorldReadableStorageAgent
+    from sentinel.agents.logging import InsecureLoggingAgent
+    from sentinel.agents.meta import ObfuscationDetectorAgent
     from sentinel.agents.network import CleartextTrafficAgent
     from sentinel.agents.platform import ContentProviderIDORAgent
+    from sentinel.agents.random_gen import InsecureRandomAgent
     from sentinel.agents.special import PipelineSmokeTestAgent
+    from sentinel.agents.webview import InsecureWebViewAgent
     from sentinel.core.finding import BountyScope
     from sentinel.core.orchestrator import Orchestrator
     from sentinel.core.scan_context import ScanContext, generate_session_id
@@ -192,12 +197,20 @@ async def _run_scan(
             context=ctx,
             memory=memory,
             agents=[
+                # Meta — runs first, sets context for the rest
+                ObfuscationDetectorAgent,
+                # Smoke test — confirms the pipeline is alive
                 PipelineSmokeTestAgent,
-                FirebaseMisconfigAgent,
-                ContentProviderIDORAgent,
-                CleartextTrafficAgent,
-                HardcodedSecretsAgent,
-                WorldReadableStorageAgent,
+                # SAST agents
+                HardcodedSecretsAgent,         # A_004
+                InsecureLoggingAgent,          # A_007
+                InsecureRandomAgent,           # B_002
+                WorldReadableStorageAgent,     # C_002
+                InsecureWebViewAgent,          # C_004
+                WeakCryptoAgent,               # C_007
+                FirebaseMisconfigAgent,        # F_001
+                CleartextTrafficAgent,         # N_002
+                ContentProviderIDORAgent,      # P_004
             ],
         )
 

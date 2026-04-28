@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any
 
 from sentinel.agents.base.base_agent import BaseAgent
 from sentinel.core.finding import Finding, Severity

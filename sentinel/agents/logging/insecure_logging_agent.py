@@ -67,6 +67,16 @@ _LOG_CALL_RE = re.compile(
 _MAX_FILES_TO_SCAN = 3000
 _MAX_HITS_PER_FINDING = 20
 
+# ProGuard rule example used in remediation. Defined as a plain string so we
+# don't have to wrestle with f-string brace escaping.
+_PROGUARD_RULE_EXAMPLE = (
+    "-assumenosideeffects class android.util.Log { "
+    "public static *** d(...); "
+    "public static *** v(...); "
+    "public static *** i(...); "
+    "}"
+)
+
 
 class InsecureLoggingAgent(BaseAgent):
     """A_007: detects sensitive data printed to log output."""
@@ -158,15 +168,16 @@ class InsecureLoggingAgent(BaseAgent):
 
     @staticmethod
     def _build_recommendation(category: str) -> str:
+        # Build the recommendation by concatenating regular strings; the ProGuard
+        # rule example contains literal { and } characters that f-strings choke on.
         return (
-            f"Remove all log statements containing {category} from production "
-            f"builds. Use BuildConfig.DEBUG to gate Log.* calls so they only "
-            f"execute in development. Better still, use ProGuard/R8 rules to "
-            f"strip Log.d, Log.v, and Log.i calls from release builds entirely. "
-            f"Example proguard-rules.pro entry:\n"
-            f"-assumenosideeffects class android.util.Log { public static *** d(...); public static *** v(...); public static *** i(...); }\n"
-            f"For data that must be logged (debugging, crash reports), redact "
-            f"sensitive fields before logging — for example, log only the last "
-            f"4 digits of a credit card number, never the full PAN."
+            "Remove all log statements containing " + category + " from production "
+            "builds. Use BuildConfig.DEBUG to gate Log.* calls so they only "
+            "execute in development. Better still, use ProGuard/R8 rules to "
+            "strip Log.d, Log.v, and Log.i calls from release builds entirely. "
+            "Example proguard-rules.pro entry:\n"
+            + _PROGUARD_RULE_EXAMPLE + "\n"
+            "For data that must be logged (debugging, crash reports), redact "
+            "sensitive fields before logging — for example, log only the last "
+            "4 digits of a credit card number, never the full PAN."
         )
-
