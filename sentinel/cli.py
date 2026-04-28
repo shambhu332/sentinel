@@ -22,14 +22,18 @@ from pathlib import Path
 os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
 os.environ.setdefault("CHROMA_TELEMETRY_DISABLED", "True")
 os.environ.setdefault("POSTHOG_DISABLED", "True")
+os.environ.setdefault("DO_NOT_TRACK", "1")
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-# Silence androguard's chatty debug logger and ChromaDB's telemetry
-for noisy in ("androguard", "androguard.core", "androguard.core.apk",
-              "androguard.core.axml", "androguard.core.api_specific_resources",
-              "chromadb", "chromadb.telemetry", "chromadb.telemetry.product",
-              "posthog", "urllib3"):
-    logging.getLogger(noisy).setLevel(logging.WARNING)
+# Silence noisy third-party loggers package-wide
+for noisy in (
+    "androguard", "androguard.core", "androguard.core.apk",
+    "androguard.core.axml", "androguard.core.api_specific_resources",
+    "chromadb", "chromadb.telemetry", "chromadb.telemetry.product",
+    "chromadb.telemetry.product.posthog",
+    "posthog", "urllib3",
+):
+    logging.getLogger(noisy).setLevel(logging.CRITICAL)
 
 # Loguru is what androguard actually uses; silence it specifically
 try:
@@ -130,7 +134,10 @@ async def _run_scan(
     private: bool,
 ) -> None:
     """Async implementation of the scan command."""
+    from sentinel.agents.auth import HardcodedSecretsAgent
     from sentinel.agents.cloud import FirebaseMisconfigAgent
+    from sentinel.agents.data_storage import WorldReadableStorageAgent
+    from sentinel.agents.network import CleartextTrafficAgent
     from sentinel.agents.platform import ContentProviderIDORAgent
     from sentinel.agents.special import PipelineSmokeTestAgent
     from sentinel.core.finding import BountyScope
@@ -188,6 +195,9 @@ async def _run_scan(
                 PipelineSmokeTestAgent,
                 FirebaseMisconfigAgent,
                 ContentProviderIDORAgent,
+                CleartextTrafficAgent,
+                HardcodedSecretsAgent,
+                WorldReadableStorageAgent,
             ],
         )
 

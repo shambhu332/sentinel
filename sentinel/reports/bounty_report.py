@@ -73,6 +73,62 @@ _CLASS_REFERENCES: dict[str, dict[str, Any]] = {
             "to perform these queries — the exposed provider is the entire vulnerability."
         ),
     },
+    "Cleartext Traffic": {
+        "cwe": "CWE-319 (Cleartext Transmission of Sensitive Information)",
+        "owasp_masvs": "MASVS-NETWORK-1",
+        "category": "Insecure Network Communication",
+        "references": [
+            "https://developer.android.com/training/articles/security-config",
+            "https://mas.owasp.org/MASVS/05-MASVS-NETWORK/",
+            "https://cwe.mitre.org/data/definitions/319.html",
+        ],
+        "default_impact": (
+            "An attacker on the same network as the user (public WiFi, compromised "
+            "router, malicious ISP, hostile cellular base station) can intercept all "
+            "HTTP traffic in plaintext. This includes session tokens, authentication "
+            "credentials, personal data, and any business logic transmitted by the app. "
+            "The attacker can also actively modify traffic to inject malicious responses, "
+            "downgrade security, or redirect the user to attacker-controlled servers."
+        ),
+    },
+    "Hardcoded Secret": {
+        "cwe": "CWE-798 (Use of Hard-coded Credentials)",
+        "owasp_masvs": "MASVS-CODE-4, MASVS-AUTH-2",
+        "category": "Credential Management",
+        "references": [
+            "https://mas.owasp.org/MASVS/07-MASVS-CODE/",
+            "https://cwe.mitre.org/data/definitions/798.html",
+            "https://cheatsheetseries.owasp.org/cheatsheets/Mobile_Application_Security_Cheat_Sheet.html",
+        ],
+        "default_impact": (
+            "The credential is embedded in the application binary and is recoverable "
+            "by anyone who can download the APK from the Play Store. Depending on the "
+            "credential type, this can expose cloud infrastructure (AWS, GCP), allow "
+            "the attacker to charge customers (Stripe), send messages from the company "
+            "(Twilio, Slack, SendGrid), or impersonate the app to its backend services. "
+            "The credential should be considered compromised the moment the affected "
+            "app version was published."
+        ),
+    },
+    "World-Readable Storage": {
+        "cwe": "CWE-732 (Incorrect Permission Assignment for Critical Resource)",
+        "owasp_masvs": "MASVS-STORAGE-1, MASVS-PLATFORM-2",
+        "category": "Insecure Local Data Storage",
+        "references": [
+            "https://developer.android.com/topic/security/data",
+            "https://mas.owasp.org/MASVS/03-MASVS-STORAGE/",
+            "https://cwe.mitre.org/data/definitions/732.html",
+        ],
+        "default_impact": (
+            "Files stored with MODE_WORLD_READABLE are accessible to any other "
+            "application installed on the device, without any permissions or user "
+            "interaction. If those files contain authentication tokens, session "
+            "cookies, personal data, or business secrets, a malicious app on the same "
+            "device can exfiltrate them silently. MODE_WORLD_WRITEABLE is even worse "
+            "— other apps can modify the data, potentially injecting payloads that "
+            "the target app trusts on next read."
+        ),
+    },
 }
 
 
@@ -207,6 +263,45 @@ def _build_summary(finding: Finding, package: str) -> str:
             f"A malicious app on the device can interact with this provider "
             f"without user interaction or permission prompts."
         )
+    if finding.vuln_class == "Cleartext Traffic":
+        evidence = finding.evidence
+        manifest_flag = evidence.get("manifest_uses_cleartext_traffic")
+        url_count = evidence.get("http_urls_count", 0)
+        return (
+            f"The Android application `{package}` is configured to allow unencrypted "
+            f"HTTP network traffic. "
+            f"{'The manifest sets android:usesCleartextTraffic=\"true\", which globally permits HTTP. ' if manifest_flag else ''}"
+            f"{f'The decompiled code contains {url_count} hardcoded http:// URL(s). ' if url_count else ''}"
+            f"An attacker positioned on the user's network (public WiFi, compromised "
+            f"router, or hostile ISP) can read or modify all such traffic, including "
+            f"any session tokens, credentials, or sensitive data the application "
+            f"transmits over HTTP."
+        )
+    if finding.vuln_class == "Hardcoded Secret":
+        evidence = finding.evidence
+        provider = evidence.get("provider", "credential")
+        return (
+            f"The Android application `{package}` ships with a hardcoded {provider} "
+            f"embedded as a string constant in the application binary. "
+            f"{evidence.get('match_count', 1)} instance(s) were found across the "
+            f"decompiled source and resources. Anyone who downloads the APK from "
+            f"the Play Store (or any APK mirror) can extract this credential by "
+            f"running JADX or apktool against the file — no authentication, "
+            f"reverse-engineering skill, or device access is required."
+        )
+    if finding.vuln_class == "World-Readable Storage":
+        evidence = finding.evidence
+        by_kind = evidence.get("by_kind", {})
+        kind_summary = ", ".join(f"{k}: {v}" for k, v in by_kind.items())
+        return (
+            f"The Android application `{package}` uses deprecated and insecure "
+            f"file-permission modes when persisting data to local storage. "
+            f"Detected indicators: {kind_summary}. Files stored with these modes "
+            f"are accessible to any other application on the same device, without "
+            f"any permission prompts or user interaction. On older Android versions "
+            f"(below API 24) this exposes the data; on newer versions the call "
+            f"throws SecurityException and likely crashes the affected feature."
+        )
     return (
         f"SENTINEL detected a {finding.vuln_class} issue in `{package}`. "
         f"Confidence: {finding.confidence:.0%}."
@@ -252,6 +347,66 @@ def _build_steps(finding: Finding, package: str) -> list[str]:
              "test SQL injection by passing a malicious selection:"),
             (f"```bash\nadb shell content query --uri content://{provider_lower}/ "
              f"--where \"1=1) UNION SELECT name,sql FROM sqlite_master WHERE (1=1\"\n```"),
+        ]
+    if finding.vuln_class == "Cleartext Traffic":
+        evidence = finding.evidence
+        url_samples = evidence.get("http_urls_sample", [])
+        first_url = url_samples[0]["url"] if url_samples else "http://example.com/api"
+        return [
+            f"Decompile the APK for `{package}` using apktool: `apktool d {package}.apk`.",
+            (f"Inspect AndroidManifest.xml — note `android:usesCleartextTraffic=\"true\"` "
+             f"on the <application> element."
+             if evidence.get("manifest_uses_cleartext_traffic")
+             else "Inspect the decompiled source for hardcoded http:// URLs."),
+            (f"Confirm hardcoded http:// URLs in the decompiled code "
+             f"({evidence.get('http_urls_count', 0)} found). Examples:"),
+            "```",
+            *[f"  {u['url']}  (in {u['locations'][0] if u['locations'] else '?'})"
+              for u in url_samples[:5]],
+            "```",
+            ("Set up a transparent proxy (e.g., mitmproxy with `mitmproxy --mode "
+             "transparent`) on a test network."),
+            "Connect the target device to that network and run the application normally.",
+            (f"Observe HTTP traffic to {first_url} (or similar) flowing in plaintext "
+             f"through the proxy. The proxy can both read and modify this traffic."),
+            ("Confirm impact: identify any session tokens, credentials, or sensitive "
+             "data visible in the captured plaintext traffic."),
+        ]
+    if finding.vuln_class == "Hardcoded Secret":
+        evidence = finding.evidence
+        provider = evidence.get("provider", "secret")
+        sample_files = [m.get("file", "?") for m in evidence.get("matches", [])]
+        return [
+            f"Download the APK for `{package}` from Google Play (or any APK mirror).",
+            f"Decompile the APK using JADX: `jadx -d output {package}.apk`",
+            (f"Search the decompiled source for {provider} references. SENTINEL "
+             f"detected matches in: {', '.join(sample_files[:3]) if sample_files else '(see evidence)'}."),
+            (f"Verify the {provider} matches the expected pattern by inspecting "
+             f"the redacted samples in this report's evidence section."),
+            (f"Use the credential against the affected service to confirm it is "
+             f"valid (only do this if explicitly permitted by the bounty program "
+             f"rules — credential validation is sometimes restricted)."),
+            ("Document the impact: what data, accounts, or actions does this "
+             "credential authorise?"),
+        ]
+    if finding.vuln_class == "World-Readable Storage":
+        evidence = finding.evidence
+        sample_hits = evidence.get("hits", [])
+        return [
+            f"Install the target application `{package}` on a test device with API < 24 "
+            "(world-* modes throw SecurityException on API 24+, but data files "
+            "created in older versions persist).",
+            "Decompile the APK and locate the insecure storage calls. SENTINEL detected:",
+            "```",
+            *[f"  {h.get('file', '?')}: {h.get('matched', '?')}" for h in sample_hits[:5]],
+            "```",
+            "Run the application normally so the affected files are created.",
+            ("Install a second test app on the same device, and from that app "
+             "(or via adb shell) read the target's data directory:"),
+            f"```bash\nadb shell run-as {package} ls -la /data/data/{package}/\n```",
+            ("Files marked with mode 0644 / 0666 are accessible to other apps. "
+             "Confirm the file contents — if any contain session tokens, credentials, "
+             "or PII, this is a complete credential leak."),
         ]
     return [
         f"Reproduce the issue using the evidence in this report.",
