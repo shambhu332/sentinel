@@ -13,10 +13,15 @@ from rich.console import Console
 
 from sentinel.agents.auth import HardcodedSecretsAgent
 from sentinel.agents.cloud import FirebaseMisconfigAgent
+from sentinel.agents.crypto import WeakCryptoAgent
 from sentinel.agents.data_storage import WorldReadableStorageAgent
+from sentinel.agents.logging import InsecureLoggingAgent
+from sentinel.agents.meta import ObfuscationDetectorAgent
 from sentinel.agents.network import CleartextTrafficAgent
 from sentinel.agents.platform import ContentProviderIDORAgent
+from sentinel.agents.random_gen import InsecureRandomAgent
 from sentinel.agents.special import PipelineSmokeTestAgent
+from sentinel.agents.webview import InsecureWebViewAgent
 from sentinel.core.finding import BountyScope
 from sentinel.core.orchestrator import Orchestrator
 from sentinel.core.scan_context import ScanContext, generate_session_id
@@ -44,12 +49,17 @@ async def main(apk_path: Path) -> None:
             context=ctx,
             memory=memory,
             agents=[
+                ObfuscationDetectorAgent,
                 PipelineSmokeTestAgent,
-                FirebaseMisconfigAgent,
-                ContentProviderIDORAgent,
-                CleartextTrafficAgent,
                 HardcodedSecretsAgent,
+                InsecureLoggingAgent,
+                InsecureRandomAgent,
                 WorldReadableStorageAgent,
+                InsecureWebViewAgent,
+                WeakCryptoAgent,
+                FirebaseMisconfigAgent,
+                CleartextTrafficAgent,
+                ContentProviderIDORAgent,
             ],
         )
 
@@ -69,11 +79,15 @@ async def main(apk_path: Path) -> None:
         report_dir = Path("./reports")
         report_dir.mkdir(exist_ok=True)
 
-        # Skip the smoke-test finding — only generate reports for real findings
-        real_findings = [f for f in result.findings if f.agent_id != "TEST_001"]
+        # Skip Info-only findings (smoke test, obfuscation analysis) — they're
+        # not bug bounty submissions, they're scanner self-information.
+        real_findings = [
+            f for f in result.findings
+            if f.agent_id not in ("TEST_001", "META_001")
+        ]
 
         if not real_findings:
-            console.print("[dim]Only smoke-test findings produced — no real findings to report.[/]")
+            console.print("[dim]Only informational findings produced — nothing to report.[/]")
             return
 
         for f in real_findings:
