@@ -11,7 +11,10 @@ from pathlib import Path
 
 from rich.console import Console
 
+from sentinel.agents.auth import HardcodedSecretsAgent
 from sentinel.agents.cloud import FirebaseMisconfigAgent
+from sentinel.agents.data_storage import WorldReadableStorageAgent
+from sentinel.agents.network import CleartextTrafficAgent
 from sentinel.agents.platform import ContentProviderIDORAgent
 from sentinel.agents.special import PipelineSmokeTestAgent
 from sentinel.core.finding import BountyScope
@@ -44,6 +47,9 @@ async def main(apk_path: Path) -> None:
                 PipelineSmokeTestAgent,
                 FirebaseMisconfigAgent,
                 ContentProviderIDORAgent,
+                CleartextTrafficAgent,
+                HardcodedSecretsAgent,
+                WorldReadableStorageAgent,
             ],
         )
 
