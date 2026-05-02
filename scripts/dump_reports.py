@@ -12,14 +12,19 @@ from pathlib import Path
 from rich.console import Console
 
 from sentinel.agents.auth import HardcodedSecretsAgent
+from sentinel.agents.auth_storage import InsecureAuthStorageAgent
+from sentinel.agents.backup import InsecureBackupAgent
+from sentinel.agents.cert_pinning import MissingCertPinningAgent
 from sentinel.agents.cloud import FirebaseMisconfigAgent
 from sentinel.agents.crypto import WeakCryptoAgent
 from sentinel.agents.data_storage import WorldReadableStorageAgent
+from sentinel.agents.deep_links import DeepLinkHijackAgent
 from sentinel.agents.logging import InsecureLoggingAgent
 from sentinel.agents.meta import ObfuscationDetectorAgent
 from sentinel.agents.network import CleartextTrafficAgent
 from sentinel.agents.platform import ContentProviderIDORAgent
 from sentinel.agents.random_gen import InsecureRandomAgent
+from sentinel.agents.shared_prefs import InsecureSharedPrefsAgent
 from sentinel.agents.special import PipelineSmokeTestAgent
 from sentinel.agents.webview import InsecureWebViewAgent
 from sentinel.core.finding import BountyScope
@@ -51,14 +56,19 @@ async def main(apk_path: Path) -> None:
             agents=[
                 ObfuscationDetectorAgent,
                 PipelineSmokeTestAgent,
+                InsecureAuthStorageAgent,
                 HardcodedSecretsAgent,
                 InsecureLoggingAgent,
                 InsecureRandomAgent,
+                InsecureBackupAgent,
                 WorldReadableStorageAgent,
                 InsecureWebViewAgent,
+                InsecureSharedPrefsAgent,
                 WeakCryptoAgent,
                 FirebaseMisconfigAgent,
+                MissingCertPinningAgent,
                 CleartextTrafficAgent,
+                DeepLinkHijackAgent,
                 ContentProviderIDORAgent,
             ],
         )
@@ -79,8 +89,7 @@ async def main(apk_path: Path) -> None:
         report_dir = Path("./reports")
         report_dir.mkdir(exist_ok=True)
 
-        # Skip Info-only findings (smoke test, obfuscation analysis) — they're
-        # not bug bounty submissions, they're scanner self-information.
+        # Skip Info-only findings (smoke test, obfuscation analysis)
         real_findings = [
             f for f in result.findings
             if f.agent_id not in ("TEST_001", "META_001")

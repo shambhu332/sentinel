@@ -18,14 +18,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 # ---------- Silence noisy third-party libraries ----------
-# Must happen BEFORE importing anything that triggers their loggers.
 os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
 os.environ.setdefault("CHROMA_TELEMETRY_DISABLED", "True")
 os.environ.setdefault("POSTHOG_DISABLED", "True")
 os.environ.setdefault("DO_NOT_TRACK", "1")
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-# Silence noisy third-party loggers package-wide
 for noisy in (
     "androguard", "androguard.core", "androguard.core.apk",
     "androguard.core.axml", "androguard.core.api_specific_resources",
@@ -35,7 +33,6 @@ for noisy in (
 ):
     logging.getLogger(noisy).setLevel(logging.CRITICAL)
 
-# Loguru is what androguard actually uses; silence it specifically
 try:
     from loguru import logger as _loguru_logger
     _loguru_logger.remove()
@@ -53,15 +50,11 @@ logger = logging.getLogger(__name__)
 console = Console()
 
 
-# ---------- Root group ----------
-
 @click.group()
 @click.version_option(version="0.1.0", prog_name="sentinel")
 def main() -> None:
     """SENTINEL — multi-agent mobile application security scanner."""
 
-
-# ---------- serve ----------
 
 @main.command()
 @click.option("--host", default="127.0.0.1", help="Bind host (default: localhost)")
@@ -82,20 +75,18 @@ def serve(host: str, port: int, reload: bool) -> None:
     )
 
 
-# ---------- scan ----------
-
 @main.command()
 @click.argument("apk_path", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("--scope-url", type=str, default=None,
-              help="Bug bounty scope from a URL (HackerOne, Bugcrowd, etc.)")
+              help="Bug bounty scope from a URL")
 @click.option("--scope-file", type=click.Path(exists=True, path_type=Path), default=None,
               help="Bug bounty scope from a JSON or text file")
 @click.option("--scope-text", type=str, default=None,
               help="Bug bounty scope as inline text")
 @click.option("--data-dir", type=click.Path(path_type=Path), default=Path("./data"),
-              help="Directory for SENTINEL's persistent memory (default: ./data)")
+              help="Directory for SENTINEL's persistent memory")
 @click.option("--workspace", type=click.Path(path_type=Path), default=Path("./workspace"),
-              help="Directory for per-scan working files (default: ./workspace)")
+              help="Directory for per-scan working files")
 @click.option("--output", type=click.Path(path_type=Path), default=None,
               help="Optional path to write scan summary as JSON")
 @click.option("--private", is_flag=True,
@@ -135,14 +126,19 @@ async def _run_scan(
 ) -> None:
     """Async implementation of the scan command."""
     from sentinel.agents.auth import HardcodedSecretsAgent
+    from sentinel.agents.auth_storage import InsecureAuthStorageAgent
+    from sentinel.agents.backup import InsecureBackupAgent
+    from sentinel.agents.cert_pinning import MissingCertPinningAgent
     from sentinel.agents.cloud import FirebaseMisconfigAgent
     from sentinel.agents.crypto import WeakCryptoAgent
     from sentinel.agents.data_storage import WorldReadableStorageAgent
+    from sentinel.agents.deep_links import DeepLinkHijackAgent
     from sentinel.agents.logging import InsecureLoggingAgent
     from sentinel.agents.meta import ObfuscationDetectorAgent
     from sentinel.agents.network import CleartextTrafficAgent
     from sentinel.agents.platform import ContentProviderIDORAgent
     from sentinel.agents.random_gen import InsecureRandomAgent
+    from sentinel.agents.shared_prefs import InsecureSharedPrefsAgent
     from sentinel.agents.special import PipelineSmokeTestAgent
     from sentinel.agents.webview import InsecureWebViewAgent
     from sentinel.core.finding import BountyScope
@@ -198,19 +194,24 @@ async def _run_scan(
             memory=memory,
             agents=[
                 # Meta — runs first, sets context for the rest
-                ObfuscationDetectorAgent,
-                # Smoke test — confirms the pipeline is alive
-                PipelineSmokeTestAgent,
-                # SAST agents
-                HardcodedSecretsAgent,         # A_004
-                InsecureLoggingAgent,          # A_007
-                InsecureRandomAgent,           # B_002
-                WorldReadableStorageAgent,     # C_002
-                InsecureWebViewAgent,          # C_004
-                WeakCryptoAgent,               # C_007
-                FirebaseMisconfigAgent,        # F_001
-                CleartextTrafficAgent,         # N_002
-                ContentProviderIDORAgent,      # P_004
+                ObfuscationDetectorAgent,         # META_001
+                # Smoke test
+                PipelineSmokeTestAgent,           # TEST_001
+                # SAST agents (alphabetical by ID)
+                InsecureAuthStorageAgent,         # A_001
+                HardcodedSecretsAgent,            # A_004
+                InsecureLoggingAgent,             # A_007
+                InsecureRandomAgent,              # B_002
+                InsecureBackupAgent,              # C_001
+                WorldReadableStorageAgent,        # C_002
+                InsecureWebViewAgent,             # C_004
+                InsecureSharedPrefsAgent,         # C_006
+                WeakCryptoAgent,                  # C_007
+                FirebaseMisconfigAgent,           # F_001
+                MissingCertPinningAgent,          # N_001
+                CleartextTrafficAgent,            # N_002
+                DeepLinkHijackAgent,              # P_001
+                ContentProviderIDORAgent,         # P_004
             ],
         )
 
@@ -233,7 +234,6 @@ async def _run_scan(
 
 
 def _print_summary(ctx, result) -> None:
-    """Print a Rich table summarising the scan."""
     table = Table(title="Scan Summary", show_header=False, box=None, padding=(0, 2))
     table.add_column("Field", style="bold")
     table.add_column("Value")
@@ -287,7 +287,6 @@ def _print_summary(ctx, result) -> None:
 
 
 def _print_findings(findings) -> None:
-    """Print findings as a Rich table with severity colouring."""
     table = Table(title="\nFindings", show_header=True, header_style="bold cyan")
     table.add_column("Severity", style="bold", width=10)
     table.add_column("Agent", width=12)
@@ -319,7 +318,6 @@ def _print_findings(findings) -> None:
 
 
 def _write_json_output(output: Path, ctx, result) -> None:
-    """Write scan summary as JSON for downstream consumption."""
     import json
 
     summary = {
@@ -351,8 +349,6 @@ def _write_json_output(output: Path, ctx, result) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(summary, indent=2, default=str))
 
-
-# ---------- scope ----------
 
 @main.group()
 def scope() -> None:
@@ -403,8 +399,6 @@ def scope_parse(
     console.print(table)
 
 
-# ---------- agents ----------
-
 @main.command("agents")
 @click.option("--category", type=str, default=None,
               help="Filter by category (e.g. 'Firebase', 'Network')")
@@ -449,8 +443,6 @@ def list_agents(category: str | None) -> None:
         )
     console.print(table)
 
-
-# ---------- status ----------
 
 @main.command()
 def status() -> None:
