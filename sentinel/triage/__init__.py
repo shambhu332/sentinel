@@ -9,13 +9,19 @@ which decides:
 
 The triager wraps the existing FreeProviderRouter (Cerebras + Ollama).
 It does NOT modify agents — it post-processes their output.
+
+Naming note: this module uses `TriageOutcome` (not `TriageState`) because
+`sentinel.core.finding.TriageState` already exists for the human-triage
+workflow. The two are distinct concepts:
+  - finding.TriageState — human's verdict on a finding
+  - triage.TriageOutcome — LLM's verdict on a finding
 """
-from sentinel.triage.models import TriageResult, TriageState, TriageVerdict
+from sentinel.triage.models import TriageOutcome, TriageResult, TriageVerdict
 from sentinel.triage.triager import LLMTriager
 
 __all__ = [
     "LLMTriager",
+    "TriageOutcome",
     "TriageResult",
-    "TriageState",
     "TriageVerdict",
 ]

@@ -7,7 +7,7 @@ Given a list of findings + the scan context, the triager:
 4. Validates the JSON response against TriageVerdict
 5. Updates each finding's evidence with the triage outcome
 6. Returns the same list (no findings are discarded — filtered ones
-   are kept with triage_state="filtered" so users can audit decisions)
+   are kept with outcome="filtered" so users can audit decisions)
 
 Design notes:
 - Triage failures NEVER kill the scan. They mark the finding as UNCERTAIN.
@@ -28,7 +28,7 @@ from sentinel.core.finding import Finding, Severity
 from sentinel.core.scan_context import ScanContext
 from sentinel.llm.router import FreeProviderRouter, RouterError
 from sentinel.triage.code_loader import load_code_context
-from sentinel.triage.models import TriageResult, TriageState, TriageVerdict
+from sentinel.triage.models import TriageOutcome, TriageResult, TriageVerdict
 from sentinel.triage.prompts import SYSTEM_PROMPT, render_prompt
 
 logger = logging.getLogger(__name__)
@@ -64,8 +64,8 @@ class LLMTriager:
     ) -> list[Finding]:
         """Triage a list of findings in place.
 
-        Returns the same list — findings are mutated to include triage_state
-        and llm_explanation in their evidence dict.
+        Returns the same list — findings are mutated to include triage
+        outcome and explanation in their evidence dict.
         """
         if not findings:
             return findings
@@ -74,11 +74,11 @@ class LLMTriager:
 
         for finding in findings:
             if finding.agent_id in _SKIP_AGENTS:
-                self._attach_result(finding, TriageResult(state=TriageState.SKIPPED))
+                self._attach_result(finding, TriageResult(outcome=TriageOutcome.SKIPPED))
                 continue
 
             if finding.severity == Severity.INFO:
-                self._attach_result(finding, TriageResult(state=TriageState.SKIPPED))
+                self._attach_result(finding, TriageResult(outcome=TriageOutcome.SKIPPED))
                 continue
 
             result = await self._triage_one(finding, context)
@@ -87,14 +87,14 @@ class LLMTriager:
         # Apply adjusted severity if LLM suggested one (only for verified)
         for finding in findings:
             tr = self._get_result(finding)
-            if (tr and tr.state == TriageState.VERIFIED
+            if (tr and tr.outcome == TriageOutcome.VERIFIED
                     and tr.verdict and tr.verdict.adjusted_severity):
                 self._apply_severity_adjustment(finding, tr.verdict.adjusted_severity)
 
-        verified = sum(1 for f in findings if self._is_state(f, TriageState.VERIFIED))
-        filtered = sum(1 for f in findings if self._is_state(f, TriageState.FILTERED))
-        uncertain = sum(1 for f in findings if self._is_state(f, TriageState.UNCERTAIN))
-        skipped = sum(1 for f in findings if self._is_state(f, TriageState.SKIPPED))
+        verified = sum(1 for f in findings if self._is_outcome(f, TriageOutcome.VERIFIED))
+        filtered = sum(1 for f in findings if self._is_outcome(f, TriageOutcome.FILTERED))
+        uncertain = sum(1 for f in findings if self._is_outcome(f, TriageOutcome.UNCERTAIN))
+        skipped = sum(1 for f in findings if self._is_outcome(f, TriageOutcome.SKIPPED))
 
         logger.info(
             "[triage] Complete: %d verified, %d filtered, %d uncertain, %d skipped",
@@ -107,10 +107,7 @@ class LLMTriager:
         finding: Finding,
         context: ScanContext,
     ) -> TriageResult:
-        """Triage a single finding. Returns a TriageResult.
-
-        Uses the router's query_json() helper which handles JSON mode + parsing.
-        """
+        """Triage a single finding. Returns a TriageResult."""
         start = time.monotonic()
 
         # Load source code context
@@ -123,7 +120,7 @@ class LLMTriager:
             logger.warning("[triage] Prompt rendering failed for %s: %s",
                            finding.agent_id, e)
             return TriageResult(
-                state=TriageState.UNCERTAIN,
+                outcome=TriageOutcome.UNCERTAIN,
                 error=f"prompt_render_failed: {type(e).__name__}",
                 duration_ms=int((time.monotonic() - start) * 1000),
             )
@@ -142,7 +139,6 @@ class LLMTriager:
             try:
                 response = await self._router.query_json(messages=messages)
             except RouterError as e:
-                # Both Cerebras and Ollama failed — give up on this finding
                 last_error = f"router_error: {e}"
                 logger.debug("[triage] Router error on attempt %d: %s",
                              attempt + 1, last_error)
@@ -156,11 +152,10 @@ class LLMTriager:
             last_provider = response.get("provider")
             content = response.get("content")
 
-            # query_json() returns content as a parsed dict (not a string)
+            # query_json() returns content as a parsed dict
             if not isinstance(content, dict):
                 last_error = f"unexpected_content_type: {type(content).__name__}"
-                logger.debug("[triage] LLM returned non-dict content: %r",
-                             content)
+                logger.debug("[triage] LLM returned non-dict content: %r", content)
                 continue
 
             # Validate against TriageVerdict schema
@@ -172,9 +167,9 @@ class LLMTriager:
                 continue
 
             # Success
-            state = TriageState.VERIFIED if verdict.is_real_bug else TriageState.FILTERED
+            outcome = TriageOutcome.VERIFIED if verdict.is_real_bug else TriageOutcome.FILTERED
             return TriageResult(
-                state=state,
+                outcome=outcome,
                 verdict=verdict,
                 llm_provider=last_provider,
                 duration_ms=int((time.monotonic() - start) * 1000),
@@ -182,7 +177,7 @@ class LLMTriager:
 
         # All retries failed — return UNCERTAIN
         return TriageResult(
-            state=TriageState.UNCERTAIN,
+            outcome=TriageOutcome.UNCERTAIN,
             error=last_error or "unknown_error",
             llm_provider=last_provider,
             duration_ms=int((time.monotonic() - start) * 1000),
@@ -192,7 +187,7 @@ class LLMTriager:
     def _attach_result(finding: Finding, result: TriageResult) -> None:
         """Stash the triage result inside the finding's evidence dict.
 
-        We store under a reserved key '_triage' to avoid colliding with
+        Stored under reserved key '_triage' to avoid colliding with
         agent-produced evidence fields.
         """
         if finding.evidence is None:
@@ -213,18 +208,14 @@ class LLMTriager:
             return None
 
     @staticmethod
-    def _is_state(finding: Finding, state: TriageState) -> bool:
-        """Convenience: is this finding's triage state X?"""
+    def _is_outcome(finding: Finding, outcome: TriageOutcome) -> bool:
+        """Convenience: is this finding's triage outcome X?"""
         result = LLMTriager._get_result(finding)
-        return result is not None and result.state == state
+        return result is not None and result.outcome == outcome
 
     @staticmethod
     def _apply_severity_adjustment(finding: Finding, adjusted: str) -> None:
-        """Update the finding's severity if the LLM suggested a change.
-
-        Only honored when the adjustment is to a valid Severity value.
-        Logs the change for auditability.
-        """
+        """Update the finding's severity if the LLM suggested a change."""
         try:
             new_sev = Severity(adjusted)
         except ValueError:
@@ -234,7 +225,7 @@ class LLMTriager:
         if new_sev == finding.severity:
             return
 
-        # Record the adjustment in evidence so reports can reference it
+        # Record adjustment in evidence so reports can reference it
         if finding.evidence is None:
             finding.evidence = {}
         finding.evidence["_severity_original"] = finding.severity.value
@@ -244,4 +235,5 @@ class LLMTriager:
             "[triage] %s severity adjusted by LLM: %s → %s",
             finding.agent_id, finding.severity.value, new_sev.value,
         )
+        # Finding has validate_assignment=True, so this triggers validation
         finding.severity = new_sev

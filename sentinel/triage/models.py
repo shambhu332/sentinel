@@ -1,4 +1,10 @@
-"""Pydantic models for the triage system."""
+"""Pydantic models for the LLM triage system.
+
+NOTE on naming: the existing `sentinel.core.finding` module already has a
+`TriageState` enum used for HUMAN triage workflow (Unreviewed / True Positive /
+False Positive / Needs Verification). To avoid a name conflict, this module
+uses `TriageOutcome` for the LLM-based outcome.
+"""
 from __future__ import annotations
 
 from enum import Enum
@@ -7,13 +13,14 @@ from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class TriageState(str, Enum):
-    """Triage outcome for a finding.
+class TriageOutcome(str, Enum):
+    """Outcome of LLM triage for a finding.
 
     - VERIFIED: LLM confirmed this is a real bug worth submitting
     - FILTERED: LLM determined this is a false positive
     - UNCERTAIN: LLM was unsure or triage failed (rate limit, parsing error)
-    - SKIPPED: Triage was disabled (--no-triage) or finding type doesn't need it
+    - SKIPPED: Triage was disabled (--no-triage), or finding type doesn't
+               need triage (TEST_001, META_001, INFO-severity)
     """
 
     VERIFIED = "verified"
@@ -40,9 +47,7 @@ class TriageVerdict(BaseModel):
     )
     explanation: str = Field(
         ..., min_length=10, max_length=2000,
-        description="Specific explanation referencing the actual code. "
-                    "Should mention variable names, line context, "
-                    "and why the finding does or does not represent a bug.",
+        description="Specific explanation referencing the actual code.",
     )
     adjusted_severity: Optional[str] = Field(
         default=None,
@@ -53,8 +58,7 @@ class TriageVerdict(BaseModel):
     false_positive_reason: Optional[str] = Field(
         default=None, max_length=500,
         description="If is_real_bug=False, a brief reason why this is a "
-                    "false positive (e.g., 'used for game animation, not "
-                    "security'). Null when is_real_bug=True.",
+                    "false positive. Null when is_real_bug=True.",
     )
 
 
@@ -63,7 +67,7 @@ class TriageResult(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    state: TriageState
+    outcome: TriageOutcome
     verdict: Optional[TriageVerdict] = None
     error: Optional[str] = None
     llm_provider: Optional[str] = None  # "cerebras", "ollama", or None
@@ -75,4 +79,4 @@ class TriageResult(BaseModel):
         VERIFIED, UNCERTAIN, and SKIPPED show by default.
         FILTERED is hidden unless --show-filtered is passed.
         """
-        return self.state != TriageState.FILTERED
+        return self.outcome != TriageOutcome.FILTERED
