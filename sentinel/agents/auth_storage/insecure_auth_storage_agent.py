@@ -3,23 +3,24 @@
 Detects authentication tokens, session identifiers, and credentials being
 written to insecure storage locations: SharedPreferences (plain), files
 on disk, SQLite databases, or external storage. Distinct from C_006 in
-that it specifically focuses on auth tokens and follows the data flow
-across multiple storage APIs, not just SharedPreferences.
+that it specifically focuses on auth-relevant material and follows the
+data flow across multiple storage APIs, not just SharedPreferences.
 
-Why this matters: tokens stored insecurely can be exfiltrated by:
+Why this matters: tokens and stored credentials can be exfiltrated by:
 - Other apps with READ_EXTERNAL_STORAGE (if on /sdcard)
 - Anyone with adb backup access (if allowBackup=true)
 - Anyone with root access (always)
 - Malware exploiting an unrelated vulnerability to read the token
 
-Once a token is stolen, the attacker can impersonate the user until the
-token expires or is revoked. Bug bounty programs typically rate this as
-High severity, paying $500-$3,000 with confirmed account takeover demos
-paying significantly more.
+Once a token or credential is stolen, the attacker can impersonate the
+user until the token expires or is revoked. Bug bounty programs typically
+rate this as High severity, paying $500-$3,000 with confirmed account
+takeover demos paying significantly more.
 
 Detection pipeline:
 1. Walk decompiled Java files
-2. Find variables/strings containing auth-related terms
+2. Find variables/strings containing auth-related terms (modern token
+   keywords AND traditional credential keywords)
 3. Look for writes to persistent storage near those references
 4. Storage APIs: SharedPreferences, FileOutputStream, SQLiteDatabase,
    getExternalStorageDirectory, Environment.getExternalStorageDirectory
@@ -37,11 +38,28 @@ from sentinel.core.finding import Finding, Severity
 logger = logging.getLogger(__name__)
 
 
-# Auth-related context — files containing these are candidates for analysis
+# Auth-related context — files containing these are candidates for analysis.
+# Three families covered:
+#   1. Modern token keywords (snake_case, common in OAuth/JWT apps)
+#   2. CamelCase variants (older Android Java code style)
+#   3. Credential storage keywords (legacy apps that persist username/password)
 _AUTH_CONTEXT_RE = re.compile(
+    # --- Token-style patterns (snake_case) ---
     r"\b(?:auth_?token|access_?token|refresh_?token|bearer|jwt|"
     r"session_?token|id_?token|api_?key|api_?secret|client_?secret|"
-    r"login_?token)\b",
+    r"login_?token|"
+    # --- CamelCase variants (older Android codebases) ---
+    r"authToken|accessToken|refreshToken|sessionToken|"
+    r"loginToken|apiKey|apiSecret|clientSecret|"
+    # --- "Encrypted" / "Secure" prefixed credential keys ---
+    # Common pattern: developer KNOWS the data is sensitive (so labels it
+    # "Encrypted" or "Secure") but still stores it badly.
+    r"encryptedUsername|encryptedPassword|"
+    r"securePassword|superSecure|"
+    # --- "Saved" / "Stored" / "Cached" credential prefixes ---
+    # Common in "remember me" feature implementations.
+    r"savedPassword|storedPassword|cachedPassword|"
+    r"savedCredential|storedCredential)\b",
     re.IGNORECASE,
 )
 
@@ -70,12 +88,16 @@ _SECURE_STORAGE_RE = re.compile(
 
 _MAX_FILES_TO_SCAN = 3000
 _MAX_HITS_PER_FINDING = 20
-# How close (in chars) the storage API call must be to the auth context
-_PROXIMITY_WINDOW = 500
+# How close (in chars) the storage API call must be to the auth context.
+# Bumped from 500 to 1000 because real Android code often has the
+# getSharedPreferences() call in onCreate() and the putString() call in a
+# button handler several methods later — they can be 600-800 chars apart in
+# the decompiled output.
+_PROXIMITY_WINDOW = 1000
 
 
 class InsecureAuthStorageAgent(BaseAgent):
-    """A_001: detects auth tokens persisted to insecure storage."""
+    """A_001: detects auth tokens or credentials persisted to insecure storage."""
 
     AGENT_ID = "A_001"
     VULN_CLASS = "Insecure Auth Token Storage"
@@ -177,11 +199,12 @@ class InsecureAuthStorageAgent(BaseAgent):
                     "match_count": len(instances),
                     "hits": instances[:_MAX_HITS_PER_FINDING],
                     "vector": (
-                        f"Authentication tokens are written to {storage_name} "
-                        "without encryption. An attacker with file system access "
-                        "(rooted device, adb backup if allowBackup=true, or "
-                        "another app with READ_EXTERNAL_STORAGE for sdcard) can "
-                        "read the token and use it to impersonate the user."
+                        f"Authentication tokens or credentials are written to "
+                        f"{storage_name} without encryption. An attacker with "
+                        "file system access (rooted device, adb backup if "
+                        "allowBackup=true, or another app with "
+                        "READ_EXTERNAL_STORAGE for sdcard) can read the data "
+                        "and use it to impersonate the user."
                     ),
                 },
             ))
@@ -191,11 +214,11 @@ class InsecureAuthStorageAgent(BaseAgent):
     @staticmethod
     def _build_recommendation(storage_name: str) -> str:
         base = (
-            "Authentication tokens should be stored in the Android Keystore, "
-            "not in plain files or databases. The Android Keystore provides "
-            "hardware-backed key storage on supported devices and is the "
-            "recommended location for any cryptographic key or sensitive "
-            "credential."
+            "Authentication tokens and stored credentials should be held in "
+            "the Android Keystore, not in plain files or databases. The "
+            "Android Keystore provides hardware-backed key storage on "
+            "supported devices and is the recommended location for any "
+            "cryptographic key or sensitive credential."
         )
 
         specifics = {
@@ -206,7 +229,8 @@ class InsecureAuthStorageAgent(BaseAgent):
             ),
             "Plain SharedPreferences": (
                 " Replace SharedPreferences with EncryptedSharedPreferences "
-                "(androidx.security:security-crypto) for any auth token storage."
+                "(androidx.security:security-crypto) for any auth token or "
+                "credential storage."
             ),
             "FileOutputStream": (
                 " Use EncryptedFile from the Jetpack Security library, or "
