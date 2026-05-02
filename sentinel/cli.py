@@ -90,7 +90,11 @@ def serve(host: str, port: int, reload: bool) -> None:
 @click.option("--output", type=click.Path(path_type=Path), default=None,
               help="Optional path to write scan summary as JSON")
 @click.option("--private", is_flag=True,
-              help="Force local LLM only — no cloud API calls")
+              help="Force local LLM only — no cloud API calls (forces Ollama)")
+@click.option("--no-triage", is_flag=True,
+              help="Disable LLM triage (faster, but more false positives)")
+@click.option("--show-filtered", is_flag=True,
+              help="Show findings the LLM filtered as false positives")
 def scan(
     apk_path: Path,
     scope_url: str | None,
@@ -100,6 +104,8 @@ def scan(
     workspace: Path,
     output: Path | None,
     private: bool,
+    no_triage: bool,
+    show_filtered: bool,
 ) -> None:
     """Run a security scan against an APK file."""
     asyncio.run(_run_scan(
@@ -111,6 +117,8 @@ def scan(
         workspace=workspace,
         output=output,
         private=private,
+        no_triage=no_triage,
+        show_filtered=show_filtered,
     ))
 
 
@@ -123,6 +131,8 @@ async def _run_scan(
     workspace: Path,
     output: Path | None,
     private: bool,
+    no_triage: bool,
+    show_filtered: bool,
 ) -> None:
     """Async implementation of the scan command."""
     from sentinel.agents.auth import HardcodedSecretsAgent
@@ -144,8 +154,10 @@ async def _run_scan(
     from sentinel.core.finding import BountyScope
     from sentinel.core.orchestrator import Orchestrator
     from sentinel.core.scan_context import ScanContext, generate_session_id
+    from sentinel.llm.router import FreeProviderRouter
     from sentinel.memory import LightweightMemory
     from sentinel.scope import parse_scope
+    from sentinel.triage import LLMTriager
 
     console.rule("[bold cyan]SENTINEL Scan[/]")
     console.print(f"[bold]APK:[/]       {apk_path}")
@@ -153,6 +165,8 @@ async def _run_scan(
     console.print(f"[bold]Memory:[/]    {data_dir}")
     if private:
         console.print("[bold yellow]Privacy mode:[/] local LLM only")
+    if no_triage:
+        console.print("[bold yellow]Triage disabled:[/] all findings unfiltered")
     console.print()
 
     scope = BountyScope()
@@ -169,7 +183,7 @@ async def _run_scan(
                 console.print(f"[dim]  In-scope packages: {len(scope.in_scope_packages)}[/]")
         except Exception as e:
             console.print(f"[bold red]Scope parse failed:[/] {e}")
-            console.print("[dim]Continuing with empty scope (everything is in-scope).[/]")
+            console.print("[dim]Continuing with empty scope.[/]")
     else:
         console.print("[dim]No scope provided — treating all findings as in-scope.[/]")
 
@@ -177,6 +191,13 @@ async def _run_scan(
 
     memory = LightweightMemory(data_dir=data_dir)
     await memory.connect()
+
+    # Build the LLM triager unless disabled
+    router: FreeProviderRouter | None = None
+    triager: LLMTriager | None = None
+    if not no_triage:
+        router = FreeProviderRouter(force_local=private)
+        triager = LLMTriager(router=router)
 
     try:
         ctx = ScanContext(
@@ -213,15 +234,23 @@ async def _run_scan(
                 DeepLinkHijackAgent,              # P_001
                 ContentProviderIDORAgent,         # P_004
             ],
+            triager=triager,
         )
 
-        with console.status("[bold cyan]Running scan...[/]", spinner="dots"):
+        # Status message changes when triage is on (it's slow)
+        status_msg = (
+            "[bold cyan]Running scan with LLM triage (this may take 1-3 min)...[/]"
+            if triager else
+            "[bold cyan]Running scan...[/]"
+        )
+
+        with console.status(status_msg, spinner="dots"):
             result = await orch.run()
 
         _print_summary(ctx, result)
 
         if result.findings:
-            _print_findings(result.findings)
+            _print_findings(result.findings, show_filtered=show_filtered)
         else:
             console.print("[dim]No findings produced.[/]")
 
@@ -230,10 +259,13 @@ async def _run_scan(
             console.print(f"\n[bold green]Wrote summary to:[/] {output}")
 
     finally:
+        if router is not None:
+            await router.close()
         await memory.close()
 
 
 def _print_summary(ctx, result) -> None:
+    """Print a Rich table summarising the scan."""
     table = Table(title="Scan Summary", show_header=False, box=None, padding=(0, 2))
     table.add_column("Field", style="bold")
     table.add_column("Value")
@@ -277,6 +309,19 @@ def _print_summary(ctx, result) -> None:
 
     table.add_row("Findings", str(len(result.findings)))
 
+    # Triage outcome breakdown if triage ran
+    triage_breakdown = _count_triage_outcomes(result.findings)
+    if triage_breakdown:
+        verified = triage_breakdown.get("verified", 0)
+        filtered = triage_breakdown.get("filtered", 0)
+        uncertain = triage_breakdown.get("uncertain", 0)
+        line = f"[green]{verified} verified[/]"
+        if filtered:
+            line += f", [dim]{filtered} filtered[/]"
+        if uncertain:
+            line += f", [yellow]{uncertain} uncertain[/]"
+        table.add_row("  Triage", line)
+
     for phase, dur in result.phase_timings.items():
         table.add_row(f"  {phase}", f"{dur:.2f}s")
 
@@ -286,12 +331,48 @@ def _print_summary(ctx, result) -> None:
     console.print(table)
 
 
-def _print_findings(findings) -> None:
+def _count_triage_outcomes(findings) -> dict[str, int]:
+    """Count triage outcomes across findings. Returns empty dict if no triage."""
+    counts: dict[str, int] = {}
+    for f in findings:
+        ev = getattr(f, "evidence", None) or {}
+        triage_data = ev.get("_triage")
+        if not triage_data or not isinstance(triage_data, dict):
+            continue
+        outcome = triage_data.get("outcome")
+        if outcome:
+            counts[outcome] = counts.get(outcome, 0) + 1
+    return counts
+
+
+def _print_findings(findings, show_filtered: bool = False) -> None:
+    """Print findings as a Rich table with severity colouring + triage state."""
+    # Filter the table rows. FILTERED findings are hidden unless --show-filtered.
+    visible = []
+    hidden_count = 0
+    for f in findings:
+        ev = getattr(f, "evidence", None) or {}
+        triage_data = ev.get("_triage")
+        outcome = (triage_data or {}).get("outcome") if isinstance(triage_data, dict) else None
+        if outcome == "filtered" and not show_filtered:
+            hidden_count += 1
+            continue
+        visible.append(f)
+
+    if not visible:
+        if hidden_count > 0:
+            console.print(
+                f"\n[dim]All {hidden_count} findings filtered as false positives "
+                f"by LLM triage. Pass --show-filtered to view them.[/]"
+            )
+        return
+
     table = Table(title="\nFindings", show_header=True, header_style="bold cyan")
     table.add_column("Severity", style="bold", width=10)
-    table.add_column("Agent", width=12)
-    table.add_column("Class", width=24)
-    table.add_column("Confidence", width=10)
+    table.add_column("Agent", width=10)
+    table.add_column("Class", width=22)
+    table.add_column("Triage", width=10)
+    table.add_column("Conf.", width=6)
     table.add_column("Recommendation")
 
     severity_colours = {
@@ -302,22 +383,47 @@ def _print_findings(findings) -> None:
         "Info": "dim",
     }
 
-    for f in findings:
+    triage_styles = {
+        "verified": ("✓ verified", "green"),
+        "filtered": ("✗ filtered", "dim red"),
+        "uncertain": ("? uncertain", "yellow"),
+        "skipped": ("- skipped", "dim"),
+    }
+
+    for f in visible:
         sev = f.severity.value
         colour = severity_colours.get(sev, "white")
+
+        ev = getattr(f, "evidence", None) or {}
+        triage_data = ev.get("_triage") if isinstance(ev, dict) else None
+        outcome = (triage_data or {}).get("outcome") if isinstance(triage_data, dict) else None
+        if outcome and outcome in triage_styles:
+            triage_label, triage_colour = triage_styles[outcome]
+            triage_cell = f"[{triage_colour}]{triage_label}[/]"
+        else:
+            triage_cell = "[dim]—[/]"
+
         rec = (f.recommendation[:80] + "...") if len(f.recommendation) > 80 else f.recommendation
         table.add_row(
             f"[{colour}]{sev}[/]",
             f.agent_id,
-            f.vuln_class[:24],
+            f.vuln_class[:22],
+            triage_cell,
             f"{f.confidence:.2f}",
             rec,
         )
 
     console.print(table)
 
+    if hidden_count > 0 and not show_filtered:
+        console.print(
+            f"\n[dim]({hidden_count} additional finding(s) filtered as false "
+            f"positives — pass --show-filtered to view)[/]"
+        )
+
 
 def _write_json_output(output: Path, ctx, result) -> None:
+    """Write scan summary as JSON for downstream consumption."""
     import json
 
     summary = {
@@ -331,6 +437,7 @@ def _write_json_output(output: Path, ctx, result) -> None:
         "started_at": result.started_at.isoformat() if result.started_at else None,
         "completed_at": result.completed_at.isoformat() if result.completed_at else None,
         "error": result.error,
+        "triage_breakdown": _count_triage_outcomes(result.findings),
         "findings": [
             {
                 "finding_id": f.finding_id,
@@ -401,7 +508,7 @@ def scope_parse(
 
 @main.command("agents")
 @click.option("--category", type=str, default=None,
-              help="Filter by category (e.g. 'Firebase', 'Network')")
+              help="Filter by category")
 def list_agents(category: str | None) -> None:
     """List available agents (queries the local gateway)."""
     import httpx

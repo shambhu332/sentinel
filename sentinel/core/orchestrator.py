@@ -1,7 +1,14 @@
-"""Orchestrator — runs a scan through the 10-phase pipeline.
+"""Orchestrator — runs a scan through the multi-phase pipeline.
 
-Sprint 2b implements Phase 0 (ingestion) and Phase 1 (recon).
-Later sprints add Phases 2-9.
+Pipeline phases:
+- Phase 0: Ingestion (hash, workspace setup)
+- Phase 1: Recon (decompile, manifest parse)
+- Phase 2: Static analysis agents
+- Phase 3: LLM triage (Sprint 7) — filters false positives, optional
+
+Later sprints add:
+- Phase 4: Dynamic analysis (Frida + mitmproxy + Appium)
+- Phase 5+: Verification, PoC, chain detection
 """
 from __future__ import annotations
 
@@ -21,6 +28,7 @@ from sentinel.memory.interface import MemoryInterface
 from sentinel.tools.apktool import ApktoolError, ApktoolRunner
 from sentinel.tools.jadx import JadxError, JadxRunner
 from sentinel.tools.manifest import ManifestError, ManifestParser
+from sentinel.triage import LLMTriager
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +64,8 @@ class ScanResult:
 class Orchestrator:
     """Runs a scan through the phase pipeline.
 
-    Sprint 2b: Phases 0 and 1 fully implemented, Phase 2 runs only TEST_001.
+    Sprint 7 adds Phase 3 (LLM triage). Triage is optional — pass triager=None
+    to skip it (used by tests and --no-triage flag).
     """
 
     def __init__(
@@ -64,10 +73,12 @@ class Orchestrator:
         context: ScanContext,
         memory: MemoryInterface,
         agents: list[type[BaseAgent]] | None = None,
+        triager: LLMTriager | None = None,
     ) -> None:
         self._context = context
         self._memory = memory
         self._agents = agents if agents is not None else [PipelineSmokeTestAgent]
+        self._triager = triager
 
     async def run(self) -> ScanResult:
         """Execute the full scan."""
@@ -89,11 +100,27 @@ class Orchestrator:
             await self._phase1_recon()
             result.phase_timings["phase1"] = asyncio.get_event_loop().time() - start
 
-            # Phase 2: Run agents (only TEST_001 in Sprint 2b)
+            # Phase 2: Run agents
             start = asyncio.get_event_loop().time()
             findings = await self._phase2_agents()
             result.phase_timings["phase2"] = asyncio.get_event_loop().time() - start
             result.findings = findings
+
+            # Phase 3: LLM triage (optional)
+            if self._triager is not None and findings:
+                start = asyncio.get_event_loop().time()
+                try:
+                    result.findings = await self._phase3_triage(findings)
+                except Exception as e:  # noqa: BLE001
+                    # Triage failure must NEVER kill the scan.
+                    # Log it and ship the un-triaged findings.
+                    logger.exception("[%s] Phase 3 triage failed",
+                                     self._context.session_id)
+                    await self._memory.publish_event(
+                        self._context.session_id, "phase.failed",
+                        {"phase": 3, "error": str(e)[:500]},
+                    )
+                result.phase_timings["phase3"] = asyncio.get_event_loop().time() - start
 
             result.status = "completed"
 
@@ -124,7 +151,6 @@ class Orchestrator:
         if not apk.exists():
             raise OrchestratorError(f"APK missing: {apk}")
 
-        # SHA-256 hash for deduplication / caching
         h = hashlib.sha256()
         with apk.open("rb") as f:
             for chunk in iter(lambda: f.read(65536), b""):
@@ -132,7 +158,6 @@ class Orchestrator:
         self._context.apk_sha256 = h.hexdigest()
         self._context.apk_size_bytes = apk.stat().st_size
 
-        # Create per-session workspace
         session_ws = self._context.workspace / self._context.session_id
         session_ws.mkdir(parents=True, exist_ok=True)
         self._context.workspace = session_ws
@@ -149,12 +174,7 @@ class Orchestrator:
     # ---------- Phase 1: Recon ----------
 
     async def _phase1_recon(self) -> None:
-        """Decompile the APK and parse its manifest.
-
-        JADX and apktool run independently — a failure in one does not
-        cancel the other. Manifest parsing via androguard is independent
-        of both decompilers and reads the APK binary directly.
-        """
+        """Decompile the APK and parse its manifest."""
         logger.info("[%s] Phase 1: Recon", self._context.session_id)
         await self._memory.publish_event(
             self._context.session_id, "phase.started", {"phase": 1},
@@ -183,8 +203,8 @@ class Orchestrator:
         except ApktoolError as e:
             logger.warning("apktool failed: %s", e)
 
-        # Manifest parsing via androguard reads the APK binary directly,
-        # so it works even when both decompilers fail.
+        # androguard reads the APK binary directly, so it works even when
+        # both decompilers fail.
         manifest = manifest_parser.parse(self._context.apk_path)
 
         self._context.decompiled_dir = decompile_dir if jadx_result else None
@@ -210,7 +230,7 @@ class Orchestrator:
     # ---------- Phase 2: Agents ----------
 
     async def _phase2_agents(self) -> list[Finding]:
-        """Run the registered agents. Sprint 2b runs only TEST_001."""
+        """Run the registered agents."""
         logger.info("[%s] Phase 2: Agents", self._context.session_id)
         await self._memory.publish_event(
             self._context.session_id, "phase.started",
@@ -224,13 +244,57 @@ class Orchestrator:
                 findings = await agent.run()
                 all_findings.extend(findings)
             except Exception:  # noqa: BLE001
-                logger.exception("Agent %s failed to initialise", agent_cls.__name__)
+                logger.exception("Agent %s failed", agent_cls.__name__)
 
         await self._memory.publish_event(
             self._context.session_id, "phase.completed",
             {"phase": 2, "findings_count": len(all_findings)},
         )
         return all_findings
+
+    # ---------- Phase 3: LLM Triage (Sprint 7) ----------
+
+    async def _phase3_triage(self, findings: list[Finding]) -> list[Finding]:
+        """Run LLM triage on the collected findings.
+
+        Returns the same findings list — findings are mutated in place to
+        carry triage results in their evidence dict. Filtered findings are
+        kept (not removed) so users can audit triage decisions.
+        """
+        assert self._triager is not None  # guarded by caller
+
+        logger.info(
+            "[%s] Phase 3: LLM triage of %d findings",
+            self._context.session_id, len(findings),
+        )
+        await self._memory.publish_event(
+            self._context.session_id, "phase.started",
+            {"phase": 3, "findings_count": len(findings)},
+        )
+
+        triaged = await self._triager.triage(findings, self._context)
+
+        # Tally outcomes for the event log
+        from sentinel.triage import TriageOutcome
+        outcomes: dict[str, int] = {o.value: 0 for o in TriageOutcome}
+        for f in triaged:
+            triage_data = (f.evidence or {}).get("_triage")
+            if triage_data and isinstance(triage_data, dict):
+                outcome = triage_data.get("outcome")
+                if outcome in outcomes:
+                    outcomes[outcome] += 1
+
+        await self._memory.publish_event(
+            self._context.session_id, "phase.completed",
+            {
+                "phase": 3,
+                "verified": outcomes["verified"],
+                "filtered": outcomes["filtered"],
+                "uncertain": outcomes["uncertain"],
+                "skipped": outcomes["skipped"],
+            },
+        )
+        return triaged
 
     # ---------- Helpers ----------
 
