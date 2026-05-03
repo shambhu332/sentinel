@@ -4,10 +4,10 @@ Uses a mock FreeProviderRouter to avoid real API calls during tests.
 """
 from __future__ import annotations
 
-import json
 from unittest.mock import AsyncMock
 
 import pytest
+from pydantic import ValidationError
 
 from sentinel.core.finding import BountyScope, Finding, Severity
 from sentinel.core.scan_context import ScanContext, generate_session_id
@@ -105,7 +105,8 @@ def test_triage_verdict_valid():
 
 
 def test_triage_verdict_rejects_bad_confidence():
-    with pytest.raises(Exception):
+    """Confidence must be in [0.0, 1.0]; pydantic raises ValidationError."""
+    with pytest.raises(ValidationError):
         TriageVerdict(
             is_real_bug=True,
             confidence=2.0,  # out of [0, 1]
@@ -114,7 +115,8 @@ def test_triage_verdict_rejects_bad_confidence():
 
 
 def test_triage_verdict_rejects_extra_fields():
-    with pytest.raises(Exception):
+    """extra='forbid' means unknown fields raise ValidationError."""
+    with pytest.raises(ValidationError):
         TriageVerdict(
             is_real_bug=True,
             confidence=0.5,
