@@ -18,8 +18,11 @@ from sentinel.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
+
 CEREBRAS_URL = "https://api.cerebras.ai/v1/chat/completions"
+CEREBRAS_MODEL = "qwen-3-235b-a22b-instruct-2507"
 OLLAMA_MODEL = "qwen2.5-coder:7b-instruct-q4_K_M"
+
 MAX_RETRIES = 3
 RETRY_BACKOFF = [1.0, 3.0, 8.0]
 TIMEOUT_CLOUD = 60.0
@@ -51,7 +54,7 @@ class FreeProviderRouter:
             return None
 
         payload: dict[str, Any] = {
-            "model": "llama-3.3-70b",
+            "model": CEREBRAS_MODEL,
             "messages": messages,
             "temperature": temperature,
             "max_tokens": max_tokens,
@@ -76,7 +79,7 @@ class FreeProviderRouter:
                     self._cerebras_failures = 0
                     return {
                         "content": data["choices"][0]["message"]["content"],
-                        "model": "llama-3.3-70b",
+                        "model": CEREBRAS_MODEL,
                         "provider": "cerebras",
                     }
                 if resp.status_code == 429:
