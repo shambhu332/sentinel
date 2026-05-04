@@ -6,8 +6,8 @@ Given a list of findings + the scan context, the triager:
 3. Calls the LLM via FreeProviderRouter.query_json()
 4. Validates the JSON response against TriageVerdict
 5. Updates each finding's evidence with the triage outcome
-6. Returns the same list (no findings are discarded — filtered ones
-   are kept with outcome="filtered" so users can audit decisions)
+6. Returns the same list (filtered findings kept with outcome="filtered"
+   so users can audit decisions)
 
 Design notes:
 - Triage failures NEVER kill the scan. They mark the finding as UNCERTAIN.
@@ -15,12 +15,13 @@ Design notes:
   rate limits make sequential simpler/safer for now.
 - INFO-severity findings (TEST_001, META_001) are skipped — they're not
   bugs to triage.
+- Tolerant of LLMs that nest the verdict (e.g. {"verdict": {...}}).
 """
 from __future__ import annotations
 
 import logging
 import time
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import ValidationError
 
@@ -39,12 +40,7 @@ _SKIP_AGENTS = {"TEST_001", "META_001"}
 
 
 class LLMTriager:
-    """Reviews agent findings using LLM analysis to filter false positives.
-
-    Wraps the existing FreeProviderRouter (Cerebras + Ollama with failover).
-    Uses query_json() which handles JSON mode + markdown fence stripping
-    + JSON parsing automatically.
-    """
+    """Reviews agent findings using LLM analysis to filter false positives."""
 
     def __init__(
         self,
@@ -52,9 +48,6 @@ class LLMTriager:
         max_retries: int = 1,
     ) -> None:
         self._router = router
-        # Note: the router itself has internal retries for transient errors.
-        # `max_retries` here is for re-prompting on schema validation
-        # failures (LLM returned valid JSON but wrong shape).
         self._max_retries = max_retries
 
     async def triage(
@@ -62,11 +55,7 @@ class LLMTriager:
         findings: list[Finding],
         context: ScanContext,
     ) -> list[Finding]:
-        """Triage a list of findings in place.
-
-        Returns the same list — findings are mutated to include triage
-        outcome and explanation in their evidence dict.
-        """
+        """Triage a list of findings in place."""
         if not findings:
             return findings
 
@@ -125,13 +114,11 @@ class LLMTriager:
                 duration_ms=int((time.monotonic() - start) * 1000),
             )
 
-        # Build messages list (router takes a list of role/content dicts)
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt},
         ]
 
-        # Call LLM with retries for schema validation failures
         last_error: Optional[str] = None
         last_provider: Optional[str] = None
 
@@ -152,18 +139,17 @@ class LLMTriager:
             last_provider = response.get("provider")
             content = response.get("content")
 
-            # query_json() returns content as a parsed dict
             if not isinstance(content, dict):
                 last_error = f"unexpected_content_type: {type(content).__name__}"
                 logger.debug("[triage] LLM returned non-dict content: %r", content)
                 continue
 
-            # Validate against TriageVerdict schema
-            try:
-                verdict = TriageVerdict.model_validate(content)
-            except ValidationError as e:
-                last_error = f"schema_validation_failed: {e.errors()[0]['msg']}"
-                logger.debug("[triage] Verdict validation failed: %s", e)
+            # Try to extract a TriageVerdict, accommodating variations in LLM output
+            verdict = self._extract_verdict(content)
+            if verdict is None:
+                last_error = "schema_validation_failed: could not parse verdict"
+                logger.debug("[triage] Verdict parse failed for content: %r",
+                             list(content.keys()) if isinstance(content, dict) else content)
                 continue
 
             # Success
@@ -175,7 +161,6 @@ class LLMTriager:
                 duration_ms=int((time.monotonic() - start) * 1000),
             )
 
-        # All retries failed — return UNCERTAIN
         return TriageResult(
             outcome=TriageOutcome.UNCERTAIN,
             error=last_error or "unknown_error",
@@ -184,12 +169,68 @@ class LLMTriager:
         )
 
     @staticmethod
-    def _attach_result(finding: Finding, result: TriageResult) -> None:
-        """Stash the triage result inside the finding's evidence dict.
+    def _extract_verdict(content: dict[str, Any]) -> Optional[TriageVerdict]:
+        """Try multiple shapes the LLM might use for the verdict.
 
-        Stored under reserved key '_triage' to avoid colliding with
-        agent-produced evidence fields.
+        Most reliable: top-level dict with our four fields. But small models
+        sometimes nest the verdict under 'verdict' or 'result' keys, or
+        rename fields slightly. We try a few common shapes.
         """
+        # Shape 1: top-level dict with our fields (most common, expected)
+        try:
+            return TriageVerdict.model_validate(content)
+        except ValidationError:
+            pass
+
+        # Shape 2: nested under 'verdict' key
+        if "verdict" in content and isinstance(content["verdict"], dict):
+            try:
+                return TriageVerdict.model_validate(content["verdict"])
+            except ValidationError:
+                pass
+
+        # Shape 3: nested under 'result' key
+        if "result" in content and isinstance(content["result"], dict):
+            try:
+                return TriageVerdict.model_validate(content["result"])
+            except ValidationError:
+                pass
+
+        # Shape 4: synthesize from looser keys (handles models that rename fields)
+        synthesized = {
+            "is_real_bug": content.get("is_real_bug",
+                                       content.get("real_bug",
+                                                   content.get("real",
+                                                               content.get("vulnerable")))),
+            "confidence": content.get("confidence",
+                                      content.get("confidence_score", 0.5)),
+            "explanation": content.get("explanation",
+                                       content.get("reasoning",
+                                                   content.get("analysis",
+                                                               content.get("description",
+                                                                           "")))),
+            "adjusted_severity": content.get("adjusted_severity",
+                                             content.get("severity")),
+            "false_positive_reason": content.get("false_positive_reason",
+                                                 content.get("fp_reason")),
+        }
+        # Drop None values for required fields so validation gives a clearer error
+        if synthesized["is_real_bug"] is None:
+            return None
+        if not synthesized["explanation"] or len(synthesized["explanation"]) < 10:
+            # explanation too short — pad with whatever info we have
+            synthesized["explanation"] = (
+                f"LLM verdict: is_real_bug={synthesized['is_real_bug']}. "
+                f"No detailed explanation provided."
+            )
+        try:
+            return TriageVerdict.model_validate(synthesized)
+        except ValidationError:
+            return None
+
+    @staticmethod
+    def _attach_result(finding: Finding, result: TriageResult) -> None:
+        """Stash the triage result inside the finding's evidence dict."""
         if finding.evidence is None:
             finding.evidence = {}
         finding.evidence["_triage"] = result.model_dump(mode="json")
@@ -225,7 +266,6 @@ class LLMTriager:
         if new_sev == finding.severity:
             return
 
-        # Record adjustment in evidence so reports can reference it
         if finding.evidence is None:
             finding.evidence = {}
         finding.evidence["_severity_original"] = finding.severity.value
@@ -235,5 +275,4 @@ class LLMTriager:
             "[triage] %s severity adjusted by LLM: %s → %s",
             finding.agent_id, finding.severity.value, new_sev.value,
         )
-        # Finding has validate_assignment=True, so this triggers validation
         finding.severity = new_sev

@@ -4,6 +4,11 @@ NOTE on naming: the existing `sentinel.core.finding` module already has a
 `TriageState` enum used for HUMAN triage workflow (Unreviewed / True Positive /
 False Positive / Needs Verification). To avoid a name conflict, this module
 uses `TriageOutcome` for the LLM-based outcome.
+
+Schema design note: TriageVerdict uses `extra="ignore"` instead of "forbid"
+because real LLMs (especially smaller 8B-class models) frequently add
+extra fields like 'reasoning', 'evidence', or 'notes' that weren't requested.
+We accept and discard those rather than failing the entire verdict.
 """
 from __future__ import annotations
 
@@ -32,11 +37,15 @@ class TriageOutcome(str, Enum):
 class TriageVerdict(BaseModel):
     """Schema the LLM is asked to produce.
 
-    The LLM is instructed to return JSON matching this exact shape.
-    Fields are validated; missing or malformed JSON is treated as UNCERTAIN.
+    Uses extra="ignore" so we tolerate LLMs that add extra fields. Some
+    small models like to attach 'reasoning', 'evidence', or 'analysis'
+    blocks even when told not to. We pick out the four fields we need
+    and ignore the rest.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    # Critical: ignore extras instead of forbidding them. Small models often
+    # add helpful-looking but unrequested fields.
+    model_config = ConfigDict(extra="ignore")
 
     is_real_bug: bool = Field(
         ..., description="True if this is a real exploitable vulnerability."
