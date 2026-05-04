@@ -114,15 +114,25 @@ def test_triage_verdict_rejects_bad_confidence():
         )
 
 
-def test_triage_verdict_rejects_extra_fields():
-    """extra='forbid' means unknown fields raise ValidationError."""
-    with pytest.raises(ValidationError):
-        TriageVerdict(
-            is_real_bug=True,
-            confidence=0.5,
-            explanation="x" * 20,
-            extra_field="not allowed",  # type: ignore[call-arg]
-        )
+def test_triage_verdict_ignores_extra_fields():
+    """TriageVerdict uses extra='ignore' to tolerate small-model JSON quirks.
+
+    Small LLMs (llama3.1-8b etc.) often add helpful-looking unrequested
+    fields like 'reasoning' or 'evidence'. We accept them silently rather
+    than failing the whole verdict.
+    """
+    v = TriageVerdict.model_validate({
+        "is_real_bug": True,
+        "confidence": 0.5,
+        "explanation": "x" * 20,
+        "extra_field": "should be silently ignored",
+        "reasoning": "another extra field",
+    })
+    assert v.is_real_bug is True
+    assert v.confidence == 0.5
+    # Extra fields are dropped, not stored
+    assert not hasattr(v, "extra_field")
+    assert not hasattr(v, "reasoning")
 
 
 def test_triage_result_displayable():
