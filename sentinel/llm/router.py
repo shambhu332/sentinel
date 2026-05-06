@@ -1,19 +1,25 @@
-"""FreeProviderRouter — unified LLM interface with automatic failover.
+"""FreeProviderRouter — multi-provider LLM interface with automatic failover.
 
-Primary: Cerebras Cloud (free tier, configurable model)
-Fallback: Local Ollama (qwen2.5-coder:7b, works offline)
+Provider priority (highest quality first):
+  1. Groq (Llama 3.3 70B) — best quality on free tier, ~14k RPD
+  2. Cerebras (llama3.1-8b) — fast fallback, 1M tokens/day
+  3. Ollama (qwen2.5-coder:7b) — local, always-on emergency fallback
 
-Configuration:
-- CEREBRAS_API_KEY env var enables the cloud path
-- CEREBRAS_MODEL env var overrides the default model name
-- OLLAMA_HOST env var sets the local Ollama endpoint
-  (use 127.0.0.1, NOT localhost — see _try_ollama for why)
+The router tries each provider in order. The first one that returns a
+usable response wins. Each provider has its own circuit breaker so a
+rate-limited or down provider gets skipped temporarily without retries.
 
-Verified models on a default Cerebras free-tier account:
-  - llama3.1-8b — always available, fast, good for triage tasks
-  - qwen-3-235b-a22b-instruct-2507 — much higher quality, but rate-limited
-    (often returns 429); also emits <think>...</think> tags which
-    query_json() strips automatically.
+Configuration (.env):
+  GROQ_API_KEY        — enables Groq path (recommended)
+  CEREBRAS_API_KEY    — enables Cerebras path
+  OLLAMA_HOST         — local Ollama endpoint, e.g. http://127.0.0.1:11434
+
+Per-provider model overrides (optional):
+  GROQ_MODEL          — default: llama-3.3-70b-versatile
+  CEREBRAS_MODEL      — default: llama3.1-8b
+  OLLAMA_MODEL_NAME   — default: qwen2.5-coder:7b-instruct-q4_K_M
+
+Use --private CLI flag to force local-only (skips Groq + Cerebras).
 """
 from __future__ import annotations
 
@@ -22,6 +28,8 @@ import json
 import logging
 import os
 import re
+import time
+from abc import ABC, abstractmethod
 from typing import Any
 
 import httpx
@@ -31,46 +39,188 @@ from sentinel.core.config import get_settings
 logger = logging.getLogger(__name__)
 
 
+# ---------- Constants ----------
+
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 CEREBRAS_URL = "https://api.cerebras.ai/v1/chat/completions"
 
-# Default to llama3.1-8b — always available on the free tier, fast,
-# sufficient quality for triage decisions (which are essentially yes/no
-# verdicts on small code snippets, not generation tasks).
-# Override with CEREBRAS_MODEL env var if you have access to bigger models:
-#   CEREBRAS_MODEL=qwen-3-235b-a22b-instruct-2507
+DEFAULT_GROQ_MODEL = "llama-3.3-70b-versatile"
 DEFAULT_CEREBRAS_MODEL = "llama3.1-8b"
+DEFAULT_OLLAMA_MODEL = "qwen2.5-coder:7b-instruct-q4_K_M"
+
+# Model overrides via env (optional).
+GROQ_MODEL = os.environ.get("GROQ_MODEL", DEFAULT_GROQ_MODEL)
 CEREBRAS_MODEL = os.environ.get("CEREBRAS_MODEL", DEFAULT_CEREBRAS_MODEL)
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL_NAME", DEFAULT_OLLAMA_MODEL)
 
-OLLAMA_MODEL = "qwen2.5-coder:7b-instruct-q4_K_M"
-
-MAX_RETRIES = 3
-RETRY_BACKOFF = [1.0, 3.0, 8.0]
+MAX_RETRIES = 2
+RETRY_BACKOFF = [1.0, 3.0]
 TIMEOUT_CLOUD = 60.0
 TIMEOUT_LOCAL = 120.0
 
-# Some Cerebras models (Qwen-3 family) emit <think>...</think> reasoning
-# blocks before their answer. Strip them before JSON parsing.
+# Circuit breaker: after this many consecutive failures, the provider is
+# marked dead for CIRCUIT_RESET_SECONDS. Stops us from beating on a dead
+# endpoint and slowing every scan.
+CIRCUIT_BREAK_THRESHOLD = 3
+CIRCUIT_RESET_SECONDS = 120  # 2 minutes
+
+
+# Models in the Qwen-3 / DeepSeek-R1 family emit <think>...</think>
+# reasoning blocks before their answer. Strip them for JSON parsing.
 _THINK_TAG_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
 
+
+# ---------- Errors ----------
 
 class RouterError(Exception):
     """All providers exhausted."""
 
 
-class FreeProviderRouter:
-    def __init__(self, force_local: bool = False) -> None:
-        self._force_local = force_local
-        self._client: httpx.AsyncClient | None = None
-        self._cerebras_failures = 0
-        self._max_cerebras_failures = 5
+# ---------- Provider abstraction ----------
 
-    async def _get_client(self) -> httpx.AsyncClient:
-        if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient()
-        return self._client
+class LLMProvider(ABC):
+    """Abstract LLM provider. Each backend implements query() and is_enabled()."""
 
-    async def _try_cerebras(
-        self, messages: list[dict[str, str]], temperature: float, max_tokens: int,
+    name: str = "abstract"
+    model: str = ""
+
+    def __init__(self) -> None:
+        self._consecutive_failures = 0
+        self._circuit_open_until: float = 0.0
+
+    @abstractmethod
+    def is_enabled(self) -> bool:
+        """Whether this provider can be used (e.g., has API key)."""
+
+    @abstractmethod
+    async def query(
+        self,
+        client: httpx.AsyncClient,
+        messages: list[dict[str, str]],
+        temperature: float,
+        max_tokens: int,
+        json_mode: bool,
+    ) -> dict[str, Any] | None:
+        """Make the API call. Return result dict or None on failure."""
+
+    def is_circuit_open(self) -> bool:
+        """True if circuit breaker is currently tripped."""
+        return time.monotonic() < self._circuit_open_until
+
+    def record_success(self) -> None:
+        """Reset failure count on successful call."""
+        self._consecutive_failures = 0
+        self._circuit_open_until = 0.0
+
+    def record_failure(self) -> None:
+        """Increment failure count; trip circuit if threshold hit."""
+        self._consecutive_failures += 1
+        if self._consecutive_failures >= CIRCUIT_BREAK_THRESHOLD:
+            self._circuit_open_until = time.monotonic() + CIRCUIT_RESET_SECONDS
+            logger.warning(
+                "[%s] circuit breaker tripped — skipping for %ds",
+                self.name, CIRCUIT_RESET_SECONDS,
+            )
+
+
+class GroqProvider(LLMProvider):
+    """Groq Cloud — Llama 3.3 70B at ~300 tok/s on free tier.
+
+    Reads GROQ_API_KEY through Settings (loaded from .env), not os.environ.
+    pydantic-settings does NOT push values back into os.environ, so reading
+    via Settings is the only reliable way.
+    """
+
+    name = "groq"
+    model = GROQ_MODEL
+
+    def is_enabled(self) -> bool:
+        settings = get_settings()
+        return bool(settings.groq_api_key.get_secret_value().strip())
+
+    async def query(
+        self,
+        client: httpx.AsyncClient,
+        messages: list[dict[str, str]],
+        temperature: float,
+        max_tokens: int,
+        json_mode: bool,
+    ) -> dict[str, Any] | None:
+        settings = get_settings()
+        api_key = settings.groq_api_key.get_secret_value().strip()
+        if not api_key:
+            return None
+
+        payload: dict[str, Any] = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        if json_mode:
+            payload["response_format"] = {"type": "json_object"}
+
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+
+        for attempt in range(MAX_RETRIES + 1):
+            try:
+                resp = await client.post(
+                    GROQ_URL, json=payload, headers=headers,
+                    timeout=TIMEOUT_CLOUD,
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    return {
+                        "content": data["choices"][0]["message"]["content"],
+                        "model": self.model,
+                        "provider": self.name,
+                    }
+                if resp.status_code == 429:
+                    logger.warning("Groq 429 (rate limit), attempt %d", attempt + 1)
+                    if attempt < MAX_RETRIES:
+                        await asyncio.sleep(RETRY_BACKOFF[min(attempt, len(RETRY_BACKOFF) - 1)])
+                        continue
+                    return None
+                if resp.status_code == 404:
+                    logger.error(
+                        "Groq 404: model '%s' not available. "
+                        "Check GROQ_MODEL or your account access.", self.model,
+                    )
+                    return None
+                if resp.status_code >= 500:
+                    if attempt < MAX_RETRIES:
+                        await asyncio.sleep(RETRY_BACKOFF[min(attempt, len(RETRY_BACKOFF) - 1)])
+                        continue
+                    return None
+                logger.warning("Groq %d: %s", resp.status_code, resp.text[:200])
+                return None
+            except (httpx.TimeoutException, httpx.ConnectError) as e:
+                logger.warning("Groq network error: %s", e)
+                if attempt < MAX_RETRIES:
+                    await asyncio.sleep(RETRY_BACKOFF[min(attempt, len(RETRY_BACKOFF) - 1)])
+
+        return None
+
+
+class CerebrasProvider(LLMProvider):
+    """Cerebras Cloud — fast Llama 3.1 8B inference, 1M tokens/day free."""
+
+    name = "cerebras"
+    model = CEREBRAS_MODEL
+
+    def is_enabled(self) -> bool:
+        settings = get_settings()
+        return settings.has_cerebras_key()
+
+    async def query(
+        self,
+        client: httpx.AsyncClient,
+        messages: list[dict[str, str]],
+        temperature: float,
+        max_tokens: int,
         json_mode: bool,
     ) -> dict[str, Any] | None:
         settings = get_settings()
@@ -78,7 +228,7 @@ class FreeProviderRouter:
             return None
 
         payload: dict[str, Any] = {
-            "model": CEREBRAS_MODEL,
+            "model": self.model,
             "messages": messages,
             "temperature": temperature,
             "max_tokens": max_tokens,
@@ -91,8 +241,7 @@ class FreeProviderRouter:
             "Content-Type": "application/json",
         }
 
-        client = await self._get_client()
-        for attempt in range(MAX_RETRIES):
+        for attempt in range(MAX_RETRIES + 1):
             try:
                 resp = await client.post(
                     CEREBRAS_URL, json=payload, headers=headers,
@@ -100,57 +249,62 @@ class FreeProviderRouter:
                 )
                 if resp.status_code == 200:
                     data = resp.json()
-                    self._cerebras_failures = 0
                     return {
                         "content": data["choices"][0]["message"]["content"],
-                        "model": CEREBRAS_MODEL,
-                        "provider": "cerebras",
+                        "model": self.model,
+                        "provider": self.name,
                     }
                 if resp.status_code == 429:
-                    # Rate limited — back off and retry
-                    logger.warning("Cerebras 429 (rate limit), retry %d", attempt + 1)
-                    await asyncio.sleep(RETRY_BACKOFF[min(attempt, 2)])
-                    continue
+                    logger.warning("Cerebras 429 (rate limit), attempt %d", attempt + 1)
+                    if attempt < MAX_RETRIES:
+                        await asyncio.sleep(RETRY_BACKOFF[min(attempt, len(RETRY_BACKOFF) - 1)])
+                        continue
+                    return None
                 if resp.status_code == 404:
-                    # Model not found — retrying is pointless, fail fast
                     logger.error(
                         "Cerebras 404: model '%s' not available. "
-                        "Check CEREBRAS_MODEL or your account access.",
-                        CEREBRAS_MODEL,
+                        "Check CEREBRAS_MODEL or your account access.", self.model,
                     )
-                    self._cerebras_failures = self._max_cerebras_failures  # trip CB
                     return None
                 if resp.status_code >= 500:
-                    await asyncio.sleep(RETRY_BACKOFF[min(attempt, 2)])
-                    continue
-                # Other 4xx — log and bail (don't retry)
+                    if attempt < MAX_RETRIES:
+                        await asyncio.sleep(RETRY_BACKOFF[min(attempt, len(RETRY_BACKOFF) - 1)])
+                        continue
+                    return None
                 logger.warning("Cerebras %d: %s", resp.status_code, resp.text[:200])
-                self._cerebras_failures += 1
                 return None
             except (httpx.TimeoutException, httpx.ConnectError) as e:
                 logger.warning("Cerebras network error: %s", e)
-                await asyncio.sleep(RETRY_BACKOFF[min(attempt, 2)])
+                if attempt < MAX_RETRIES:
+                    await asyncio.sleep(RETRY_BACKOFF[min(attempt, len(RETRY_BACKOFF) - 1)])
 
-        self._cerebras_failures += 1
         return None
 
-    async def _try_ollama(
-        self, messages: list[dict[str, str]], temperature: float, max_tokens: int,
+
+class OllamaProvider(LLMProvider):
+    """Local Ollama — always-on fallback, slower but private."""
+
+    name = "ollama"
+    model = OLLAMA_MODEL
+
+    def is_enabled(self) -> bool:
+        # Always considered enabled — connection error trips the circuit breaker
+        return True
+
+    async def query(
+        self,
+        client: httpx.AsyncClient,
+        messages: list[dict[str, str]],
+        temperature: float,
+        max_tokens: int,
         json_mode: bool,
     ) -> dict[str, Any] | None:
-        """Call local Ollama.
-
-        IMPORTANT: OLLAMA_HOST should be set to 'http://127.0.0.1:11434',
-        NOT 'http://localhost:11434'. On systems where IPv6 resolves first,
-        httpx tries the IPv6 socket, gets refused, then fails the whole
-        connection without trying IPv4. Using the IP literal sidesteps DNS.
-        """
         settings = get_settings()
-        # Defensive: if config still has 'localhost', force it to 127.0.0.1
+        # Defensive: replace 'localhost' with '127.0.0.1' to avoid IPv6 issues
         host = settings.ollama_host.replace("localhost", "127.0.0.1")
 
         payload: dict[str, Any] = {
-            "model": OLLAMA_MODEL,
+            "model": self.model,
             "messages": messages,
             "options": {"temperature": temperature, "num_predict": max_tokens},
             "stream": False,
@@ -158,7 +312,6 @@ class FreeProviderRouter:
         if json_mode:
             payload["format"] = "json"
 
-        client = await self._get_client()
         try:
             resp = await client.post(
                 f"{host.rstrip('/')}/api/chat",
@@ -170,31 +323,107 @@ class FreeProviderRouter:
             data = resp.json()
             return {
                 "content": data.get("message", {}).get("content", ""),
-                "model": OLLAMA_MODEL,
-                "provider": "ollama",
+                "model": self.model,
+                "provider": self.name,
             }
         except (httpx.TimeoutException, httpx.ConnectError) as e:
             logger.warning("Ollama error: %s", e)
             return None
 
+
+# ---------- Router ----------
+
+class FreeProviderRouter:
+    """Multi-provider LLM router with priority-based failover.
+
+    Default provider order (highest quality first):
+      1. Groq (Llama 3.3 70B)
+      2. Cerebras (Llama 3.1 8B)
+      3. Ollama (local Qwen 2.5 Coder)
+
+    Each provider has an independent circuit breaker. If Groq is rate-limited
+    or down, we skip it for 2 minutes instead of retrying every call.
+
+    Pass force_local=True to skip cloud providers (privacy mode).
+    """
+
+    def __init__(self, force_local: bool = False) -> None:
+        self._force_local = force_local
+        self._client: httpx.AsyncClient | None = None
+        self._providers: list[LLMProvider] = [
+            GroqProvider(),
+            CerebrasProvider(),
+            OllamaProvider(),
+        ]
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient()
+        return self._client
+
+    def _eligible_providers(self) -> list[LLMProvider]:
+        """Return providers we should try, in order, given current state."""
+        result: list[LLMProvider] = []
+        for p in self._providers:
+            if self._force_local and p.name != "ollama":
+                continue
+            if not p.is_enabled():
+                continue
+            if p.is_circuit_open():
+                logger.debug("[%s] circuit open, skipping", p.name)
+                continue
+            result.append(p)
+        return result
+
     async def query(
-        self, messages: list[dict[str, str]], tier: str = "T2",
-        temperature: float = 0.0, max_tokens: int = 4096, json_mode: bool = False,
+        self,
+        messages: list[dict[str, str]],
+        tier: str = "T2",
+        temperature: float = 0.0,
+        max_tokens: int = 4096,
+        json_mode: bool = False,
     ) -> dict[str, Any]:
         """Query with automatic failover. Returns dict with content/model/provider."""
-        if not self._force_local and self._cerebras_failures < self._max_cerebras_failures:
-            result = await self._try_cerebras(messages, temperature, max_tokens, json_mode)
-            if result is not None:
-                return result
+        client = await self._get_client()
+        eligible = self._eligible_providers()
 
-        result = await self._try_ollama(messages, temperature, max_tokens, json_mode)
-        if result is not None:
-            return result
+        if not eligible:
+            raise RouterError(
+                "No LLM providers available. "
+                "Configure GROQ_API_KEY, CEREBRAS_API_KEY, or run Ollama locally."
+            )
 
-        raise RouterError("All LLM providers failed")
+        last_error: Exception | None = None
+        for provider in eligible:
+            try:
+                result = await provider.query(
+                    client, messages, temperature, max_tokens, json_mode,
+                )
+                if result is not None:
+                    provider.record_success()
+                    logger.debug("[router] %s answered (model=%s)",
+                                 provider.name, result.get("model"))
+                    return result
+                provider.record_failure()
+            except Exception as e:  # noqa: BLE001
+                provider.record_failure()
+                last_error = e
+                logger.warning("[router] %s raised %s: %s",
+                               provider.name, type(e).__name__, e)
+
+        # All providers exhausted
+        tried = [p.name for p in eligible]
+        if last_error is not None:
+            raise RouterError(
+                f"All LLM providers failed (tried: {tried}). "
+                f"Last error: {type(last_error).__name__}: {last_error}"
+            )
+        raise RouterError(f"All LLM providers failed (tried: {tried})")
 
     async def query_json(
-        self, messages: list[dict[str, str]], tier: str = "T2",
+        self,
+        messages: list[dict[str, str]],
+        tier: str = "T2",
     ) -> dict[str, Any]:
         """Query with JSON mode, parse response, strip markdown fences and reasoning tags."""
         result = await self.query(messages=messages, tier=tier, json_mode=True)
