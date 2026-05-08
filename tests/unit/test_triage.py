@@ -36,7 +36,6 @@ def context(tmp_path):
     decompiled = ws / "decompiled"
     decompiled.mkdir(parents=True)
 
-    # Create a synthetic source file the triager can load
     src = decompiled / "Foo.java"
     src.write_text(
         "public class Foo {\n"
@@ -109,7 +108,7 @@ def test_triage_verdict_rejects_bad_confidence():
     with pytest.raises(ValidationError):
         TriageVerdict(
             is_real_bug=True,
-            confidence=2.0,  # out of [0, 1]
+            confidence=2.0,
             explanation="x" * 20,
         )
 
@@ -130,7 +129,6 @@ def test_triage_verdict_ignores_extra_fields():
     })
     assert v.is_real_bug is True
     assert v.confidence == 0.5
-    # Extra fields are dropped, not stored
     assert not hasattr(v, "extra_field")
     assert not hasattr(v, "reasoning")
 
@@ -150,9 +148,9 @@ async def test_triager_skips_test_001(context):
     """TEST_001 findings should be marked SKIPPED."""
     finding = _make_finding(agent_id="TEST_001", vuln_class="Pipeline Smoke Test",
                              severity=Severity.INFO)
-    router = _mock_router_response({})  # never called
+    router = _mock_router_response({})
 
-    triager = LLMTriager(router=router)
+    triager = LLMTriager(router=router, inter_call_delay_seconds=0.0)
     findings = await triager.triage([finding], context)
 
     triage_data = findings[0].evidence["_triage"]
@@ -167,7 +165,7 @@ async def test_triager_skips_meta_001(context):
                              severity=Severity.INFO)
     router = _mock_router_response({})
 
-    triager = LLMTriager(router=router)
+    triager = LLMTriager(router=router, inter_call_delay_seconds=0.0)
     findings = await triager.triage([finding], context)
 
     assert findings[0].evidence["_triage"]["outcome"] == "skipped"
@@ -180,7 +178,7 @@ async def test_triager_skips_info_severity(context):
     finding = _make_finding(severity=Severity.INFO)
     router = _mock_router_response({})
 
-    triager = LLMTriager(router=router)
+    triager = LLMTriager(router=router, inter_call_delay_seconds=0.0)
     findings = await triager.triage([finding], context)
 
     assert findings[0].evidence["_triage"]["outcome"] == "skipped"
@@ -198,7 +196,7 @@ async def test_triager_marks_verified(context):
         "false_positive_reason": None,
     })
 
-    triager = LLMTriager(router=router)
+    triager = LLMTriager(router=router, inter_call_delay_seconds=0.0)
     findings = await triager.triage([finding], context)
 
     triage = findings[0].evidence["_triage"]
@@ -219,7 +217,7 @@ async def test_triager_marks_filtered(context):
         "false_positive_reason": "non-security use (animation)",
     })
 
-    triager = LLMTriager(router=router)
+    triager = LLMTriager(router=router, inter_call_delay_seconds=0.0)
     findings = await triager.triage([finding], context)
 
     triage = findings[0].evidence["_triage"]
@@ -236,7 +234,7 @@ async def test_triager_uncertain_on_router_error(context):
     router = AsyncMock()
     router.query_json = AsyncMock(side_effect=RouterError("all providers failed"))
 
-    triager = LLMTriager(router=router, max_retries=0)
+    triager = LLMTriager(router=router, max_retries=0, inter_call_delay_seconds=0.0)
     findings = await triager.triage([finding], context)
 
     triage = findings[0].evidence["_triage"]
@@ -252,7 +250,7 @@ async def test_triager_uncertain_on_invalid_schema(context):
         "wrong_field": "this is not a TriageVerdict",
     })
 
-    triager = LLMTriager(router=router, max_retries=0)
+    triager = LLMTriager(router=router, max_retries=0, inter_call_delay_seconds=0.0)
     findings = await triager.triage([finding], context)
 
     triage = findings[0].evidence["_triage"]
@@ -272,7 +270,7 @@ async def test_triager_applies_severity_adjustment(context):
         "false_positive_reason": None,
     })
 
-    triager = LLMTriager(router=router)
+    triager = LLMTriager(router=router, inter_call_delay_seconds=0.0)
     findings = await triager.triage([finding], context)
 
     assert findings[0].severity == Severity.MEDIUM
@@ -292,7 +290,7 @@ async def test_triager_ignores_invalid_severity_adjustment(context):
         "false_positive_reason": None,
     })
 
-    triager = LLMTriager(router=router)
+    triager = LLMTriager(router=router, inter_call_delay_seconds=0.0)
     findings = await triager.triage([finding], context)
 
     assert findings[0].severity == Severity.HIGH
@@ -302,7 +300,7 @@ async def test_triager_ignores_invalid_severity_adjustment(context):
 async def test_triager_handles_empty_finding_list(context):
     """Empty input returns empty output."""
     router = _mock_router_response({})
-    triager = LLMTriager(router=router)
+    triager = LLMTriager(router=router, inter_call_delay_seconds=0.0)
     result = await triager.triage([], context)
     assert result == []
     router.query_json.assert_not_called()
@@ -315,7 +313,6 @@ async def test_triager_processes_multiple_findings(context):
     f2 = _make_finding(agent_id="C_007", vuln_class="Weak Cryptography")
 
     router = AsyncMock()
-    # Different verdicts for the two calls
     router.query_json = AsyncMock(side_effect=[
         {"content": {"is_real_bug": True, "confidence": 0.9,
                      "explanation": "Real bug in B_002", "adjusted_severity": None,
@@ -327,7 +324,7 @@ async def test_triager_processes_multiple_findings(context):
          "model": "x", "provider": "cerebras"},
     ])
 
-    triager = LLMTriager(router=router)
+    triager = LLMTriager(router=router, inter_call_delay_seconds=0.0)
     findings = await triager.triage([f1, f2], context)
 
     assert findings[0].evidence["_triage"]["outcome"] == "verified"

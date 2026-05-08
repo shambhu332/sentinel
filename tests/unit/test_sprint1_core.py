@@ -130,6 +130,7 @@ class MockTransport(httpx.AsyncBaseTransport):
 async def test_router_cerebras_success(monkeypatch):
     reset_settings()
     monkeypatch.setenv("CEREBRAS_API_KEY", "test-key")
+    monkeypatch.setenv("GROQ_API_KEY", "")  # disable Groq for this test
     router = FreeProviderRouter()
     router._client = httpx.AsyncClient(transport=MockTransport(
         200, {"choices": [{"message": {"content": "ok"}}]},
