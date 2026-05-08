@@ -6,9 +6,9 @@ Runs JADX as a subprocess with resource limits and path traversal protection.
 Important: JADX returns exit code 1 when *any* class fails to decompile, even
 if 99% of the output is valid. We treat exit-code-1-with-output as success.
 
-Flags chosen for cross-version compatibility — only flags that have existed
-in JADX since 1.0 are used. Modern flags like --no-res-lists or
---no-inline-anonymous are not supported in older builds.
+Timeout policy: scales with APK size. Small APKs (<10MB) get 300s. Large
+production APKs (50-200MB) get up to 1800s (30 minutes). Override via the
+`timeout` constructor arg or SENTINEL_JADX_TIMEOUT env var.
 """
 from __future__ import annotations
 
@@ -21,7 +21,9 @@ from typing import NamedTuple
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_TIMEOUT = 300  # 5 minutes
+DEFAULT_TIMEOUT = 300  # 5 minutes — minimum for tiny APKs
+MAX_TIMEOUT = 1800     # 30 minutes — cap for monster APKs
+TIMEOUT_PER_MB = 8     # seconds of timeout budget per MB of APK
 MAX_OUTPUT_SIZE_MB = 500
 JADX_JVM_HEAP = "4g"
 
@@ -40,14 +42,49 @@ class JadxResult(NamedTuple):
     stderr: str
 
 
+def auto_timeout_for_apk(apk_path: Path) -> int:
+    """Scale timeout to APK size.
+
+    Examples:
+        3.4MB  InsecureBankv2 →  300s (minimum)
+        20MB   medium APK     →  300s (minimum)
+        50MB   large APK      →  400s
+        95MB   huge APK       →  760s
+        200MB  monster APK    → 1600s
+    """
+    try:
+        size_mb = apk_path.stat().st_size / (1024 * 1024)
+    except OSError:
+        return DEFAULT_TIMEOUT
+
+    scaled = int(size_mb * TIMEOUT_PER_MB)
+    return max(DEFAULT_TIMEOUT, min(MAX_TIMEOUT, scaled))
+
+
 class JadxRunner:
     """Async subprocess wrapper for JADX."""
 
-    def __init__(self, jadx_path: str | None = None, timeout: int = DEFAULT_TIMEOUT) -> None:
+    def __init__(
+        self,
+        jadx_path: str | None = None,
+        timeout: int | None = None,
+    ) -> None:
         self._jadx_path = jadx_path or shutil.which("jadx")
         if self._jadx_path is None:
             raise JadxError("jadx not found in PATH. Install via: paru -S jadx")
-        self._timeout = timeout
+
+        # Resolution order:
+        # 1. Explicit constructor arg
+        # 2. SENTINEL_JADX_TIMEOUT env var
+        # 3. None — use auto_timeout_for_apk per-call
+        if timeout is not None:
+            self._timeout: int | None = timeout
+        else:
+            env_timeout = os.environ.get("SENTINEL_JADX_TIMEOUT", "").strip()
+            if env_timeout.isdigit():
+                self._timeout = int(env_timeout)
+            else:
+                self._timeout = None  # auto-scale per APK
 
     async def decompile(self, apk_path: Path, output_dir: Path) -> JadxResult:
         """Decompile APK into output_dir using minimal universally-supported flags."""
@@ -60,6 +97,14 @@ class JadxRunner:
             raise JadxError(f"Not a file: {apk_path}")
 
         output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Determine effective timeout
+        effective_timeout = self._timeout or auto_timeout_for_apk(apk_path)
+        size_mb = apk_path.stat().st_size / (1024 * 1024)
+        logger.info(
+            "JADX timeout for %.1fMB APK: %ds",
+            size_mb, effective_timeout,
+        )
 
         # Minimal flags — only the most basic ones that have existed since
         # JADX 1.0. -d sets output dir, --show-bad-code keeps partial output
@@ -86,12 +131,15 @@ class JadxRunner:
             )
             try:
                 stdout, stderr = await asyncio.wait_for(
-                    proc.communicate(), timeout=self._timeout,
+                    proc.communicate(), timeout=effective_timeout,
                 )
             except asyncio.TimeoutError as e:
                 proc.kill()
                 await proc.wait()
-                raise JadxError(f"JADX timeout after {self._timeout}s") from e
+                raise JadxError(
+                    f"JADX timeout after {effective_timeout}s on {size_mb:.1f}MB APK. "
+                    f"Override with SENTINEL_JADX_TIMEOUT env var if needed."
+                ) from e
 
         except FileNotFoundError as e:
             raise JadxError(f"Cannot execute JADX at {self._jadx_path}: {e}") from e
