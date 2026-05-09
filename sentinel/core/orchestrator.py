@@ -2,13 +2,19 @@
 
 Pipeline phases:
 - Phase 0: Ingestion (hash, workspace setup)
-- Phase 1: Recon (decompile, manifest parse)
+- Phase 1: Recon (decompile, manifest parse) — crash-proof: tools return ToolResult
 - Phase 2: Static analysis agents
 - Phase 3: LLM triage (Sprint 7) — filters false positives, optional
 
 Later sprints add:
 - Phase 4: Dynamic analysis (Frida + mitmproxy + Appium)
 - Phase 5+: Verification, PoC, chain detection
+
+CRASH-PROOFING (Sprint 7.6.1):
+Tool wrappers (JadxRunner) now return ToolResult instead of raising.
+Phase 1 checks `result.success` and continues with whatever succeeded.
+A scan can complete with partial Phase 1 results — agents that need
+JADX output will simply produce no findings if JADX failed.
 """
 from __future__ import annotations
 
@@ -26,7 +32,7 @@ from sentinel.core.finding import Finding
 from sentinel.core.scan_context import ScanContext
 from sentinel.memory.interface import MemoryInterface
 from sentinel.tools.apktool import ApktoolError, ApktoolRunner
-from sentinel.tools.jadx import JadxError, JadxRunner
+from sentinel.tools.jadx import JadxRunner
 from sentinel.tools.manifest import ManifestError, ManifestParser
 from sentinel.triage import LLMTriager
 
@@ -46,6 +52,7 @@ class ScanResult:
         self.findings: list[Finding] = []
         self.phase_timings: dict[str, float] = {}
         self.error: str | None = None
+        self.warnings: list[str] = []
         self.started_at = datetime.now(timezone.utc)
         self.completed_at: datetime | None = None
 
@@ -56,6 +63,7 @@ class ScanResult:
             "findings_count": len(self.findings),
             "phase_timings": self.phase_timings,
             "error": self.error,
+            "warnings": self.warnings,
             "started_at": self.started_at.isoformat(),
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
         }
@@ -64,8 +72,8 @@ class ScanResult:
 class Orchestrator:
     """Runs a scan through the phase pipeline.
 
-    Sprint 7 adds Phase 3 (LLM triage). Triage is optional — pass triager=None
-    to skip it (used by tests and --no-triage flag).
+    Sprint 7 adds Phase 3 (LLM triage). Sprint 7.6.1 makes Phase 1
+    crash-proof via ToolResult.
     """
 
     def __init__(
@@ -95,9 +103,9 @@ class Orchestrator:
             await self._phase0_ingestion()
             result.phase_timings["phase0"] = asyncio.get_event_loop().time() - start
 
-            # Phase 1: Recon
+            # Phase 1: Recon (crash-proof)
             start = asyncio.get_event_loop().time()
-            await self._phase1_recon()
+            await self._phase1_recon(result)
             result.phase_timings["phase1"] = asyncio.get_event_loop().time() - start
 
             # Phase 2: Run agents
@@ -112,10 +120,9 @@ class Orchestrator:
                 try:
                     result.findings = await self._phase3_triage(findings)
                 except Exception as e:  # noqa: BLE001
-                    # Triage failure must NEVER kill the scan.
-                    # Log it and ship the un-triaged findings.
                     logger.exception("[%s] Phase 3 triage failed",
                                      self._context.session_id)
+                    result.warnings.append(f"Phase 3 triage failed: {str(e)[:200]}")
                     await self._memory.publish_event(
                         self._context.session_id, "phase.failed",
                         {"phase": 3, "error": str(e)[:500]},
@@ -124,7 +131,8 @@ class Orchestrator:
 
             result.status = "completed"
 
-        except (OrchestratorError, JadxError, ApktoolError, ManifestError) as e:
+        except OrchestratorError as e:
+            # Only Phase 0 (ingestion) failures are fatal — APK missing/invalid
             result.status = "failed"
             result.error = str(e)
             logger.exception("Scan %s failed", self._context.session_id)
@@ -171,10 +179,15 @@ class Orchestrator:
             },
         )
 
-    # ---------- Phase 1: Recon ----------
+    # ---------- Phase 1: Recon (crash-proof) ----------
 
-    async def _phase1_recon(self) -> None:
-        """Decompile the APK and parse its manifest."""
+    async def _phase1_recon(self, scan_result: ScanResult) -> None:
+        """Decompile the APK and parse its manifest.
+
+        CRASH-PROOF: All tool failures are caught and recorded as warnings.
+        Scan continues with whatever succeeded. Even if all tools fail, the
+        manifest is still parseable directly from the APK binary.
+        """
         logger.info("[%s] Phase 1: Recon", self._context.session_id)
         await self._memory.publish_event(
             self._context.session_id, "phase.started", {"phase": 1},
@@ -184,31 +197,61 @@ class Orchestrator:
         decompile_dir = ws / "decompiled"
         resources_dir = ws / "resources"
 
+        # JADX — uses ToolResult, never raises
         jadx = JadxRunner()
+        jadx_result = await jadx.decompile(self._context.apk_path, decompile_dir)
+        if jadx_result.success:
+            logger.info(
+                "JADX produced %d Java files in %.1fs",
+                jadx_result.data.java_file_count,
+                jadx_result.duration_seconds,
+            )
+            for warning in jadx_result.warnings:
+                scan_result.warnings.append(f"JADX: {warning}")
+        else:
+            logger.warning("JADX failed: %s", jadx_result.error)
+            scan_result.warnings.append(f"JADX failed: {jadx_result.error}")
+
+        # apktool — still raises ApktoolError; we catch it here
         apktool = ApktoolRunner()
-        manifest_parser = ManifestParser()
-
-        jadx_result = None
-        apktool_result = None
-
+        apktool_succeeded = False
         try:
-            jadx_result = await jadx.decompile(self._context.apk_path, decompile_dir)
-            logger.info("JADX produced %d Java files", jadx_result.java_file_count)
-        except JadxError as e:
-            logger.warning("JADX failed: %s", e)
-
-        try:
-            apktool_result = await apktool.decode(self._context.apk_path, resources_dir)
+            await apktool.decode(self._context.apk_path, resources_dir)
+            apktool_succeeded = True
             logger.info("apktool produced manifest + resources")
         except ApktoolError as e:
             logger.warning("apktool failed: %s", e)
+            scan_result.warnings.append(f"apktool failed: {e}")
+        except Exception as e:  # noqa: BLE001
+            logger.exception("apktool crashed unexpectedly")
+            scan_result.warnings.append(f"apktool crashed: {type(e).__name__}: {e}")
 
-        # androguard reads the APK binary directly, so it works even when
-        # both decompilers fail.
-        manifest = manifest_parser.parse(self._context.apk_path)
+        # Manifest parsing via androguard reads the APK binary directly,
+        # so it works even when both decompilers fail.
+        manifest_parser = ManifestParser()
+        manifest: dict[str, Any] = {}
+        try:
+            manifest = manifest_parser.parse(self._context.apk_path)
+        except ManifestError as e:
+            logger.warning("Manifest parse failed: %s", e)
+            scan_result.warnings.append(f"Manifest parse failed: {e}")
+            # Manifest is critical — without it, most agents can't function.
+            # But we still don't crash; we let agents handle empty manifest.
+            manifest = {}
+        except Exception as e:  # noqa: BLE001
+            logger.exception("Manifest parser crashed unexpectedly")
+            scan_result.warnings.append(
+                f"Manifest crashed: {type(e).__name__}: {e}"
+            )
+            manifest = {}
 
-        self._context.decompiled_dir = decompile_dir if jadx_result else None
-        self._context.resources_dir = resources_dir if apktool_result else None
+        # Set context based on what succeeded
+        self._context.decompiled_dir = (
+            decompile_dir if jadx_result.success else None
+        )
+        self._context.resources_dir = (
+            resources_dir if apktool_succeeded else None
+        )
         self._context.manifest = manifest
         self._context.target_sdk = manifest.get("target_sdk", 0)
         self._context.permissions = manifest.get("permissions", [])
@@ -221,9 +264,13 @@ class Orchestrator:
                 "target_sdk": manifest.get("target_sdk"),
                 "permissions_count": len(manifest.get("permissions", [])),
                 "activities_count": len(manifest.get("activities", [])),
-                "java_files": jadx_result.java_file_count if jadx_result else 0,
-                "jadx_succeeded": jadx_result is not None,
-                "apktool_succeeded": apktool_result is not None,
+                "java_files": (
+                    jadx_result.data.java_file_count
+                    if jadx_result.success else 0
+                ),
+                "jadx_succeeded": jadx_result.success,
+                "apktool_succeeded": apktool_succeeded,
+                "warnings_count": len(scan_result.warnings),
             },
         )
 
@@ -255,12 +302,7 @@ class Orchestrator:
     # ---------- Phase 3: LLM Triage (Sprint 7) ----------
 
     async def _phase3_triage(self, findings: list[Finding]) -> list[Finding]:
-        """Run LLM triage on the collected findings.
-
-        Returns the same findings list — findings are mutated in place to
-        carry triage results in their evidence dict. Filtered findings are
-        kept (not removed) so users can audit triage decisions.
-        """
+        """Run LLM triage on the collected findings."""
         assert self._triager is not None  # guarded by caller
 
         logger.info(

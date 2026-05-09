@@ -3,6 +3,9 @@
 Converts an APK's compiled bytecode back into readable Java source code.
 Runs JADX as a subprocess with resource limits and path traversal protection.
 
+CRASH-PROOF GUARANTEE: This module never raises exceptions to its caller.
+All operations return a ToolResult[JadxResult]. Check result.success.
+
 Important: JADX returns exit code 1 when *any* class fails to decompile, even
 if 99% of the output is valid. We treat exit-code-1-with-output as success.
 
@@ -16,8 +19,11 @@ import asyncio
 import logging
 import os
 import shutil
+import time
 from pathlib import Path
 from typing import NamedTuple
+
+from sentinel.tools.result import ToolResult
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +35,7 @@ JADX_JVM_HEAP = "4g"
 
 
 class JadxError(Exception):
-    """JADX execution failed."""
+    """JADX execution failed (used internally; callers see ToolResult.error)."""
 
 
 class JadxResult(NamedTuple):
@@ -62,7 +68,12 @@ def auto_timeout_for_apk(apk_path: Path) -> int:
 
 
 class JadxRunner:
-    """Async subprocess wrapper for JADX."""
+    """Async subprocess wrapper for JADX.
+
+    All public methods return ToolResult — they never raise exceptions
+    to the caller. Internal methods may raise JadxError for control flow,
+    which is caught at the boundary.
+    """
 
     def __init__(
         self,
@@ -70,10 +81,15 @@ class JadxRunner:
         timeout: int | None = None,
     ) -> None:
         self._jadx_path = jadx_path or shutil.which("jadx")
+        # Note: missing jadx is a config error, not a runtime crash.
+        # We still record it but defer the failure to decompile() time.
+        self._jadx_missing_reason: str | None = None
         if self._jadx_path is None:
-            raise JadxError("jadx not found in PATH. Install via: paru -S jadx")
+            self._jadx_missing_reason = (
+                "jadx not found in PATH. Install via: paru -S jadx"
+            )
 
-        # Resolution order:
+        # Timeout resolution order:
         # 1. Explicit constructor arg
         # 2. SENTINEL_JADX_TIMEOUT env var
         # 3. None — use auto_timeout_for_apk per-call
@@ -86,8 +102,46 @@ class JadxRunner:
             else:
                 self._timeout = None  # auto-scale per APK
 
-    async def decompile(self, apk_path: Path, output_dir: Path) -> JadxResult:
-        """Decompile APK into output_dir using minimal universally-supported flags."""
+    async def decompile(
+        self, apk_path: Path, output_dir: Path,
+    ) -> ToolResult[JadxResult]:
+        """Decompile APK into output_dir.
+
+        Returns ToolResult.success=True with JadxResult on success.
+        Returns ToolResult.success=False with error string on any failure.
+        Never raises.
+        """
+        start = time.monotonic()
+        warnings: list[str] = []
+
+        # Pre-flight checks
+        if self._jadx_missing_reason:
+            return ToolResult.fail(
+                f"JadxError: {self._jadx_missing_reason}",
+                duration=time.monotonic() - start,
+            )
+
+        try:
+            return await self._decompile_inner(apk_path, output_dir, start, warnings)
+        except JadxError as e:
+            return ToolResult.fail(
+                f"JadxError: {e}",
+                duration=time.monotonic() - start,
+                warnings=warnings,
+            )
+        except Exception as e:  # noqa: BLE001
+            # Defensive — anything unexpected becomes a tool failure, not a crash
+            logger.exception("Unexpected JADX error")
+            return ToolResult.from_exception(e, duration=time.monotonic() - start)
+
+    async def _decompile_inner(
+        self,
+        apk_path: Path,
+        output_dir: Path,
+        start: float,
+        warnings: list[str],
+    ) -> ToolResult[JadxResult]:
+        """Inner decompile logic. May raise JadxError; caller catches."""
         apk_path = apk_path.expanduser().resolve()
         output_dir = output_dir.expanduser().resolve()
 
@@ -118,31 +172,31 @@ class JadxRunner:
 
         logger.info("Running JADX: %s", " ".join(cmd))
 
-        try:
-            env = os.environ.copy()
-            existing_opts = env.get("JAVA_OPTS", "")
-            env["JAVA_OPTS"] = f"-Xmx{JADX_JVM_HEAP} {existing_opts}".strip()
+        env = os.environ.copy()
+        existing_opts = env.get("JAVA_OPTS", "")
+        env["JAVA_OPTS"] = f"-Xmx{JADX_JVM_HEAP} {existing_opts}".strip()
 
+        try:
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env=env,
             )
-            try:
-                stdout, stderr = await asyncio.wait_for(
-                    proc.communicate(), timeout=effective_timeout,
-                )
-            except asyncio.TimeoutError as e:
-                proc.kill()
-                await proc.wait()
-                raise JadxError(
-                    f"JADX timeout after {effective_timeout}s on {size_mb:.1f}MB APK. "
-                    f"Override with SENTINEL_JADX_TIMEOUT env var if needed."
-                ) from e
-
         except FileNotFoundError as e:
             raise JadxError(f"Cannot execute JADX at {self._jadx_path}: {e}") from e
+
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(), timeout=effective_timeout,
+            )
+        except asyncio.TimeoutError as e:
+            proc.kill()
+            await proc.wait()
+            raise JadxError(
+                f"timeout after {effective_timeout}s on {size_mb:.1f}MB APK. "
+                f"Override with SENTINEL_JADX_TIMEOUT env var if needed."
+            ) from e
 
         exit_code = proc.returncode or 0
         stderr_text = stderr.decode("utf-8", errors="replace")[:5000]
@@ -171,32 +225,46 @@ class JadxRunner:
         # Only fail if NOTHING was produced
         if java_count == 0:
             raise JadxError(
-                f"JADX produced no Java files (exit {exit_code}). "
+                f"produced no Java files (exit {exit_code}). "
                 f"stdout: {stdout_text[:200]} | stderr: {stderr_text[:200]}"
             )
 
-        # Size sanity check
+        # Size sanity check (warning, not failure)
         try:
             total_size = sum(
                 f.stat().st_size for f in output_dir.rglob("*") if f.is_file()
             )
-            if total_size > MAX_OUTPUT_SIZE_MB * 1024 * 1024:
-                logger.warning(
-                    "JADX output unusually large: %d MB", total_size // (1024 * 1024),
-                )
+            size_mb_output = total_size // (1024 * 1024)
+            if size_mb_output > MAX_OUTPUT_SIZE_MB:
+                msg = f"JADX output unusually large: {size_mb_output} MB"
+                logger.warning(msg)
+                warnings.append(msg)
         except OSError:
             pass
+
+        # Note partial decompile (exit 1 = some classes failed but we got output)
+        if exit_code == 1:
+            warnings.append(
+                f"JADX exit code 1 — some classes failed to decompile, "
+                f"but {java_count} files were produced"
+            )
 
         logger.info(
             "JADX decompiled %s: %d Java files, exit=%d",
             apk_path.name, java_count, exit_code,
         )
 
-        return JadxResult(
+        result = JadxResult(
             output_dir=output_dir,
             sources_dir=sources_dir,
             resources_dir=resources_dir,
             java_file_count=java_count,
             exit_code=exit_code,
             stderr=stderr_text,
+        )
+
+        return ToolResult.ok(
+            result,
+            duration=time.monotonic() - start,
+            warnings=warnings,
         )
