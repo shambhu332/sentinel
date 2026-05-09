@@ -2,6 +2,10 @@
 
 All external subprocess calls are mocked so tests run offline and fast.
 The real APK integration test lives in tests/integration/.
+
+NOTE (Sprint 7.6.1): JadxRunner.decompile() now returns ToolResult instead
+of raising. Tests updated accordingly. JadxRunner.__init__ also no longer
+raises when the binary is missing — it defers the error until decompile().
 """
 from __future__ import annotations
 
@@ -15,7 +19,7 @@ from sentinel.core.orchestrator import Orchestrator, OrchestratorError
 from sentinel.core.scan_context import ScanContext, generate_session_id
 from sentinel.memory import LightweightMemory
 from sentinel.tools.apktool import ApktoolError, ApktoolRunner
-from sentinel.tools.jadx import JadxError, JadxRunner
+from sentinel.tools.jadx import JadxRunner
 from sentinel.tools.manifest import ManifestError, ManifestParser
 
 # ---------- Fixtures ----------
@@ -44,11 +48,26 @@ async def memory(tmp_path):
 
 
 # ---------- JadxRunner ----------
+# JadxRunner is now crash-proof: returns ToolResult instead of raising.
 
-def test_jadx_init_without_binary(monkeypatch):
+def test_jadx_init_without_binary_does_not_raise(monkeypatch):
+    """Constructor no longer raises — error is deferred to decompile()."""
     monkeypatch.setattr("shutil.which", lambda x: None)
-    with pytest.raises(JadxError, match="not found"):
-        JadxRunner()
+    runner = JadxRunner()
+    assert runner._jadx_missing_reason is not None
+    assert "not found" in runner._jadx_missing_reason
+
+
+@pytest.mark.asyncio
+async def test_jadx_decompile_fails_without_binary(monkeypatch, tmp_path):
+    """When jadx binary is missing, decompile() returns failure ToolResult."""
+    monkeypatch.setattr("shutil.which", lambda x: None)
+    runner = JadxRunner()
+    apk = _make_fake_apk(tmp_path / "a.apk")
+    result = await runner.decompile(apk, tmp_path / "out")
+    assert result.success is False
+    assert result.error is not None
+    assert "not found" in result.error
 
 
 def test_jadx_init_with_custom_path(tmp_path):
@@ -60,27 +79,29 @@ def test_jadx_init_with_custom_path(tmp_path):
 
 @pytest.mark.asyncio
 async def test_jadx_rejects_missing_apk(tmp_path):
+    """Missing APK returns failed ToolResult, not a raised exception."""
     fake_jadx = tmp_path / "jadx"
     fake_jadx.touch()
     runner = JadxRunner(jadx_path=str(fake_jadx))
-    with pytest.raises(JadxError, match="not found"):
-        await runner.decompile(tmp_path / "missing.apk", tmp_path / "out")
+    result = await runner.decompile(tmp_path / "missing.apk", tmp_path / "out")
+    assert result.success is False
+    assert result.error is not None
+    assert "not found" in result.error
 
 
 @pytest.mark.asyncio
 async def test_jadx_successful_run(tmp_path):
+    """Successful decompile produces ToolResult.success=True with JadxResult data."""
     fake_jadx = tmp_path / "jadx"
     fake_jadx.touch()
     apk = _make_fake_apk(tmp_path / "a.apk")
     output_dir = tmp_path / "out"
 
-    # Mock subprocess
     mock_proc = MagicMock()
     mock_proc.returncode = 0
     mock_proc.communicate = AsyncMock(return_value=(b"", b""))
 
     async def fake_create_subprocess_exec(*args, **kwargs):
-        # Simulate JADX producing output
         sources = output_dir / "sources"
         sources.mkdir(parents=True, exist_ok=True)
         (sources / "Main.java").write_text("public class Main {}")
@@ -90,8 +111,11 @@ async def test_jadx_successful_run(tmp_path):
         runner = JadxRunner(jadx_path=str(fake_jadx))
         result = await runner.decompile(apk, output_dir)
 
-    assert result.java_file_count == 1
-    assert result.exit_code == 0
+    assert result.success is True
+    assert result.data is not None
+    assert result.data.java_file_count == 1
+    assert result.data.exit_code == 0
+    assert result.duration_seconds >= 0
 
 
 # ---------- ApktoolRunner ----------
@@ -141,7 +165,8 @@ async def test_orchestrator_phase0_hashes_apk(tmp_path, memory):
     ctx = _make_context(tmp_path)
     orch = Orchestrator(context=ctx, memory=memory)
 
-    # Mock phases 1 and 2 so we only run phase 0
+    # Mock phases 1 and 2 so we only run phase 0.
+    # Note: _phase1_recon now takes scan_result arg — AsyncMock handles any args.
     with patch.object(orch, "_phase1_recon", new=AsyncMock(return_value=None)), \
          patch.object(orch, "_phase2_agents", new=AsyncMock(return_value=[])):
         result = await orch.run()
@@ -184,6 +209,7 @@ async def test_orchestrator_records_phase_timings(tmp_path, memory):
 
 @pytest.mark.asyncio
 async def test_orchestrator_handles_failure_gracefully(tmp_path, memory):
+    """When Phase 1 raises OrchestratorError (e.g. APK gone), scan fails cleanly."""
     ctx = _make_context(tmp_path)
     orch = Orchestrator(context=ctx, memory=memory)
 
