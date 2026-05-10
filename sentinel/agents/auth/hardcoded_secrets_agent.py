@@ -1,8 +1,7 @@
 """A_004 — Hardcoded Secrets Agent.
 
-Scans decompiled code, resource files, and manifests for embedded API keys,
-tokens, and credentials that match well-known patterns from major cloud and
-SaaS providers.
+Scans for embedded API keys, tokens, and credentials matching well-known
+patterns from major cloud and SaaS providers.
 
 Why this matters: a leaked AWS access key gives attackers full access to the
 victim's S3 buckets and EC2 instances. A leaked Stripe live key lets them
@@ -10,13 +9,13 @@ charge customers and view payment history. Bug bounty programs pay
 $500-$5,000 for hardcoded secret findings, and up to $10,000+ when the
 key is for a critical service like AWS root or production payment.
 
-Detection pipeline:
-1. Walk decompiled .java files and resource .xml files
-2. Run a battery of regexes for AWS, GCP, Stripe, Twilio, Slack, GitHub, etc.
-3. Filter out obvious test fixtures (keys containing "test", "example", "demo")
-4. For each match, capture the file location and a redacted excerpt
-5. Severity is per-provider — AWS keys are Critical, generic-looking strings
-   labeled "key" are Medium
+Detection sources (Sprint 7.6.5):
+1. JADX-decompiled Java + apktool resources (file-based scanning)
+2. Androguard bytecode strings (always works, even on obfuscated APKs)
+
+Sprint 7.6.5 made this agent crash-proof against JADX failures: even on
+91MB obfuscated APKs where JADX times out, Androguard extracts strings
+in ~25 seconds and the agent still finds the keys.
 """
 from __future__ import annotations
 
@@ -110,33 +109,51 @@ class HardcodedSecretsAgent(BaseAgent):
     PHASE = "static"
 
     async def is_applicable(self) -> bool:
-        """Needs decompiled source or extracted resources."""
+        """Applicable if ANY source is available — Java, resources, or bytecode."""
         ctx = self._context
         has_decompiled = ctx.decompiled_dir and ctx.decompiled_dir.exists()
         has_resources = ctx.resources_dir and ctx.resources_dir.exists()
-        if not has_decompiled and not has_resources:
-            logger.info("[A_004] No decompiled source or resources — skipping")
+        has_androguard = ctx.has_androguard()
+
+        if not (has_decompiled or has_resources or has_androguard):
+            logger.info("[A_004] No source available (Java, resources, or "
+                        "bytecode) — skipping")
             return False
         return True
 
     async def analyze(self) -> list[Finding]:
-        """Walk source and resource files, run detectors, group by provider."""
+        """Run all available scanning paths and aggregate hits."""
         ctx = self._context
-        # Map provider name -> list of (matched_string, file_path, line_excerpt)
+
+        # Map provider name -> list of {value, file, context, severity,
+        # confidence, source}
         hits: dict[str, list[dict[str, Any]]] = {}
 
+        # Path 1: JADX-decompiled Java
         if ctx.decompiled_dir and ctx.decompiled_dir.exists():
-            self._scan_directory(ctx.decompiled_dir, hits, ".java")
+            self._scan_directory(ctx.decompiled_dir, hits, ".java", source="java")
+
+        # Path 2: apktool resources (XML files)
         if ctx.resources_dir and ctx.resources_dir.exists():
-            self._scan_directory(ctx.resources_dir, hits, ".xml")
+            self._scan_directory(ctx.resources_dir, hits, ".xml", source="resources")
+
+        # Path 3: Androguard bytecode strings (always works if available)
+        if ctx.has_androguard():
+            self._scan_androguard_strings(hits)
 
         if not hits:
             logger.info("[A_004] No hardcoded secrets detected")
             return []
 
+        # Deduplicate by matched value (same key found in Java AND bytecode
+        # is one finding, not two)
+        for provider in list(hits.keys()):
+            hits[provider] = self._dedupe_by_value(hits[provider])
+
         # One finding per provider with all hits aggregated
         findings: list[Finding] = []
         for provider, instances in hits.items():
+            sources_used = sorted({inst.get("source", "?") for inst in instances})
             findings.append(self._make_finding(
                 vuln_class=self.VULN_CLASS,
                 severity=instances[0]["severity"],
@@ -147,18 +164,20 @@ class HardcodedSecretsAgent(BaseAgent):
                     "provider": provider,
                     "package": (ctx.manifest or {}).get("package", "?"),
                     "match_count": len(instances),
+                    "sources": sources_used,
                     "matches": [
                         {
                             "redacted_value": self._redact(inst["value"]),
                             "file": inst["file"],
                             "context": inst["context"],
+                            "source": inst.get("source", "?"),
                         }
                         for inst in instances[:10]
                     ],
                     "vector": (
-                        "Decompile the APK with apktool or JADX. The secret is "
-                        "embedded as a string constant in the listed file(s). "
-                        "Extract it directly from the source — no runtime "
+                        "The secret is embedded as a string constant in the "
+                        "APK. Extract it by decompiling with JADX/apktool or "
+                        "by reading DEX bytecode strings — no runtime "
                         "execution required."
                     ),
                 },
@@ -166,11 +185,14 @@ class HardcodedSecretsAgent(BaseAgent):
 
         return findings
 
+    # ---------- File-based scanning (existing path) ----------
+
     def _scan_directory(
         self,
         root: Path,
         hits: dict[str, list[dict[str, Any]]],
         suffix: str,
+        source: str,
     ) -> None:
         files_scanned = 0
         for path in root.rglob(f"*{suffix}"):
@@ -211,7 +233,100 @@ class HardcodedSecretsAgent(BaseAgent):
                         "context": line[:200],
                         "severity": severity,
                         "confidence": confidence,
+                        "source": source,
                     })
+
+    # ---------- Androguard bytecode scanning (NEW in Sprint 7.6.5a) ----------
+
+    def _scan_androguard_strings(
+        self, hits: dict[str, list[dict[str, Any]]],
+    ) -> None:
+        """Scan strings extracted from DEX bytecode by Androguard.
+
+        Works on any APK regardless of size or obfuscation — runs in seconds.
+        Especially valuable when JADX times out or fails (e.g., 91MB+ APKs).
+        """
+        androguard = self._context.sources.get("androguard")
+        if androguard is None:
+            return
+
+        try:
+            all_strings = androguard.get_all_strings()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[A_004] Androguard string extraction failed: %s", e)
+            return
+
+        logger.info("[A_004] Scanning %d bytecode strings", len(all_strings))
+
+        # For Androguard strings we don't have file paths — we have raw
+        # string constants from DEX. Track which strings we've already
+        # captured per provider to avoid the same key showing up 50 times
+        # (Android often interns identical strings).
+        seen_per_provider: dict[str, set[str]] = {}
+
+        for s in all_strings:
+            if not s or len(s) < 8:
+                # Tiny strings can't hold any of our targeted secrets
+                continue
+
+            for provider, pattern, severity, confidence in _DETECTORS:
+                match = pattern.search(s)
+                if not match:
+                    continue
+
+                matched = match.group(0)
+
+                # FP filter: check the FULL string for placeholder hints
+                # (since we don't have a "line" here)
+                s_lower = s.lower()
+                if any(hint in s_lower for hint in _FALSE_POSITIVE_HINTS):
+                    continue
+
+                # Dedupe: same key value from same provider counts once
+                seen = seen_per_provider.setdefault(provider, set())
+                if matched in seen:
+                    continue
+                seen.add(matched)
+
+                if provider not in hits:
+                    hits[provider] = []
+                hits[provider].append({
+                    "value": matched,
+                    "file": "(extracted from DEX bytecode)",
+                    "context": s[:200],
+                    "severity": severity,
+                    "confidence": confidence,
+                    "source": "androguard",
+                })
+
+    @staticmethod
+    def _dedupe_by_value(
+        instances: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Collapse multiple hits of the same secret value into one entry.
+
+        Prefer Java/resource hits over Androguard hits when deduping (they
+        have file paths, which are more useful for the bounty report).
+        """
+        # Group by value
+        by_value: dict[str, list[dict[str, Any]]] = {}
+        for inst in instances:
+            by_value.setdefault(inst["value"], []).append(inst)
+
+        # Pick best representative for each value
+        deduped: list[dict[str, Any]] = []
+        source_priority = {"java": 0, "resources": 1, "androguard": 2}
+        for value, group in by_value.items():
+            group.sort(key=lambda x: source_priority.get(x.get("source", ""), 99))
+            best = group[0]
+            # If found in multiple sources, note it
+            sources = sorted({inst.get("source", "?") for inst in group})
+            if len(sources) > 1:
+                best = dict(best)
+                best["source"] = "+".join(sources)
+            deduped.append(best)
+
+        return deduped
 
     @staticmethod
     def _redact(secret: str) -> str:
