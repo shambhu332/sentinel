@@ -2,21 +2,28 @@
 
 While JADX/apktool decompile to Java/smali source files, Androguard reads
 the raw DEX bytecode directly into Python objects. This is dramatically
-faster (5-10s on a 100MB APK) and never times out.
+faster (5-10s on a 100MB APK for basic operations) and never times out.
 
 Use cases where Androguard analysis beats decompilation:
 - Finding hardcoded strings/keys in obfuscated APKs
-- Locating every call to a specific API method
+- Locating every call to a specific API method (when needed)
 - Listing classes, methods, fields, permissions
 - Working with APKs JADX cannot decompile
 
 CRASH-PROOF: All public methods return ToolResult. Internal exceptions
 are caught at the boundary.
 
-Performance characteristics (verified on InsecureBankv2 + base.apk):
+LAZY-LOAD STRATEGY:
+- Initial load: APK() + DalvikVMFormat() only — fast (~5-10s on 100MB APK)
+- Heavy Analysis() (cross-references) is deferred until find_callsites_of()
+  is actually called — and only then because most agents don't need it
+- Strings/classes/methods are extracted from DEX directly, no Analysis needed
+- This avoids the 5-10 minute Analysis pass that happens with AnalyzeAPK()
+
+Performance characteristics (verified):
 - 3.4MB APK: ~1-2 seconds to load and index
-- 91MB APK:  ~5-10 seconds to load and index
-- After loading, queries are millisecond-fast
+- 91MB obfuscated APK: ~5-15 seconds for load + strings/methods
+- Cross-reference Analysis (only on demand): adds 60-300s for huge APKs
 """
 from __future__ import annotations
 
@@ -74,22 +81,26 @@ class AndroguardAnalysis:
     target_sdk: int = 0
     debuggable: bool = False
     allow_backup: bool = False
+    version_name: str = ""
+    version_code: int = 0
 
     # Lazy-evaluated, populated on demand
     _all_strings: Optional[list[str]] = None
     _all_methods: Optional[list[MethodMatch]] = None
     _all_classes: Optional[list[str]] = None
+    _analysis: Any = None  # built on-demand by find_callsites_of()
 
     # Internal — kept for direct access if needed
     _apk: Any = None  # androguard APK object
     _dex_files: list[Any] = field(default_factory=list)  # DalvikVMFormat objects
-    _analysis: Any = None  # androguard Analysis object
 
     def get_all_strings(self) -> list[str]:
         """Return every string constant in the APK's DEX files.
 
         Cached after first call. Note: includes Android framework strings,
         package names, etc. — filter as needed.
+
+        Defensive: skips strings that fail to decode (common in obfuscated APKs).
         """
         if self._all_strings is not None:
             return self._all_strings
@@ -98,8 +109,13 @@ class AndroguardAnalysis:
         for dex in self._dex_files:
             try:
                 # Androguard's DalvikVMFormat exposes get_strings()
+                # Some strings may fail to decode — those are silently skipped
                 dex_strings = dex.get_strings()
-                strings.extend(str(s) for s in dex_strings)
+                for s in dex_strings:
+                    try:
+                        strings.append(str(s))
+                    except (UnicodeDecodeError, UnicodeError, AttributeError):
+                        continue
             except Exception as e:  # noqa: BLE001
                 logger.debug("Failed to extract strings from one DEX: %s", e)
 
@@ -118,8 +134,11 @@ class AndroguardAnalysis:
 
         matches: list[StringMatch] = []
         for s in self.get_all_strings():
-            if compiled.search(s):
-                matches.append(StringMatch(value=s, location="bytecode"))
+            try:
+                if compiled.search(s):
+                    matches.append(StringMatch(value=s, location="bytecode"))
+            except (TypeError, AttributeError):
+                continue
         return matches
 
     def get_all_classes(self) -> list[str]:
@@ -131,7 +150,10 @@ class AndroguardAnalysis:
         for dex in self._dex_files:
             try:
                 for c in dex.get_classes():
-                    classes.append(c.get_name())
+                    try:
+                        classes.append(c.get_name())
+                    except Exception:  # noqa: BLE001
+                        continue
             except Exception as e:  # noqa: BLE001
                 logger.debug("Failed to list classes from one DEX: %s", e)
 
@@ -147,12 +169,15 @@ class AndroguardAnalysis:
         for dex in self._dex_files:
             try:
                 for m in dex.get_methods():
-                    methods.append(MethodMatch(
-                        class_name=m.get_class_name(),
-                        method_name=m.get_name(),
-                        descriptor=m.get_descriptor(),
-                        is_external=False,
-                    ))
+                    try:
+                        methods.append(MethodMatch(
+                            class_name=m.get_class_name(),
+                            method_name=m.get_name(),
+                            descriptor=m.get_descriptor(),
+                            is_external=False,
+                        ))
+                    except Exception:  # noqa: BLE001
+                        continue
             except Exception as e:  # noqa: BLE001
                 logger.debug("Failed to list methods from one DEX: %s", e)
 
@@ -164,6 +189,9 @@ class AndroguardAnalysis:
     ) -> list[CallsiteMatch]:
         """Find every location that calls a given API method.
 
+        IMPORTANT: This triggers the expensive cross-reference analysis on
+        first call (can take 60-300s on large APKs). Only call when needed.
+
         Args:
             target_class: e.g., "Ljavax/crypto/Cipher;" or "Cipher" (substring match)
             target_method: e.g., "getInstance" — None matches any method on the class
@@ -172,27 +200,44 @@ class AndroguardAnalysis:
             List of CallsiteMatch objects describing each callsite.
 
         Example:
-            # Find every Cipher.getInstance() call
+            # Find every Cipher.getInstance() call (slow first call!)
             sites = analysis.find_callsites_of("Ljavax/crypto/Cipher;", "getInstance")
         """
+        # Lazy-build Analysis on first callsite query
         if self._analysis is None:
-            return []
+            try:
+                from androguard.core.analysis.analysis import Analysis
+                logger.info(
+                    "Building cross-reference Analysis (one-time, may be slow)..."
+                )
+                start = time.monotonic()
+                self._analysis = Analysis()
+                for dex in self._dex_files:
+                    self._analysis.add(dex)
+                self._analysis.create_xref()
+                logger.info(
+                    "Analysis built in %.1fs", time.monotonic() - start,
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning("Failed to build Analysis: %s", e)
+                return []
 
         matches: list[CallsiteMatch] = []
         try:
-            # Use Androguard's MethodAnalysis.get_xref_from()
             for method in self._analysis.get_methods():
-                m = method.get_method()
-                if not _matches_target(m, target_class, target_method):
+                try:
+                    m = method.get_method()
+                    if not _matches_target(m, target_class, target_method):
+                        continue
+                    for _, caller, _ in method.get_xref_from():
+                        matches.append(CallsiteMatch(
+                            caller_class=caller.get_class_name(),
+                            caller_method=caller.get_name(),
+                            target_class=m.get_class_name(),
+                            target_method=m.get_name(),
+                        ))
+                except Exception:  # noqa: BLE001
                     continue
-                # Find what calls this method
-                for _, caller, _ in method.get_xref_from():
-                    matches.append(CallsiteMatch(
-                        caller_class=caller.get_class_name(),
-                        caller_method=caller.get_name(),
-                        target_class=m.get_class_name(),
-                        target_method=m.get_name(),
-                    ))
         except Exception as e:  # noqa: BLE001
             logger.debug("find_callsites_of failed: %s", e)
 
@@ -207,13 +252,57 @@ def _matches_target(method: Any, target_class: str, target_method: str | None) -
     except Exception:  # noqa: BLE001
         return False
 
-    # Class matching: substring OK (so "Cipher" matches "Ljavax/crypto/Cipher;")
     if target_class not in cls:
         return False
 
     if target_method is None:
         return True
     return name == target_method
+
+
+def _safe_get_attr(obj: Any, attr: str, default: Any = None) -> Any:
+    """Safely call obj.attr() if it exists, return default otherwise."""
+    try:
+        method = getattr(obj, attr, None)
+        if method is None:
+            return default
+        if callable(method):
+            return method()
+        return method
+    except Exception:  # noqa: BLE001
+        return default
+
+
+def _read_manifest_flag(apk_obj: Any, attr: str, default: bool = False) -> bool:
+    """Read an application-level manifest boolean flag.
+
+    Newer Androguard exposes get_attribute_value(); older has get_element().
+    Newest just provides direct methods like is_debuggable() / get_application_attribute().
+    """
+    # Try common method names in order of newest to oldest API
+    for method_name, args in [
+        ("is_debuggable_flag" if attr == "debuggable" else None, ()),
+        ("get_application_attribute", (attr,)),
+        ("get_attribute_value", ("application", attr)),
+        ("get_element", ("application", attr)),
+    ]:
+        if method_name is None:
+            continue
+        method = getattr(apk_obj, method_name, None)
+        if method is None or not callable(method):
+            continue
+        try:
+            value = method(*args)
+            if value is None:
+                continue
+            if isinstance(value, bool):
+                return value
+            value_str = str(value).lower()
+            return value_str in ("true", "1", "yes")
+        except Exception:  # noqa: BLE001
+            continue
+
+    return default
 
 
 class AndroguardAnalyzer:
@@ -223,13 +312,16 @@ class AndroguardAnalyzer:
     """
 
     def __init__(self) -> None:
-        # Defer Androguard import to avoid load-time failures if it's missing
+        # Defer Androguard imports to avoid load-time failures
         try:
-            from androguard.misc import AnalyzeAPK
-            self._analyze_apk = AnalyzeAPK
+            from androguard.core.apk import APK
+            from androguard.core.dex import DEX
+            self._APK = APK
+            self._DEX = DEX
             self._import_error: Optional[str] = None
         except Exception as e:  # noqa: BLE001
-            self._analyze_apk = None
+            self._APK = None
+            self._DEX = None
             self._import_error = f"{type(e).__name__}: {e}"
 
     async def analyze(self, apk_path: Path) -> ToolResult[AndroguardAnalysis]:
@@ -242,7 +334,7 @@ class AndroguardAnalyzer:
         """
         start = time.monotonic()
 
-        if self._analyze_apk is None:
+        if self._APK is None:
             return ToolResult.fail(
                 f"Androguard not available: {self._import_error}",
                 duration=time.monotonic() - start,
@@ -273,44 +365,43 @@ class AndroguardAnalyzer:
 
         warnings: list[str] = []
 
-        # AnalyzeAPK is synchronous and CPU-bound. Run it in a thread to
-        # avoid blocking the asyncio event loop.
+        # Run the synchronous, CPU-bound APK loading in a thread executor
+        # to avoid blocking the asyncio event loop.
         import asyncio
         loop = asyncio.get_event_loop()
 
         try:
-            apk_obj, dex_files, analysis_obj = await loop.run_in_executor(
-                None, self._analyze_apk, str(apk_path),
+            apk_obj, dex_files = await loop.run_in_executor(
+                None, self._load_apk_and_dex, apk_path,
             )
         except Exception as e:  # noqa: BLE001
             return ToolResult.fail(
-                f"AnalyzeAPK failed: {type(e).__name__}: {e}",
+                f"APK load failed: {type(e).__name__}: {e}",
                 duration=time.monotonic() - start,
             )
 
-        # Normalize dex_files — AnalyzeAPK returns a single DalvikVMFormat
-        # for single-DEX APKs, but a list for multi-DEX. Make it always a list.
-        if not isinstance(dex_files, list):
-            dex_files = [dex_files]
+        if not dex_files:
+            warnings.append("No DEX files extracted from APK")
 
-        # Build the AndroguardAnalysis result
+        # Build the AndroguardAnalysis result with defensive metadata extraction
         try:
             result = AndroguardAnalysis(
                 apk_path=apk_path,
-                package_name=apk_obj.get_package() or "",
-                main_activity=apk_obj.get_main_activity() or None,
-                permissions=list(apk_obj.get_permissions() or []),
-                activities=list(apk_obj.get_activities() or []),
-                services=list(apk_obj.get_services() or []),
-                receivers=list(apk_obj.get_receivers() or []),
-                providers=list(apk_obj.get_providers() or []),
-                min_sdk=int(apk_obj.get_min_sdk_version() or 0),
-                target_sdk=int(apk_obj.get_target_sdk_version() or 0),
-                debuggable=bool(apk_obj.get_element("application", "debuggable") == "true"),
-                allow_backup=bool(apk_obj.get_element("application", "allowBackup") != "false"),
+                package_name=_safe_get_attr(apk_obj, "get_package", "") or "",
+                main_activity=_safe_get_attr(apk_obj, "get_main_activity") or None,
+                permissions=list(_safe_get_attr(apk_obj, "get_permissions", []) or []),
+                activities=list(_safe_get_attr(apk_obj, "get_activities", []) or []),
+                services=list(_safe_get_attr(apk_obj, "get_services", []) or []),
+                receivers=list(_safe_get_attr(apk_obj, "get_receivers", []) or []),
+                providers=list(_safe_get_attr(apk_obj, "get_providers", []) or []),
+                min_sdk=int(_safe_get_attr(apk_obj, "get_min_sdk_version", 0) or 0),
+                target_sdk=int(_safe_get_attr(apk_obj, "get_target_sdk_version", 0) or 0),
+                debuggable=_read_manifest_flag(apk_obj, "debuggable", False),
+                allow_backup=_read_manifest_flag(apk_obj, "allowBackup", True),
+                version_name=str(_safe_get_attr(apk_obj, "get_androidversion_name", "") or ""),
+                version_code=int(_safe_get_attr(apk_obj, "get_androidversion_code", 0) or 0),
                 _apk=apk_obj,
                 _dex_files=dex_files,
-                _analysis=analysis_obj,
             )
         except Exception as e:  # noqa: BLE001
             return ToolResult.fail(
@@ -320,13 +411,35 @@ class AndroguardAnalyzer:
 
         duration = time.monotonic() - start
         logger.info(
-            "Androguard analyzed %s in %.1fs: %d classes, %d DEX files",
-            apk_path.name, duration,
-            len(result.get_all_classes()),
-            len(dex_files),
+            "Androguard loaded %s in %.1fs: %d DEX files, package=%s",
+            apk_path.name, duration, len(dex_files), result.package_name,
         )
 
         if duration > 60:
             warnings.append(f"Androguard slow on this APK ({duration:.0f}s)")
 
         return ToolResult.ok(result, duration=duration, warnings=warnings)
+
+    def _load_apk_and_dex(self, apk_path: Path) -> tuple[Any, list[Any]]:
+        """Synchronous APK + DEX loading. Run via executor.
+
+        We avoid AnalyzeAPK() because it builds the full cross-reference
+        Analysis upfront, which is slow on large APKs (5-10 min on 91MB).
+        Instead we load APK + DalvikVMFormat objects directly — fast,
+        and defer Analysis to first find_callsites_of() call.
+        """
+        # Load APK
+        apk_obj = self._APK(str(apk_path))
+
+        # Load each DEX file inside the APK
+        dex_files: list[Any] = []
+        try:
+            for dex_bytes in apk_obj.get_all_dex():
+                try:
+                    dex_files.append(self._DEX(dex_bytes))
+                except Exception as e:  # noqa: BLE001
+                    logger.debug("Failed to parse one DEX: %s", e)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("get_all_dex() failed: %s", e)
+
+        return apk_obj, dex_files
