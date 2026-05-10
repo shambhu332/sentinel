@@ -2,7 +2,10 @@
 
 Pipeline phases:
 - Phase 0: Ingestion (hash, workspace setup)
-- Phase 1: Recon (decompile, manifest parse) — crash-proof: tools return ToolResult
+- Phase 1: Recon — runs JADX, Androguard, apktool, manifest in PARALLEL
+           (Sprint 7.6.3). Each tool is crash-proof and contributes
+           independently to ctx.sources. Scan continues with whatever
+           succeeded.
 - Phase 2: Static analysis agents
 - Phase 3: LLM triage (Sprint 7) — filters false positives, optional
 
@@ -10,11 +13,10 @@ Later sprints add:
 - Phase 4: Dynamic analysis (Frida + mitmproxy + Appium)
 - Phase 5+: Verification, PoC, chain detection
 
-CRASH-PROOFING (Sprint 7.6.1):
-Tool wrappers (JadxRunner) now return ToolResult instead of raising.
-Phase 1 checks `result.success` and continues with whatever succeeded.
-A scan can complete with partial Phase 1 results — agents that need
-JADX output will simply produce no findings if JADX failed.
+CRASH-PROOFING:
+Tool wrappers return ToolResult instead of raising (Sprint 7.6.1).
+Phase 1 runs all tools concurrently via asyncio.gather(return_exceptions=True),
+so a single tool failure NEVER blocks the others.
 """
 from __future__ import annotations
 
@@ -31,6 +33,7 @@ from sentinel.agents.special import PipelineSmokeTestAgent
 from sentinel.core.finding import Finding
 from sentinel.core.scan_context import ScanContext
 from sentinel.memory.interface import MemoryInterface
+from sentinel.tools.androguard_analyzer import AndroguardAnalyzer
 from sentinel.tools.apktool import ApktoolError, ApktoolRunner
 from sentinel.tools.jadx import JadxRunner
 from sentinel.tools.manifest import ManifestError, ManifestParser
@@ -70,11 +73,7 @@ class ScanResult:
 
 
 class Orchestrator:
-    """Runs a scan through the phase pipeline.
-
-    Sprint 7 adds Phase 3 (LLM triage). Sprint 7.6.1 makes Phase 1
-    crash-proof via ToolResult.
-    """
+    """Runs a scan through the phase pipeline."""
 
     def __init__(
         self,
@@ -103,7 +102,7 @@ class Orchestrator:
             await self._phase0_ingestion()
             result.phase_timings["phase0"] = asyncio.get_event_loop().time() - start
 
-            # Phase 1: Recon (crash-proof)
+            # Phase 1: Recon (parallel, crash-proof)
             start = asyncio.get_event_loop().time()
             await self._phase1_recon(result)
             result.phase_timings["phase1"] = asyncio.get_event_loop().time() - start
@@ -179,16 +178,18 @@ class Orchestrator:
             },
         )
 
-    # ---------- Phase 1: Recon (crash-proof) ----------
+    # ---------- Phase 1: Recon (parallel) ----------
 
     async def _phase1_recon(self, scan_result: ScanResult) -> None:
-        """Decompile the APK and parse its manifest.
+        """Run all decompilers + analyzers in parallel.
 
-        CRASH-PROOF: All tool failures are caught and recorded as warnings.
-        Scan continues with whatever succeeded. Even if all tools fail, the
-        manifest is still parseable directly from the APK binary.
+        Each tool's success/failure is independent of the others. Even if
+        JADX times out, Androguard typically succeeds within 30s — so the
+        scan can produce findings via bytecode analysis.
+
+        ctx.sources is populated with whatever succeeded.
         """
-        logger.info("[%s] Phase 1: Recon", self._context.session_id)
+        logger.info("[%s] Phase 1: Parallel Recon", self._context.session_id)
         await self._memory.publish_event(
             self._context.session_id, "phase.started", {"phase": 1},
         )
@@ -197,62 +198,79 @@ class Orchestrator:
         decompile_dir = ws / "decompiled"
         resources_dir = ws / "resources"
 
-        # JADX — uses ToolResult, never raises
-        jadx = JadxRunner()
-        jadx_result = await jadx.decompile(self._context.apk_path, decompile_dir)
-        if jadx_result.success:
+        # Build coroutines for all tools — they'll run concurrently
+        jadx_task = self._run_jadx(decompile_dir)
+        androguard_task = self._run_androguard()
+        apktool_task = self._run_apktool(resources_dir)
+        manifest_task = self._run_manifest()
+
+        # Wait for all tools, exceptions become results
+        jadx_res, androguard_res, apktool_res, manifest_res = await asyncio.gather(
+            jadx_task, androguard_task, apktool_task, manifest_task,
+            return_exceptions=True,
+        )
+
+        # Process JADX result
+        if isinstance(jadx_res, BaseException):
+            logger.exception("JADX task crashed", exc_info=jadx_res)
+            scan_result.warnings.append(f"JADX crashed: {jadx_res}")
+        elif jadx_res and jadx_res.success:
+            self._context.sources["jadx"] = jadx_res.data
+            self._context.decompiled_dir = decompile_dir  # backwards compat
             logger.info(
                 "JADX produced %d Java files in %.1fs",
-                jadx_result.data.java_file_count,
-                jadx_result.duration_seconds,
+                jadx_res.data.java_file_count, jadx_res.duration_seconds,
             )
-            for warning in jadx_result.warnings:
-                scan_result.warnings.append(f"JADX: {warning}")
+            for w in jadx_res.warnings:
+                scan_result.warnings.append(f"JADX: {w}")
         else:
-            logger.warning("JADX failed: %s", jadx_result.error)
-            scan_result.warnings.append(f"JADX failed: {jadx_result.error}")
+            error = jadx_res.error if jadx_res else "unknown"
+            logger.warning("JADX failed: %s", error)
+            scan_result.warnings.append(f"JADX failed: {error}")
 
-        # apktool — still raises ApktoolError; we catch it here
-        apktool = ApktoolRunner()
-        apktool_succeeded = False
-        try:
-            await apktool.decode(self._context.apk_path, resources_dir)
-            apktool_succeeded = True
-            logger.info("apktool produced manifest + resources")
-        except ApktoolError as e:
-            logger.warning("apktool failed: %s", e)
-            scan_result.warnings.append(f"apktool failed: {e}")
-        except Exception as e:  # noqa: BLE001
-            logger.exception("apktool crashed unexpectedly")
-            scan_result.warnings.append(f"apktool crashed: {type(e).__name__}: {e}")
-
-        # Manifest parsing via androguard reads the APK binary directly,
-        # so it works even when both decompilers fail.
-        manifest_parser = ManifestParser()
-        manifest: dict[str, Any] = {}
-        try:
-            manifest = manifest_parser.parse(self._context.apk_path)
-        except ManifestError as e:
-            logger.warning("Manifest parse failed: %s", e)
-            scan_result.warnings.append(f"Manifest parse failed: {e}")
-            # Manifest is critical — without it, most agents can't function.
-            # But we still don't crash; we let agents handle empty manifest.
-            manifest = {}
-        except Exception as e:  # noqa: BLE001
-            logger.exception("Manifest parser crashed unexpectedly")
-            scan_result.warnings.append(
-                f"Manifest crashed: {type(e).__name__}: {e}"
+        # Process Androguard result
+        if isinstance(androguard_res, BaseException):
+            logger.exception("Androguard task crashed", exc_info=androguard_res)
+            scan_result.warnings.append(f"Androguard crashed: {androguard_res}")
+        elif androguard_res and androguard_res.success:
+            self._context.sources["androguard"] = androguard_res.data
+            logger.info(
+                "Androguard analyzed in %.1fs: %d classes, %d strings",
+                androguard_res.duration_seconds,
+                len(androguard_res.data.get_all_classes()),
+                len(androguard_res.data.get_all_strings()),
             )
-            manifest = {}
+            for w in androguard_res.warnings:
+                scan_result.warnings.append(f"Androguard: {w}")
+        else:
+            error = androguard_res.error if androguard_res else "unknown"
+            logger.warning("Androguard failed: %s", error)
+            scan_result.warnings.append(f"Androguard failed: {error}")
 
-        # Set context based on what succeeded
-        self._context.decompiled_dir = (
-            decompile_dir if jadx_result.success else None
-        )
-        self._context.resources_dir = (
-            resources_dir if apktool_succeeded else None
-        )
-        self._context.manifest = manifest
+        # Process apktool result
+        if isinstance(apktool_res, BaseException):
+            logger.exception("apktool task crashed", exc_info=apktool_res)
+            scan_result.warnings.append(f"apktool crashed: {apktool_res}")
+        elif apktool_res is True:
+            self._context.sources["apktool"] = {"resources_dir": resources_dir}
+            self._context.resources_dir = resources_dir  # backwards compat
+            logger.info("apktool produced manifest + resources")
+        elif isinstance(apktool_res, str):
+            # Non-fatal apktool failure (string error message)
+            logger.warning("apktool failed: %s", apktool_res)
+            scan_result.warnings.append(f"apktool failed: {apktool_res}")
+
+        # Process manifest result
+        if isinstance(manifest_res, BaseException):
+            logger.exception("manifest task crashed", exc_info=manifest_res)
+            scan_result.warnings.append(f"manifest crashed: {manifest_res}")
+            self._context.manifest = {}
+        elif isinstance(manifest_res, dict):
+            self._context.manifest = manifest_res
+        else:
+            self._context.manifest = {}
+
+        manifest = self._context.manifest
         self._context.target_sdk = manifest.get("target_sdk", 0)
         self._context.permissions = manifest.get("permissions", [])
 
@@ -265,14 +283,65 @@ class Orchestrator:
                 "permissions_count": len(manifest.get("permissions", [])),
                 "activities_count": len(manifest.get("activities", [])),
                 "java_files": (
-                    jadx_result.data.java_file_count
-                    if jadx_result.success else 0
+                    self._context.sources["jadx"].java_file_count
+                    if self._context.has_jadx() else 0
                 ),
-                "jadx_succeeded": jadx_result.success,
-                "apktool_succeeded": apktool_succeeded,
+                "jadx_succeeded": self._context.has_jadx(),
+                "androguard_succeeded": self._context.has_androguard(),
+                "apktool_succeeded": self._context.has_apktool(),
                 "warnings_count": len(scan_result.warnings),
             },
         )
+
+    async def _run_jadx(self, output_dir: Path) -> Any:
+        """Run JADX. Returns a ToolResult or None on internal error."""
+        try:
+            jadx = JadxRunner()
+            return await jadx.decompile(self._context.apk_path, output_dir)
+        except Exception:  # noqa: BLE001
+            logger.exception("JADX runner setup failed")
+            return None
+
+    async def _run_androguard(self) -> Any:
+        """Run Androguard. Returns a ToolResult or None on internal error."""
+        try:
+            analyzer = AndroguardAnalyzer()
+            return await analyzer.analyze(self._context.apk_path)
+        except Exception:  # noqa: BLE001
+            logger.exception("Androguard runner setup failed")
+            return None
+
+    async def _run_apktool(self, output_dir: Path) -> Any:
+        """Run apktool. Returns True on success or error string on failure.
+
+        apktool still raises ApktoolError today (will migrate to ToolResult
+        in a later sprint). We catch the exception here.
+        """
+        try:
+            apktool = ApktoolRunner()
+            await apktool.decode(self._context.apk_path, output_dir)
+            return True
+        except ApktoolError as e:
+            return f"ApktoolError: {e}"
+        except Exception as e:  # noqa: BLE001
+            logger.exception("apktool unexpected error")
+            return f"{type(e).__name__}: {e}"
+
+    async def _run_manifest(self) -> dict:
+        """Parse the APK manifest. Returns a dict (empty on failure)."""
+        try:
+            parser = ManifestParser()
+            # ManifestParser.parse() is synchronous and CPU-bound — run in executor
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(
+                None, parser.parse, self._context.apk_path,
+            )
+        except ManifestError as e:
+            logger.warning("Manifest parse failed: %s", e)
+            return {}
+        except Exception:  # noqa: BLE001
+            logger.exception("Manifest parser unexpected error")
+            return {}
 
     # ---------- Phase 2: Agents ----------
 
