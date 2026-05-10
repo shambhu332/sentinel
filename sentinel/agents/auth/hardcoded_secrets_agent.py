@@ -316,7 +316,7 @@ class HardcodedSecretsAgent(BaseAgent):
         # Pick best representative for each value
         deduped: list[dict[str, Any]] = []
         source_priority = {"java": 0, "resources": 1, "androguard": 2}
-        for value, group in by_value.items():
+        for _value, group in by_value.items():
             group.sort(key=lambda x: source_priority.get(x.get("source", ""), 99))
             best = group[0]
             # If found in multiple sources, note it
