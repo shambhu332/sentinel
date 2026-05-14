@@ -6,17 +6,24 @@ Pipeline phases:
            (Sprint 7.6.3). Each tool is crash-proof and contributes
            independently to ctx.sources. Scan continues with whatever
            succeeded.
-- Phase 2: Static analysis agents
+- Phase 4: Dynamic analysis (Sprint 8.1) — mitmproxy + adb. Runs ONLY
+           when --dynamic is passed. Installs APK on connected device,
+           captures HTTP/HTTPS traffic via mitmproxy, stores in
+           ctx.sources['mitmproxy'] for N_003/N_004 to consume.
+- Phase 2: Static + dynamic analysis agents
 - Phase 3: LLM triage (Sprint 7) — filters false positives, optional
 
 Later sprints add:
-- Phase 4: Dynamic analysis (Frida + mitmproxy + Appium)
+- Phase 4 extensions: Frida runtime hooks (Sprint 8.2), emulator
+  automation (Sprint 8.3)
 - Phase 5+: Verification, PoC, chain detection
 
 CRASH-PROOFING:
 Tool wrappers return ToolResult instead of raising (Sprint 7.6.1).
 Phase 1 runs all tools concurrently via asyncio.gather(return_exceptions=True),
 so a single tool failure NEVER blocks the others.
+Phase 4 wraps every step in best-effort logic; rollback runs in finally
+so a partial DAST failure doesn't leave the device misconfigured.
 """
 from __future__ import annotations
 
@@ -33,10 +40,12 @@ from sentinel.agents.special import PipelineSmokeTestAgent
 from sentinel.core.finding import Finding
 from sentinel.core.scan_context import ScanContext
 from sentinel.memory.interface import MemoryInterface
+from sentinel.tools.adb_runner import AdbRunner
 from sentinel.tools.androguard_analyzer import AndroguardAnalyzer
 from sentinel.tools.apktool import ApktoolError, ApktoolRunner
 from sentinel.tools.jadx import JadxRunner
 from sentinel.tools.manifest import ManifestError, ManifestParser
+from sentinel.tools.mitmproxy_runner import MitmproxyRunner
 from sentinel.triage import LLMTriager
 
 logger = logging.getLogger(__name__)
@@ -81,11 +90,17 @@ class Orchestrator:
         memory: MemoryInterface,
         agents: list[type[BaseAgent]] | None = None,
         triager: LLMTriager | None = None,
+        dynamic_enabled: bool = False,
+        dynamic_duration_seconds: int = 30,
+        dynamic_port: int = 8082,
     ) -> None:
         self._context = context
         self._memory = memory
         self._agents = agents if agents is not None else [PipelineSmokeTestAgent]
         self._triager = triager
+        self._dynamic_enabled = dynamic_enabled
+        self._dynamic_duration_seconds = dynamic_duration_seconds
+        self._dynamic_port = dynamic_port
 
     async def run(self) -> ScanResult:
         """Execute the full scan."""
@@ -106,6 +121,28 @@ class Orchestrator:
             start = asyncio.get_event_loop().time()
             await self._phase1_recon(result)
             result.phase_timings["phase1"] = asyncio.get_event_loop().time() - start
+
+            # Phase 4: Dynamic analysis (Sprint 8.1) — runs BEFORE Phase 2
+            # so dynamic agents have captures available. Named Phase 4 to
+            # reflect logical pipeline tier (later sprints extend this with
+            # Frida hooks + emulator automation), not execution order.
+            if self._dynamic_enabled:
+                start = asyncio.get_event_loop().time()
+                try:
+                    await self._phase4_dynamic(result)
+                except Exception as e:  # noqa: BLE001
+                    logger.exception("[%s] Phase 4 dynamic analysis failed",
+                                     self._context.session_id)
+                    result.warnings.append(
+                        f"Phase 4 dynamic analysis failed: {str(e)[:200]}",
+                    )
+                    await self._memory.publish_event(
+                        self._context.session_id, "phase.failed",
+                        {"phase": 4, "error": str(e)[:500]},
+                    )
+                result.phase_timings["phase4"] = (
+                    asyncio.get_event_loop().time() - start
+                )
 
             # Phase 2: Run agents
             start = asyncio.get_event_loop().time()
@@ -342,6 +379,165 @@ class Orchestrator:
         except Exception:  # noqa: BLE001
             logger.exception("Manifest parser unexpected error")
             return {}
+
+    # ---------- Phase 4: Dynamic Analysis (Sprint 8.1) ----------
+
+    async def _phase4_dynamic(self, scan_result: ScanResult) -> None:
+        """Run dynamic analysis: install APK, capture traffic, store flows.
+
+        Pipeline:
+        1. Verify a device is connected via adb
+        2. Get the target package from manifest (or skip if unknown)
+        3. Install the APK on the device
+        4. Start mitmproxy on the configured port
+        5. Configure the device to proxy through laptop:port
+        6. Launch the app
+        7. Wait dynamic_duration_seconds for traffic capture
+           (in a real run, user interacts with the app during this window)
+        8. Stop the app, clear the proxy, stop mitmproxy
+        9. Store the capture in ctx.sources['mitmproxy'] for dynamic agents
+
+        The whole phase is best-effort. If any step fails, we log it as a
+        warning and skip the rest — SAST findings still get produced.
+        """
+        logger.info("[%s] Phase 4: Dynamic analysis",
+                    self._context.session_id)
+        await self._memory.publish_event(
+            self._context.session_id, "phase.started", {"phase": 4},
+        )
+
+        package = (self._context.manifest or {}).get("package")
+        if not package:
+            scan_result.warnings.append(
+                "Phase 4 skipped: package name not in manifest",
+            )
+            return
+
+        adb = AdbRunner()
+        mitmproxy = MitmproxyRunner(port=self._dynamic_port)
+
+        # 1) Verify device available
+        device_result = await adb.get_first_device()
+        if not device_result.success:
+            scan_result.warnings.append(
+                f"Phase 4 skipped: no Android device. {device_result.error}",
+            )
+            return
+        device = device_result.data
+        logger.info("Phase 4 device: %s (%s)",
+                    device.serial, device.properties.get("model", "?"))
+
+        # 2) Install the APK (best-effort; may already be present)
+        install_result = await adb.install_apk(
+            self._context.apk_path, serial=device.serial, replace=True,
+        )
+        if not install_result.success:
+            # Install failure may not be fatal — package may already be on device
+            logger.warning("APK install failed (may already be installed): %s",
+                           install_result.error)
+            scan_result.warnings.append(
+                f"Phase 4: APK install warning: {install_result.error}",
+            )
+
+        # 3) Start mitmproxy
+        mitm_start = await mitmproxy.start(
+            self._context.workspace / "dynamic",
+        )
+        if not mitm_start.success:
+            scan_result.warnings.append(
+                f"Phase 4: mitmproxy start failed: {mitm_start.error}",
+            )
+            return
+
+        proxy_host = mitm_start.data["host"]
+        proxy_port = mitm_start.data["port"]
+        logger.info("mitmproxy listening on %s:%d", proxy_host, proxy_port)
+
+        # Track what we configured so we can roll it all back
+        proxy_set = False
+        app_started = False
+
+        try:
+            # 4) Configure device proxy
+            proxy_result = await adb.set_global_proxy(
+                proxy_host, proxy_port, serial=device.serial,
+            )
+            proxy_set = proxy_result.success
+            if not proxy_set:
+                scan_result.warnings.append(
+                    f"Phase 4: proxy config failed: {proxy_result.error}",
+                )
+                return
+
+            # 5) Launch app
+            launch_result = await adb.start_app(package, serial=device.serial)
+            app_started = launch_result.success
+            if not app_started:
+                scan_result.warnings.append(
+                    f"Phase 4: app launch failed: {launch_result.error}",
+                )
+                return
+
+            # 6) Capture window — user interacts during this time
+            logger.info(
+                "Phase 4: capturing traffic for %ds (interact with the app now)",
+                self._dynamic_duration_seconds,
+            )
+            await self._memory.publish_event(
+                self._context.session_id, "phase.progress",
+                {
+                    "phase": 4,
+                    "status": "capturing",
+                    "duration_seconds": self._dynamic_duration_seconds,
+                    "proxy": f"{proxy_host}:{proxy_port}",
+                    "package": package,
+                },
+            )
+            await asyncio.sleep(self._dynamic_duration_seconds)
+
+        finally:
+            # 7) Teardown — always run, even on failure
+            if app_started:
+                stop_result = await adb.force_stop(package, serial=device.serial)
+                if not stop_result.success:
+                    logger.warning("force-stop returned non-success: %s",
+                                   stop_result.error)
+
+            if proxy_set:
+                clear_result = await adb.clear_global_proxy(serial=device.serial)
+                if not clear_result.success:
+                    logger.warning("proxy clear returned non-success: %s",
+                                   clear_result.error)
+
+            mitm_stop = await mitmproxy.stop()
+            if mitm_stop.success:
+                capture = mitm_stop.data
+                self._context.sources["mitmproxy"] = capture
+                logger.info(
+                    "Phase 4: captured %d flows in %.1fs",
+                    capture.flow_count, capture.duration_seconds,
+                )
+                await self._memory.publish_event(
+                    self._context.session_id, "phase.completed",
+                    {
+                        "phase": 4,
+                        "flow_count": capture.flow_count,
+                        "tls_failed_count": sum(
+                            1 for f in capture.flows if f.tls_failed
+                        ),
+                        "https_success_count": sum(
+                            1 for f in capture.flows
+                            if f.scheme == "https" and not f.tls_failed
+                        ),
+                        "http_count": sum(
+                            1 for f in capture.flows if f.scheme == "http"
+                        ),
+                    },
+                )
+            else:
+                scan_result.warnings.append(
+                    f"Phase 4: mitmproxy stop failed: {mitm_stop.error}",
+                )
 
     # ---------- Phase 2: Agents ----------
 

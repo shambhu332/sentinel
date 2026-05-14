@@ -95,6 +95,13 @@ def serve(host: str, port: int, reload: bool) -> None:
               help="Disable LLM triage (faster, but more false positives)")
 @click.option("--show-filtered", is_flag=True,
               help="Show findings the LLM filtered as false positives")
+@click.option("--dynamic", is_flag=True,
+              help="Enable Phase 4 dynamic analysis (requires a connected "
+                   "Android device with mitmproxy CA cert trusted)")
+@click.option("--dynamic-duration", type=int, default=30,
+              help="Seconds to capture traffic during Phase 4 (default: 30)")
+@click.option("--dynamic-port", type=int, default=8082,
+              help="Local port for mitmproxy in Phase 4 (default: 8082)")
 def scan(
     apk_path: Path,
     scope_url: str | None,
@@ -106,6 +113,9 @@ def scan(
     private: bool,
     no_triage: bool,
     show_filtered: bool,
+    dynamic: bool,
+    dynamic_duration: int,
+    dynamic_port: int,
 ) -> None:
     """Run a security scan against an APK file."""
     asyncio.run(_run_scan(
@@ -119,6 +129,9 @@ def scan(
         private=private,
         no_triage=no_triage,
         show_filtered=show_filtered,
+        dynamic=dynamic,
+        dynamic_duration=dynamic_duration,
+        dynamic_port=dynamic_port,
     ))
 
 
@@ -133,6 +146,9 @@ async def _run_scan(
     private: bool,
     no_triage: bool,
     show_filtered: bool,
+    dynamic: bool,
+    dynamic_duration: int,
+    dynamic_port: int,
 ) -> None:
     """Async implementation of the scan command."""
     from sentinel.agents.auth import HardcodedSecretsAgent
@@ -143,6 +159,7 @@ async def _run_scan(
     from sentinel.agents.crypto import WeakCryptoAgent
     from sentinel.agents.data_storage import WorldReadableStorageAgent
     from sentinel.agents.deep_links import DeepLinkHijackAgent
+    from sentinel.agents.dynamic import DataInTransitAgent, ImproperTLSAgent
     from sentinel.agents.logging import InsecureLoggingAgent
     from sentinel.agents.meta import ObfuscationDetectorAgent
     from sentinel.agents.network import CleartextTrafficAgent
@@ -167,6 +184,16 @@ async def _run_scan(
         console.print("[bold yellow]Privacy mode:[/] local LLM only")
     if no_triage:
         console.print("[bold yellow]Triage disabled:[/] all findings unfiltered")
+    if dynamic:
+        console.print(
+            f"[bold yellow]Dynamic analysis enabled:[/] "
+            f"capture {dynamic_duration}s of traffic via mitmproxy on port "
+            f"{dynamic_port}",
+        )
+        console.print(
+            "[dim]Connect a rooted Android device with mitmproxy CA cert "
+            "trusted. Interact with the app during the capture window.[/]",
+        )
     console.print()
 
     scope = BountyScope()
@@ -210,39 +237,64 @@ async def _run_scan(
         console.print(f"[bold]Session:[/]   {ctx.session_id}")
         console.print()
 
+        # Build the agent list. Dynamic agents only run when --dynamic is
+        # passed (their is_applicable() also gates on ctx.sources['mitmproxy'],
+        # so adding them when --dynamic is off would just be a no-op).
+        agent_list: list = [
+            # Meta — runs first, sets context for the rest
+            ObfuscationDetectorAgent,         # META_001
+            # Smoke test
+            PipelineSmokeTestAgent,           # TEST_001
+            # SAST agents (alphabetical by ID)
+            InsecureAuthStorageAgent,         # A_001
+            HardcodedSecretsAgent,            # A_004
+            InsecureLoggingAgent,             # A_007
+            InsecureRandomAgent,              # B_002
+            InsecureBackupAgent,              # C_001
+            WorldReadableStorageAgent,        # C_002
+            InsecureWebViewAgent,             # C_004
+            InsecureSharedPrefsAgent,         # C_006
+            WeakCryptoAgent,                  # C_007
+            FirebaseMisconfigAgent,           # F_001
+            MissingCertPinningAgent,          # N_001
+            CleartextTrafficAgent,            # N_002
+            DeepLinkHijackAgent,              # P_001
+            ContentProviderIDORAgent,         # P_004
+        ]
+        if dynamic:
+            agent_list.extend([
+                ImproperTLSAgent,             # N_003 (Sprint 8.1 DAST)
+                DataInTransitAgent,           # N_004 (Sprint 8.1 DAST)
+            ])
+
         orch = Orchestrator(
             context=ctx,
             memory=memory,
-            agents=[
-                # Meta — runs first, sets context for the rest
-                ObfuscationDetectorAgent,         # META_001
-                # Smoke test
-                PipelineSmokeTestAgent,           # TEST_001
-                # SAST agents (alphabetical by ID)
-                InsecureAuthStorageAgent,         # A_001
-                HardcodedSecretsAgent,            # A_004
-                InsecureLoggingAgent,             # A_007
-                InsecureRandomAgent,              # B_002
-                InsecureBackupAgent,              # C_001
-                WorldReadableStorageAgent,        # C_002
-                InsecureWebViewAgent,             # C_004
-                InsecureSharedPrefsAgent,         # C_006
-                WeakCryptoAgent,                  # C_007
-                FirebaseMisconfigAgent,           # F_001
-                MissingCertPinningAgent,          # N_001
-                CleartextTrafficAgent,            # N_002
-                DeepLinkHijackAgent,              # P_001
-                ContentProviderIDORAgent,         # P_004
-            ],
+            agents=agent_list,
             triager=triager,
+            dynamic_enabled=dynamic,
+            dynamic_duration_seconds=dynamic_duration,
+            dynamic_port=dynamic_port,
         )
 
-        # Status message changes when triage is on (it's slow)
-        status_msg = (
-            "[bold cyan]Running scan with LLM triage (this may take 1-3 min)...[/]"
-            if triager else
-            "[bold cyan]Running scan...[/]"
-        )
+        # Status message reflects which optional phases are enabled
+        if dynamic and triager:
+            status_msg = (
+                "[bold cyan]Running scan with DAST capture + LLM triage "
+                f"(at least {dynamic_duration}s + 1-3 min triage)...[/]"
+            )
+        elif dynamic:
+            status_msg = (
+                f"[bold cyan]Running scan with DAST capture (at least "
+                f"{dynamic_duration}s)...[/]"
+            )
+        elif triager:
+            status_msg = (
+                "[bold cyan]Running scan with LLM triage "
+                "(this may take 1-3 min)...[/]"
+            )
+        else:
+            status_msg = "[bold cyan]Running scan...[/]"
 
         with console.status(status_msg, spinner="dots"):
             result = await orch.run()
