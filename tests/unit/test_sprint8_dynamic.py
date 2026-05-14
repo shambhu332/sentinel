@@ -58,9 +58,12 @@ def _make_capture(flows: list[CapturedFlow]) -> MitmproxyCapture:
 
 @pytest.fixture
 def ctx(tmp_path):
+    # ScanContext validates APK existence in __init__, so create a real file
+    apk_path = tmp_path / "dummy.apk"
+    apk_path.write_bytes(b"")
     c = ScanContext(
         session_id=generate_session_id(),
-        apk_path=tmp_path / "dummy.apk",
+        apk_path=apk_path,
         workspace=tmp_path,
         scope=BountyScope(),
     )
@@ -299,10 +302,11 @@ async def test_n004_password_https_is_high_not_critical(ctx, memory):
 @pytest.mark.asyncio
 async def test_n004_google_api_key_in_url(ctx, memory):
     """A real-looking Google API key (AIza prefix + 35 chars) → finding."""
+    # Google API keys: AIza + exactly 35 alphanumeric chars = 39 total
     ctx.sources["mitmproxy"] = _make_capture([
         _make_flow(
             "api.example.com", scheme="https",
-            url="https://api.example.com/?key=AIzaSyA1234567890ABCDEFGHIJKLMNOPQR3st",
+            url="https://api.example.com/?key=AIzaSyA1234567890ABCDEFGHIJKLMNOPQR3stu",
         ),
     ])
     agent = DataInTransitAgent(context=ctx, memory=memory)
@@ -333,7 +337,8 @@ async def test_n004_aggregates_multiple_leaks_into_one_finding_per_category(ctx,
 @pytest.mark.asyncio
 async def test_n004_redaction_obscures_full_value(ctx, memory):
     """Redacted values must not expose the full secret."""
-    secret = "AIzaSyA1234567890ABCDEFGHIJKLMNOPQRdgw"
+    # 39 chars total: AIza + 35 char body to match the agent regex
+    secret = "AIzaSyA1234567890ABCDEFGHIJKLMNOPQRdgwk"
     ctx.sources["mitmproxy"] = _make_capture([
         _make_flow(
             "api.example.com", scheme="https",
