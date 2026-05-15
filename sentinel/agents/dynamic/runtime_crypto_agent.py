@@ -21,7 +21,6 @@ Bug bounty value:
 from __future__ import annotations
 
 import logging
-from collections import defaultdict
 from typing import Any
 
 from sentinel.agents.base.base_agent import BaseAgent
@@ -30,25 +29,33 @@ from sentinel.core.finding import Finding, Severity
 logger = logging.getLogger(__name__)
 
 
-# Algorithms classified as weak. Maps lowercase substring → human description.
-# Severity is determined later by _severity_for_description.
-_WEAK_ALGORITHMS: dict[str, str] = {
-    # Symmetric ciphers
-    "des": "DES (broken since 1999, 56-bit key)",
-    "3des": "3DES (deprecated by NIST in 2023)",
-    "desede": "3DES (deprecated by NIST in 2023)",
-    "rc4": "RC4 (broken — BEAR/LEFT attacks)",
-    "blowfish": "Blowfish (weak 64-bit block; use AES)",
-    # Hash functions
-    "md5": "MD5 (collisions trivial)",
-    "md2": "MD2 (broken)",
-    "md4": "MD4 (broken)",
-    "sha1": "SHA-1 (collisions practical)",
-    "sha-1": "SHA-1 (collisions practical)",
+# Algorithm key → (human description, severity).
+# Severity is EXPLICIT, not inferred from description prose. If you
+# change a description string, severity is unaffected — and vice versa.
+#
+# Tiers reflect a deliberate ceiling difference between ciphers and
+# digests: a broken cipher is CRITICAL (data confidentiality lost),
+# a broken digest is HIGH (integrity claims weakened but typically
+# not a direct data-disclosure path).
+_WEAK_ALGORITHMS: dict[str, tuple[str, Severity]] = {
+    # Symmetric ciphers — fundamentally broken
+    "des":      ("DES (broken since 1999, 56-bit key)",       Severity.CRITICAL),
+    "rc4":      ("RC4 (broken — BEAST/LUCKY13 family)",       Severity.CRITICAL),
+    # Symmetric ciphers — deprecated or weak
+    "3des":     ("3DES (deprecated by NIST in 2023)",         Severity.HIGH),
+    "desede":   ("3DES (deprecated by NIST in 2023)",         Severity.HIGH),
+    "blowfish": ("Blowfish (weak 64-bit block; use AES)",     Severity.MEDIUM),
+    # Hash functions — broken (digest ceiling is HIGH, not CRITICAL)
+    "md5":      ("MD5 (collisions trivial)",                  Severity.HIGH),
+    "md4":      ("MD4 (broken)",                              Severity.HIGH),
+    "md2":      ("MD2 (broken)",                              Severity.HIGH),
+    # Hash functions — attacked but still encountered, downgraded
+    "sha1":     ("SHA-1 (collisions practical)",              Severity.MEDIUM),
+    "sha-1":    ("SHA-1 (collisions practical)",              Severity.MEDIUM),
     # Modes
-    "/ecb/": "ECB mode (leaks plaintext patterns)",
+    "/ecb/":    ("ECB mode (leaks plaintext patterns)",       Severity.HIGH),
     # PRNG
-    "random": "java.util.Random for crypto (predictable)",
+    "random":   ("java.util.Random for crypto (predictable)", Severity.HIGH),
 }
 
 
@@ -80,17 +87,19 @@ class RuntimeCryptoAgent(BaseAgent):
             logger.info("[A_003] No crypto events captured")
             return []
 
-        # Group by weak-algorithm description
-        findings_by_label: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        # Group by weak-algorithm description.
+        # Value is (severity, [occurrence dicts]).
+        findings_by_label: dict[str, tuple[Severity, list[dict[str, Any]]]] = {}
 
         for event in crypto_events:
             algo = (event.payload.get("algorithm") or "").lower()
             if not algo:
                 continue
 
-            for weak_key, description in _WEAK_ALGORITHMS.items():
+            for weak_key, (description, severity) in _WEAK_ALGORITHMS.items():
                 if weak_key in algo:
-                    findings_by_label[description].append({
+                    entry = findings_by_label.setdefault(description, (severity, []))
+                    entry[1].append({
                         "algorithm": event.payload.get("algorithm"),
                         "kind": event.kind,
                         "provider": event.payload.get("provider"),
@@ -103,8 +112,7 @@ class RuntimeCryptoAgent(BaseAgent):
 
         # Produce one finding per weak-algorithm category
         findings: list[Finding] = []
-        for description, occurrences in findings_by_label.items():
-            severity = self._severity_for_description(description)
+        for description, (severity, occurrences) in findings_by_label.items():
             confidence = 0.95  # runtime observation is high-confidence
 
             example_algo = occurrences[0].get("algorithm", "?")
@@ -143,22 +151,6 @@ class RuntimeCryptoAgent(BaseAgent):
             ))
 
         return findings
-
-    @staticmethod
-    def _severity_for_description(description: str) -> Severity:
-        """Map a weak-algo description to a Severity enum."""
-        desc_l = description.lower()
-        if "broken" in desc_l or "trivial" in desc_l:
-            return Severity.CRITICAL
-        if "deprecated" in desc_l or "practical" in desc_l:
-            return Severity.HIGH
-        if "leaks plaintext" in desc_l:
-            return Severity.HIGH
-        if "predictable" in desc_l:
-            return Severity.HIGH
-        if "weak" in desc_l:
-            return Severity.MEDIUM
-        return Severity.MEDIUM
 
     @staticmethod
     def _build_recommendation(description: str) -> str:
