@@ -102,6 +102,12 @@ def serve(host: str, port: int, reload: bool) -> None:
               help="Seconds to capture traffic during Phase 4 (default: 30)")
 @click.option("--dynamic-port", type=int, default=8082,
               help="Local port for mitmproxy in Phase 4 (default: 8082)")
+@click.option("--frida", is_flag=True,
+              help="Enable Frida runtime hooks (requires --dynamic and "
+                   "zygiskfrida on phone). Adds A_003 runtime crypto agent.")
+@click.option("--frida-duration", type=int, default=20,
+              help="Seconds to run Frida hooks during Phase 4 (default: 20). "
+                   "Runs AFTER mitmproxy capture.")
 def scan(
     apk_path: Path,
     scope_url: str | None,
@@ -116,6 +122,8 @@ def scan(
     dynamic: bool,
     dynamic_duration: int,
     dynamic_port: int,
+    frida: bool,
+    frida_duration: int,
 ) -> None:
     """Run a security scan against an APK file."""
     asyncio.run(_run_scan(
@@ -132,6 +140,8 @@ def scan(
         dynamic=dynamic,
         dynamic_duration=dynamic_duration,
         dynamic_port=dynamic_port,
+        frida=frida,
+        frida_duration=frida_duration,
     ))
 
 
@@ -149,6 +159,8 @@ async def _run_scan(
     dynamic: bool,
     dynamic_duration: int,
     dynamic_port: int,
+    frida: bool,
+    frida_duration: int,
 ) -> None:
     """Async implementation of the scan command."""
     from sentinel.agents.auth import HardcodedSecretsAgent
@@ -159,7 +171,11 @@ async def _run_scan(
     from sentinel.agents.crypto import WeakCryptoAgent
     from sentinel.agents.data_storage import WorldReadableStorageAgent
     from sentinel.agents.deep_links import DeepLinkHijackAgent
-    from sentinel.agents.dynamic import DataInTransitAgent, ImproperTLSAgent
+    from sentinel.agents.dynamic import (
+        DataInTransitAgent,
+        ImproperTLSAgent,
+        RuntimeCryptoAgent,
+    )
     from sentinel.agents.logging import InsecureLoggingAgent
     from sentinel.agents.meta import ObfuscationDetectorAgent
     from sentinel.agents.network import CleartextTrafficAgent
@@ -184,12 +200,24 @@ async def _run_scan(
         console.print("[bold yellow]Privacy mode:[/] local LLM only")
     if no_triage:
         console.print("[bold yellow]Triage disabled:[/] all findings unfiltered")
+    if frida and not dynamic:
+        console.print(
+            "[bold red]--frida requires --dynamic. Frida hooks attach to the "
+            "running app after Phase 4 traffic capture.[/]",
+        )
+        return
     if dynamic:
         console.print(
             f"[bold yellow]Dynamic analysis enabled:[/] "
             f"capture {dynamic_duration}s of traffic via mitmproxy on port "
             f"{dynamic_port}",
         )
+        if frida:
+            console.print(
+                f"[bold yellow]Frida runtime hooks enabled:[/] "
+                f"capture {frida_duration}s of runtime crypto/security events "
+                f"(via zygiskfrida)",
+            )
         console.print(
             "[dim]Connect a rooted Android device with mitmproxy CA cert "
             "trusted. Interact with the app during the capture window.[/]",
@@ -266,6 +294,8 @@ async def _run_scan(
                 ImproperTLSAgent,             # N_003 (Sprint 8.1 DAST)
                 DataInTransitAgent,           # N_004 (Sprint 8.1 DAST)
             ])
+        if dynamic and frida:
+            agent_list.append(RuntimeCryptoAgent)  # A_003 (Sprint 8.2 DAST)
 
         orch = Orchestrator(
             context=ctx,
@@ -275,10 +305,23 @@ async def _run_scan(
             dynamic_enabled=dynamic,
             dynamic_duration_seconds=dynamic_duration,
             dynamic_port=dynamic_port,
+            frida_enabled=frida,
+            frida_duration_seconds=frida_duration,
         )
 
         # Status message reflects which optional phases are enabled
-        if dynamic and triager:
+        if dynamic and frida and triager:
+            status_msg = (
+                "[bold cyan]Running scan with DAST + Frida + LLM triage "
+                f"(at least {dynamic_duration + frida_duration}s + 1-3 min "
+                "triage)...[/]"
+            )
+        elif dynamic and frida:
+            status_msg = (
+                f"[bold cyan]Running scan with DAST + Frida (at least "
+                f"{dynamic_duration + frida_duration}s)...[/]"
+            )
+        elif dynamic and triager:
             status_msg = (
                 "[bold cyan]Running scan with DAST capture + LLM triage "
                 f"(at least {dynamic_duration}s + 1-3 min triage)...[/]"

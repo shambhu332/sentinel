@@ -10,12 +10,16 @@ Pipeline phases:
            when --dynamic is passed. Installs APK on connected device,
            captures HTTP/HTTPS traffic via mitmproxy, stores in
            ctx.sources['mitmproxy'] for N_003/N_004 to consume.
+- Phase 4.5: Frida sub-phase (Sprint 8.2) — runs WITHIN phase 4 after
+           the mitmproxy capture. Hooks runtime crypto + (future)
+           cert pinning. Stores capture in ctx.sources['frida'] for
+           A_003 to consume. Only runs when --frida is also passed.
 - Phase 2: Static + dynamic analysis agents
 - Phase 3: LLM triage (Sprint 7) — filters false positives, optional
 
 Later sprints add:
-- Phase 4 extensions: Frida runtime hooks (Sprint 8.2), emulator
-  automation (Sprint 8.3)
+- Phase 4 extensions: cert pinning bypass (Sprint 8.2 Part B),
+  emulator automation (Sprint 8.3)
 - Phase 5+: Verification, PoC, chain detection
 
 CRASH-PROOFING:
@@ -43,6 +47,7 @@ from sentinel.memory.interface import MemoryInterface
 from sentinel.tools.adb_runner import AdbRunner
 from sentinel.tools.androguard_analyzer import AndroguardAnalyzer
 from sentinel.tools.apktool import ApktoolError, ApktoolRunner
+from sentinel.tools.frida_runner import CIPHER_GETINSTANCE_HOOK, FridaRunner
 from sentinel.tools.jadx import JadxRunner
 from sentinel.tools.manifest import ManifestError, ManifestParser
 from sentinel.tools.mitmproxy_runner import MitmproxyRunner
@@ -93,6 +98,8 @@ class Orchestrator:
         dynamic_enabled: bool = False,
         dynamic_duration_seconds: int = 30,
         dynamic_port: int = 8082,
+        frida_enabled: bool = False,
+        frida_duration_seconds: int = 20,
     ) -> None:
         self._context = context
         self._memory = memory
@@ -101,6 +108,8 @@ class Orchestrator:
         self._dynamic_enabled = dynamic_enabled
         self._dynamic_duration_seconds = dynamic_duration_seconds
         self._dynamic_port = dynamic_port
+        self._frida_enabled = frida_enabled
+        self._frida_duration_seconds = frida_duration_seconds
 
     async def run(self) -> ScanResult:
         """Execute the full scan."""
@@ -394,6 +403,8 @@ class Orchestrator:
         6. Launch the app
         7. Wait dynamic_duration_seconds for traffic capture
            (in a real run, user interacts with the app during this window)
+        7.5) If --frida is enabled, run Frida sub-phase AFTER traffic capture,
+             with the app still running, to hook runtime crypto.
         8. Stop the app, clear the proxy, stop mitmproxy
         9. Store the capture in ctx.sources['mitmproxy'] for dynamic agents
 
@@ -487,13 +498,19 @@ class Orchestrator:
                 self._context.session_id, "phase.progress",
                 {
                     "phase": 4,
-                    "status": "capturing",
+                    "status": "capturing_traffic",
                     "duration_seconds": self._dynamic_duration_seconds,
                     "proxy": f"{proxy_host}:{proxy_port}",
                     "package": package,
                 },
             )
             await asyncio.sleep(self._dynamic_duration_seconds)
+
+            # 6.5) Frida sub-phase (Sprint 8.2). Runs AFTER traffic capture,
+            # against the still-running app. Hooks observe runtime crypto.
+            # The app must be running for Frida to attach.
+            if self._frida_enabled:
+                await self._run_frida_subphase(package, scan_result)
 
         finally:
             # 7) Teardown — always run, even on failure
@@ -538,6 +555,80 @@ class Orchestrator:
                 scan_result.warnings.append(
                     f"Phase 4: mitmproxy stop failed: {mitm_stop.error}",
                 )
+
+    # ---------- Phase 4.5: Frida sub-phase (Sprint 8.2) ----------
+
+    async def _run_frida_subphase(
+        self, package: str, scan_result: ScanResult,
+    ) -> None:
+        """Run Frida hooks against a still-running app.
+
+        Best-effort. If Frida fails (zygiskfrida not active, app crashed,
+        version mismatch), the failure is recorded as a warning and the
+        scan continues with what we already captured from mitmproxy.
+
+        Hooks installed:
+        - Cipher.getInstance (A_003): catches runtime crypto algorithm use
+        - MessageDigest.getInstance (A_003): catches runtime hash algo use
+        - KeyGenerator.getInstance (A_003): catches weak key generation
+        """
+        logger.info("Phase 4.5: Frida sub-phase for %s", package)
+        await self._memory.publish_event(
+            self._context.session_id, "phase.progress",
+            {
+                "phase": 4,
+                "status": "frida_hooking",
+                "duration_seconds": self._frida_duration_seconds,
+                "package": package,
+            },
+        )
+
+        frida = FridaRunner()
+        attach_result = await frida.attach(package)
+        if not attach_result.success:
+            scan_result.warnings.append(
+                f"Phase 4.5 Frida attach failed: {attach_result.error}",
+            )
+            return
+
+        inject_result = await frida.inject_script(CIPHER_GETINSTANCE_HOOK)
+        if not inject_result.success:
+            scan_result.warnings.append(
+                f"Phase 4.5 Frida script injection failed: "
+                f"{inject_result.error}",
+            )
+            # Still detach cleanly
+            await frida.detach()
+            return
+
+        logger.info(
+            "Frida hooks active. Interact with the app for %ds.",
+            self._frida_duration_seconds,
+        )
+        await frida.wait(self._frida_duration_seconds)
+
+        detach_result = await frida.detach()
+        if detach_result.success:
+            capture = detach_result.data
+            self._context.sources["frida"] = capture
+            logger.info(
+                "Phase 4.5: %d Frida events captured (%d crypto events)",
+                len(capture.events),
+                sum(1 for e in capture.events if e.kind.startswith("crypto.")),
+            )
+            await self._memory.publish_event(
+                self._context.session_id, "phase.progress",
+                {
+                    "phase": 4,
+                    "status": "frida_completed",
+                    "event_count": len(capture.events),
+                    "script_errors": len(capture.script_errors),
+                },
+            )
+        else:
+            scan_result.warnings.append(
+                f"Phase 4.5 Frida detach failed: {detach_result.error}",
+            )
 
     # ---------- Phase 2: Agents ----------
 

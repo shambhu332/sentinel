@@ -1,0 +1,360 @@
+"""Frida wrapper — runtime instrumentation of Android apps.
+
+Frida lets us hook arbitrary Java/native methods at runtime, observing
+(and optionally modifying) values that static analysis cannot see:
+- Actual algorithm passed to Cipher.getInstance() at runtime
+- Whether cert pinning code paths execute
+- Sensitive data flowing through methods that never appear in logs
+
+Architecture:
+1. We use the USB-connected Android device (frida.get_usb_device)
+2. zygiskfrida (already installed on the phone) auto-injects Frida into
+   every spawned app — so we don't need to manually push/start frida-server
+3. We attach to the target app's process AFTER it has been started
+4. We inject a JS hook script; the script sends events back to us via
+   the message protocol
+5. Each event is recorded in a list and returned as a FridaCapture
+
+Crash-proof: all operations return ToolResult. Hook crashes don't kill
+the scan — they're logged as warnings and the rest of the pipeline
+proceeds.
+
+Threading note: Frida's Python API is callback-based. We bridge it to
+asyncio by collecting messages in a list with a lock, and exposing the
+collected events when the caller calls stop().
+"""
+from __future__ import annotations
+
+import asyncio
+import logging
+import time
+from dataclasses import dataclass, field
+from typing import Any, Optional
+
+from sentinel.tools.result import ToolResult
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class FridaHookEvent:
+    """A single event captured from a Frida hook.
+
+    The 'kind' field discriminates between hook types so agents can filter:
+    - "crypto.cipher": from Cipher.getInstance hook (A_003)
+    - "crypto.digest": from MessageDigest.getInstance hook (A_003)
+    - "crypto.keygen": from KeyGenerator.getInstance hook (A_003)
+    - "crypto.hooks_installed": diagnostic, hooks loaded successfully
+    - "tls.pin_check": from cert pinning check hooks (N_005, future)
+    - "tls.bypass": when a pin check is bypassed by our script (N_005)
+    - "error": something went wrong inside the script
+    """
+    kind: str
+    payload: dict[str, Any] = field(default_factory=dict)
+    timestamp: float = 0.0
+
+
+@dataclass
+class FridaCapture:
+    """Result of a Frida hooking session."""
+    events: list[FridaHookEvent]
+    duration_seconds: float
+    target_package: str
+    target_pid: int
+    script_errors: list[str] = field(default_factory=list)
+
+
+class FridaRunner:
+    """Async wrapper for Frida USB-device instrumentation."""
+
+    def __init__(self) -> None:
+        self._device: Any = None
+        self._session: Any = None
+        self._script: Any = None
+        self._target_package: str = ""
+        self._target_pid: int = 0
+        self._events: list[FridaHookEvent] = []
+        self._script_errors: list[str] = []
+        self._events_lock = asyncio.Lock()
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._start_time: float = 0
+        self._frida_unavailable_reason: Optional[str] = None
+        try:
+            import frida  # noqa: F401
+        except ImportError as e:
+            self._frida_unavailable_reason = (
+                f"frida python library not installed: {e}"
+            )
+
+    async def attach(self, package: str) -> ToolResult[dict]:
+        """Attach to the named package on the USB device.
+
+        Requires the package to be currently running on the device.
+        Returns a dict with package, pid, device name.
+        """
+        if self._frida_unavailable_reason:
+            return ToolResult.fail(self._frida_unavailable_reason)
+
+        self._target_package = package
+        self._events = []
+        self._script_errors = []
+        self._start_time = time.monotonic()
+        self._loop = asyncio.get_event_loop()
+
+        try:
+            import frida
+
+            # Get USB-connected Android device
+            self._device = await self._loop.run_in_executor(
+                None, frida.get_usb_device, 5000,
+            )
+            logger.info(
+                "Frida device: %s (%s)",
+                self._device.name, self._device.type,
+            )
+
+            # Find the PID for our package. With zygiskfrida, gadget injection
+            # happens automatically when the app starts, so we just need to
+            # attach to the already-running process.
+            pid = await self._loop.run_in_executor(
+                None, self._find_pid, package,
+            )
+            if pid is None:
+                return ToolResult.fail(
+                    f"Package '{package}' not running on device. "
+                    f"Start it via adb first.",
+                )
+            self._target_pid = pid
+
+            # Attach to the process
+            self._session = await self._loop.run_in_executor(
+                None, self._device.attach, pid,
+            )
+            logger.info("Frida attached to %s (pid %d)", package, pid)
+            return ToolResult.ok({
+                "package": package,
+                "pid": pid,
+                "device": self._device.name,
+            })
+        except Exception as e:  # noqa: BLE001
+            logger.exception("Frida attach failed")
+            return ToolResult.from_exception(
+                e, duration=time.monotonic() - self._start_time,
+            )
+
+    async def inject_script(self, script_source: str) -> ToolResult[str]:
+        """Compile and load a Frida JS hook script.
+
+        The script's send() calls become Python message events that we
+        record. Call this AFTER attach(), BEFORE the user interacts
+        with the app, so the hooks are live before any sensitive
+        operation happens.
+        """
+        if self._session is None:
+            return ToolResult.fail("No active Frida session — call attach() first")
+        if self._frida_unavailable_reason:
+            return ToolResult.fail(self._frida_unavailable_reason)
+
+        try:
+            self._script = await self._loop.run_in_executor(
+                None, self._session.create_script, script_source,
+            )
+            self._script.on("message", self._on_message)
+            await self._loop.run_in_executor(None, self._script.load)
+            logger.info("Frida script loaded for %s", self._target_package)
+            return ToolResult.ok("script_loaded")
+        except Exception as e:  # noqa: BLE001
+            logger.exception("Frida script injection failed")
+            return ToolResult.from_exception(e)
+
+    async def wait(self, seconds: int) -> None:
+        """Wait while hooks collect events. User interacts with the app."""
+        logger.info("Frida: collecting events for %ds", seconds)
+        await asyncio.sleep(seconds)
+
+    async def detach(self) -> ToolResult[FridaCapture]:
+        """Detach and return all captured events."""
+        duration = time.monotonic() - self._start_time
+
+        # Clean up — best effort
+        if self._script is not None:
+            try:
+                await self._loop.run_in_executor(None, self._script.unload)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("Script unload failed: %s", e)
+
+        if self._session is not None:
+            try:
+                await self._loop.run_in_executor(None, self._session.detach)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("Session detach failed: %s", e)
+
+        async with self._events_lock:
+            events_copy = list(self._events)
+
+        capture = FridaCapture(
+            events=events_copy,
+            duration_seconds=duration,
+            target_package=self._target_package,
+            target_pid=self._target_pid,
+            script_errors=list(self._script_errors),
+        )
+
+        logger.info(
+            "Frida: captured %d events in %.1fs (%d errors)",
+            len(events_copy), duration, len(self._script_errors),
+        )
+
+        # Reset state
+        self._script = None
+        self._session = None
+        self._device = None
+
+        return ToolResult.ok(capture, duration=duration)
+
+    # ---------- Internals ----------
+
+    def _find_pid(self, package: str) -> Optional[int]:
+        """Find the running PID for a package name."""
+        try:
+            apps = self._device.enumerate_processes()
+            # Frida lists processes by name; for apps it's the package name
+            for proc in apps:
+                if proc.name == package:
+                    return proc.pid
+        except Exception:  # noqa: BLE001
+            logger.exception("_find_pid failed")
+        return None
+
+    def _on_message(self, message: dict, data: Any) -> None:
+        """Callback invoked by Frida for every message from the script.
+
+        Called from Frida's thread, not the asyncio loop. We schedule the
+        coroutine on the loop via run_coroutine_threadsafe.
+        """
+        try:
+            if message.get("type") == "error":
+                err = message.get("description", "?")
+                stack = message.get("stack", "")
+                self._script_errors.append(f"{err}\n{stack}")
+                logger.warning("Frida script error: %s", err)
+                return
+
+            if message.get("type") != "send":
+                return
+
+            payload = message.get("payload", {})
+            if not isinstance(payload, dict):
+                # Some scripts send raw strings; normalize
+                payload = {"raw": str(payload)}
+
+            kind = payload.get("kind", "unknown")
+            event = FridaHookEvent(
+                kind=kind,
+                payload=payload,
+                timestamp=time.time(),
+            )
+
+            # Schedule the append on the asyncio loop in a thread-safe way
+            future = asyncio.run_coroutine_threadsafe(
+                self._append_event(event), self._loop,
+            )
+            # Don't block here — fire and forget. If append fails, log it.
+            future.add_done_callback(self._log_append_errors)
+
+        except Exception:  # noqa: BLE001
+            logger.exception("_on_message handler crashed")
+
+    async def _append_event(self, event: FridaHookEvent) -> None:
+        async with self._events_lock:
+            self._events.append(event)
+
+    @staticmethod
+    def _log_append_errors(future: Any) -> None:
+        try:
+            future.result()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Failed to append Frida event: %s", e)
+
+
+# ---------- Pre-built hook scripts ----------
+
+# A_003 — Cipher.getInstance hook
+CIPHER_GETINSTANCE_HOOK = r"""
+/*
+ * SENTINEL Frida hook -- javax.crypto.Cipher.getInstance
+ *
+ * Logs every Cipher.getInstance() call to detect weak algorithms in
+ * actual runtime use (vs just declared in code). Catches DES, RC4,
+ * MD5, ECB mode, and other weak constructs.
+ */
+Java.perform(function() {
+    try {
+        var Cipher = Java.use('javax.crypto.Cipher');
+
+        // Cipher.getInstance(String transformation)
+        Cipher.getInstance.overload('java.lang.String').implementation = function(t) {
+            send({
+                kind: 'crypto.cipher',
+                algorithm: t,
+                overload: 'string'
+            });
+            return this.getInstance(t);
+        };
+
+        // Cipher.getInstance(String, String)
+        Cipher.getInstance.overload(
+            'java.lang.String', 'java.lang.String'
+        ).implementation = function(t, p) {
+            send({
+                kind: 'crypto.cipher',
+                algorithm: t,
+                provider: p,
+                overload: 'string_string'
+            });
+            return this.getInstance(t, p);
+        };
+
+        // Cipher.getInstance(String, Provider)
+        Cipher.getInstance.overload(
+            'java.lang.String', 'java.security.Provider'
+        ).implementation = function(t, p) {
+            send({
+                kind: 'crypto.cipher',
+                algorithm: t,
+                provider: p ? p.getName() : 'null',
+                overload: 'string_provider'
+            });
+            return this.getInstance(t, p);
+        };
+
+        // MessageDigest.getInstance -- catches MD5, SHA-1 in actual use
+        var MessageDigest = Java.use('java.security.MessageDigest');
+        MessageDigest.getInstance.overload('java.lang.String').implementation = function(a) {
+            send({
+                kind: 'crypto.digest',
+                algorithm: a
+            });
+            return this.getInstance(a);
+        };
+
+        // KeyGenerator.getInstance -- catches weak key generation
+        try {
+            var KeyGenerator = Java.use('javax.crypto.KeyGenerator');
+            KeyGenerator.getInstance.overload('java.lang.String').implementation = function(a) {
+                send({
+                    kind: 'crypto.keygen',
+                    algorithm: a
+                });
+                return this.getInstance(a);
+            };
+        } catch(e) {
+            // Some apps shrink this class out, ignore
+        }
+
+        send({kind: 'crypto.hooks_installed', count: 4});
+    } catch(err) {
+        send({kind: 'error', message: 'crypto hooks: ' + err.toString()});
+    }
+});
+"""
