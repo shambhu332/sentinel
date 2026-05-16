@@ -44,9 +44,13 @@ class FridaHookEvent:
     - "crypto.cipher": from Cipher.getInstance hook (A_003)
     - "crypto.digest": from MessageDigest.getInstance hook (A_003)
     - "crypto.keygen": from KeyGenerator.getInstance hook (A_003)
-    - "crypto.hooks_installed": diagnostic, hooks loaded successfully
-    - "tls.pin_check": from cert pinning check hooks (N_005, future)
+    - "crypto.hooks_installed": diagnostic, crypto hooks loaded successfully
+    - "tls.pin_check": from cert pinning check hooks (N_005)
     - "tls.bypass": when a pin check is bypassed by our script (N_005)
+    - "tls.bypass_failed": pinning library present but bypass setup failed,
+      indicating the app resists our generic bypass (N_005 "survived" signal)
+    - "tls.hooks_installed": diagnostic, lists pinning libraries successfully
+      hooked during the session (N_005)
     - "error": something went wrong inside the script
     """
     kind: str
@@ -358,3 +362,186 @@ Java.perform(function() {
     }
 });
 """
+
+
+# N_005 — Certificate Pinning Bypass hook
+#
+# Attempts to bypass every major Android cert-pinning library at runtime.
+# For each library:
+#   - Java.use(class) fails  -> library not in app, silently skip
+#   - Java.use(class) succeeds + replacement runs -> tls.bypass event (= bug)
+#   - Java.use(class) succeeds but hook setup throws -> tls.bypass_failed
+#     event (= pinning survived our generic bypass)
+#
+# Libraries covered:
+#   - okhttp3.CertificatePinner (canonical OkHttp pinning)
+#   - android.net.http.X509TrustManagerExtensions (Android TrustManager)
+#   - android.webkit.WebViewClient.onReceivedSslError (WebView SSL bypass)
+#   - com.datatheorem.android.trustkit (TrustKit library)
+#   - org.conscrypt.Platform (Conscrypt, modern Android)
+#   - okhttp3.internal.tls.OkHostnameVerifier (hostname checks)
+#
+# WebView limitation: this hooks the BASE WebViewClient class. Apps that
+# subclass WebViewClient and override onReceivedSslError will not be
+# intercepted by this hook alone. Hooking subclasses generically requires
+# Java.choose or class-load instrumentation, deferred to a future sprint.
+CERT_PINNING_BYPASS_HOOK = r"""
+Java.perform(function() {
+    var installed = [];
+
+    function tryHook(label, fn) {
+        try {
+            fn();
+            installed.push(label);
+        } catch(e) {
+            var msg = e.toString();
+            // ClassNotFoundException = library simply isn't in the app -> skip
+            if (msg.indexOf("ClassNotFoundException") !== -1) {
+                return;
+            }
+            // Anything else after class load = pinning library is present
+            // but our bypass attempt failed (overload mismatch, anti-Frida,
+            // obfuscation). Emit a 'survived' signal.
+            send({
+                kind: 'tls.bypass_failed',
+                library: label,
+                error: msg
+            });
+        }
+    }
+
+    // ---- OkHttp CertificatePinner ----
+    tryHook('okhttp.CertificatePinner', function() {
+        var Pinner = Java.use('okhttp3.CertificatePinner');
+        // check(String, List)
+        Pinner.check.overload(
+            'java.lang.String', 'java.util.List'
+        ).implementation = function(hostname, certs) {
+            send({
+                kind: 'tls.bypass',
+                library: 'okhttp.CertificatePinner',
+                method: 'check(String, List)',
+                host: hostname
+            });
+            // no-op: skip pin validation
+        };
+        // Optional: check$okhttp on Kotlin internal name (newer versions)
+        try {
+            Pinner['check$okhttp'].overload(
+                'java.lang.String', 'kotlin.jvm.functions.Function0'
+            ).implementation = function(hostname, fn) {
+                send({
+                    kind: 'tls.bypass',
+                    library: 'okhttp.CertificatePinner',
+                    method: 'check$okhttp',
+                    host: hostname
+                });
+            };
+        } catch(e) {
+            // older OkHttp without this overload — fine
+        }
+    });
+
+    // ---- X509TrustManagerExtensions (Android system) ----
+    tryHook('X509TrustManager', function() {
+        var TMExt = Java.use('android.net.http.X509TrustManagerExtensions');
+        TMExt.checkServerTrusted.overload(
+            '[Ljava.security.cert.X509Certificate;',
+            'java.lang.String',
+            'java.lang.String'
+        ).implementation = function(chain, authType, host) {
+            send({
+                kind: 'tls.bypass',
+                library: 'X509TrustManager',
+                method: 'X509TrustManagerExtensions.checkServerTrusted',
+                host: host
+            });
+            // Return an empty list — caller iterates the chain, empty is safe
+            return Java.use('java.util.Collections').emptyList();
+        };
+    });
+
+    // ---- WebViewClient ----
+    tryHook('WebViewClient.onReceivedSslError', function() {
+        var WVC = Java.use('android.webkit.WebViewClient');
+        WVC.onReceivedSslError.implementation = function(view, handler, error) {
+            var url = '';
+            try { url = error ? error.getUrl() : ''; } catch(e) {}
+            send({
+                kind: 'tls.bypass',
+                library: 'WebViewClient.onReceivedSslError',
+                method: 'onReceivedSslError',
+                host: url
+            });
+            handler.proceed();  // accept the bad cert
+        };
+    });
+
+    // ---- TrustKit ----
+    tryHook('TrustKit', function() {
+        var TK = Java.use(
+            'com.datatheorem.android.trustkit.pinning.OkHostnameVerifier'
+        );
+        TK.verify.overload(
+            'java.lang.String', 'javax.net.ssl.SSLSession'
+        ).implementation = function(hostname, session) {
+            send({
+                kind: 'tls.bypass',
+                library: 'TrustKit',
+                method: 'OkHostnameVerifier.verify',
+                host: hostname
+            });
+            return true;
+        };
+    });
+
+    // ---- Conscrypt Platform (modern Android) ----
+    tryHook('Conscrypt.Platform', function() {
+        var Plat = Java.use('org.conscrypt.Platform');
+        Plat.checkServerTrusted.overload(
+            'javax.net.ssl.X509TrustManager',
+            '[Ljava.security.cert.X509Certificate;',
+            'java.lang.String',
+            'javax.net.ssl.SSLSession'
+        ).implementation = function(tm, chain, authType, session) {
+            send({
+                kind: 'tls.bypass',
+                library: 'Conscrypt.Platform',
+                method: 'checkServerTrusted',
+                host: ''
+            });
+            // no-op
+        };
+    });
+
+    // ---- OkHostnameVerifier ----
+    tryHook('HostnameVerifier', function() {
+        var OKHV = Java.use('okhttp3.internal.tls.OkHostnameVerifier');
+        OKHV.verify.overload(
+            'java.lang.String', 'javax.net.ssl.SSLSession'
+        ).implementation = function(hostname, session) {
+            send({
+                kind: 'tls.bypass',
+                library: 'HostnameVerifier',
+                method: 'OkHostnameVerifier.verify',
+                host: hostname
+            });
+            return true;
+        };
+    });
+
+    // ---- Final diagnostic ----
+    send({
+        kind: 'tls.hooks_installed',
+        libraries: installed,
+        count: installed.length
+    });
+});
+"""
+
+
+# Aggregate of all hook scripts injected during Phase 4.5.
+# Multiple Java.perform blocks coexist fine in one script — each block
+# independently sets up its hooks, and a failure in one does not stop
+# the others.
+ALL_RUNTIME_HOOKS = CIPHER_GETINSTANCE_HOOK + "\n\n" + CERT_PINNING_BYPASS_HOOK

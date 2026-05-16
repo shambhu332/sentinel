@@ -102,9 +102,9 @@ def serve(host: str, port: int, reload: bool) -> None:
               help="Seconds to capture traffic during Phase 4 (default: 30)")
 @click.option("--dynamic-port", type=int, default=8082,
               help="Local port for mitmproxy in Phase 4 (default: 8082)")
-@click.option("--frida", is_flag=True,
-              help="Enable Frida runtime hooks (requires --dynamic and "
-                   "zygiskfrida on phone). Adds A_003 runtime crypto agent.")
+help="Enable Frida runtime hooks (requires --dynamic and "
+                   "zygiskfrida on phone). Adds A_003 runtime crypto and "
+                   "N_005 cert pinning bypass agents.")
 @click.option("--frida-duration", type=int, default=20,
               help="Seconds to run Frida hooks during Phase 4 (default: 20). "
                    "Runs AFTER mitmproxy capture.")

@@ -11,15 +11,14 @@ Pipeline phases:
            captures HTTP/HTTPS traffic via mitmproxy, stores in
            ctx.sources['mitmproxy'] for N_003/N_004 to consume.
 - Phase 4.5: Frida sub-phase (Sprint 8.2) — runs WITHIN phase 4 after
-           the mitmproxy capture. Hooks runtime crypto + (future)
-           cert pinning. Stores capture in ctx.sources['frida'] for
-           A_003 to consume. Only runs when --frida is also passed.
+           the mitmproxy capture. Hooks runtime crypto (A_003) and
+           cert pinning bypass (N_005). Stores capture in
+           ctx.sources['frida']. Only runs when --frida is also passed.
 - Phase 2: Static + dynamic analysis agents
 - Phase 3: LLM triage (Sprint 7) — filters false positives, optional
 
 Later sprints add:
-- Phase 4 extensions: cert pinning bypass (Sprint 8.2 Part B),
-  emulator automation (Sprint 8.3)
+- Phase 4 extensions: emulator automation (Sprint 8.3)
 - Phase 5+: Verification, PoC, chain detection
 
 CRASH-PROOFING:
@@ -47,7 +46,7 @@ from sentinel.memory.interface import MemoryInterface
 from sentinel.tools.adb_runner import AdbRunner
 from sentinel.tools.androguard_analyzer import AndroguardAnalyzer
 from sentinel.tools.apktool import ApktoolError, ApktoolRunner
-from sentinel.tools.frida_runner import CIPHER_GETINSTANCE_HOOK, FridaRunner
+from sentinel.tools.frida_runner import ALL_RUNTIME_HOOKS, FridaRunner
 from sentinel.tools.jadx import JadxRunner
 from sentinel.tools.manifest import ManifestError, ManifestParser
 from sentinel.tools.mitmproxy_runner import MitmproxyRunner
@@ -404,7 +403,7 @@ class Orchestrator:
         7. Wait dynamic_duration_seconds for traffic capture
            (in a real run, user interacts with the app during this window)
         7.5) If --frida is enabled, run Frida sub-phase AFTER traffic capture,
-             with the app still running, to hook runtime crypto.
+             with the app still running, to hook runtime crypto + pinning.
         8. Stop the app, clear the proxy, stop mitmproxy
         9. Store the capture in ctx.sources['mitmproxy'] for dynamic agents
 
@@ -507,8 +506,9 @@ class Orchestrator:
             await asyncio.sleep(self._dynamic_duration_seconds)
 
             # 6.5) Frida sub-phase (Sprint 8.2). Runs AFTER traffic capture,
-            # against the still-running app. Hooks observe runtime crypto.
-            # The app must be running for Frida to attach.
+            # against the still-running app. Hooks observe runtime crypto
+            # and attempt cert pinning bypass. The app must be running for
+            # Frida to attach.
             if self._frida_enabled:
                 await self._run_frida_subphase(package, scan_result)
 
@@ -567,10 +567,13 @@ class Orchestrator:
         version mismatch), the failure is recorded as a warning and the
         scan continues with what we already captured from mitmproxy.
 
-        Hooks installed:
-        - Cipher.getInstance (A_003): catches runtime crypto algorithm use
-        - MessageDigest.getInstance (A_003): catches runtime hash algo use
-        - KeyGenerator.getInstance (A_003): catches weak key generation
+        Hooks installed (combined via ALL_RUNTIME_HOOKS):
+        - Cipher.getInstance (A_003): runtime crypto algorithm use
+        - MessageDigest.getInstance (A_003): runtime hash algo use
+        - KeyGenerator.getInstance (A_003): weak key generation
+        - Pinning bypass (N_005): okhttp.CertificatePinner,
+          X509TrustManager, WebViewClient, TrustKit, Conscrypt,
+          HostnameVerifier
         """
         logger.info("Phase 4.5: Frida sub-phase for %s", package)
         await self._memory.publish_event(
@@ -591,7 +594,7 @@ class Orchestrator:
             )
             return
 
-        inject_result = await frida.inject_script(CIPHER_GETINSTANCE_HOOK)
+        inject_result = await frida.inject_script(ALL_RUNTIME_HOOKS)
         if not inject_result.success:
             scan_result.warnings.append(
                 f"Phase 4.5 Frida script injection failed: "
@@ -612,9 +615,10 @@ class Orchestrator:
             capture = detach_result.data
             self._context.sources["frida"] = capture
             logger.info(
-                "Phase 4.5: %d Frida events captured (%d crypto events)",
+                "Phase 4.5: %d Frida events captured (%d crypto, %d tls)",
                 len(capture.events),
                 sum(1 for e in capture.events if e.kind.startswith("crypto.")),
+                sum(1 for e in capture.events if e.kind.startswith("tls.")),
             )
             await self._memory.publish_event(
                 self._context.session_id, "phase.progress",
