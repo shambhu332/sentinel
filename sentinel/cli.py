@@ -102,7 +102,8 @@ def serve(host: str, port: int, reload: bool) -> None:
               help="Seconds to capture traffic during Phase 4 (default: 30)")
 @click.option("--dynamic-port", type=int, default=8082,
               help="Local port for mitmproxy in Phase 4 (default: 8082)")
-help="Enable Frida runtime hooks (requires --dynamic and "
+@click.option("--frida", is_flag=True,
+              help="Enable Frida runtime hooks (requires --dynamic and "
                    "zygiskfrida on phone). Adds A_003 runtime crypto and "
                    "N_005 cert pinning bypass agents.")
 @click.option("--frida-duration", type=int, default=20,
@@ -421,6 +422,14 @@ def _print_summary(ctx, result) -> None:
 
     for phase, dur in result.phase_timings.items():
         table.add_row(f"  {phase}", f"{dur:.2f}s")
+
+    if result.warnings:
+        table.add_row(
+            "[yellow]Warnings[/]",
+            f"[yellow]{len(result.warnings)}[/]",
+        )
+        for i, w in enumerate(result.warnings[:10], 1):
+            table.add_row(f"  [dim]warn {i}[/]", f"[dim]{w[:120]}[/]")
 
     if result.error:
         table.add_row("[red]Error[/]", f"[red]{result.error}[/]")
