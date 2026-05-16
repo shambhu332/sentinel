@@ -172,6 +172,7 @@ async def _run_scan(
     from sentinel.agents.data_storage import WorldReadableStorageAgent
     from sentinel.agents.deep_links import DeepLinkHijackAgent
     from sentinel.agents.dynamic import (
+        CertPinningBypassAgent,
         DataInTransitAgent,
         ImproperTLSAgent,
         RuntimeCryptoAgent,
@@ -295,7 +296,8 @@ async def _run_scan(
                 DataInTransitAgent,           # N_004 (Sprint 8.1 DAST)
             ])
         if dynamic and frida:
-            agent_list.append(RuntimeCryptoAgent)  # A_003 (Sprint 8.2 DAST)
+            agent_list.append(RuntimeCryptoAgent)        # A_003 (Sprint 8.2A DAST)
+            agent_list.append(CertPinningBypassAgent)    # N_005 (Sprint 8.2B DAST)
 
         orch = Orchestrator(
             context=ctx,
