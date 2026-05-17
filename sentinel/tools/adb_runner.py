@@ -12,7 +12,7 @@ Used by Phase 4 (DAST) to:
 3. Start the app via its package name
 4. Configure the device's WiFi proxy to point at the laptop's mitmproxy
 5. Capture logcat for any sensitive data exposure
-6. Tear down: uninstall the APK, reset proxy
+6. Tear down: uninstall the APK, reset proxy, restore network state
 """
 from __future__ import annotations
 
@@ -175,6 +175,9 @@ class AdbRunner:
         This is the magic that makes mitmproxy work. After this call,
         every HTTP/HTTPS request from any app on the device goes through
         the laptop's mitmproxy instance.
+
+        Also broadcasts PROXY_CHANGE so apps pick up the new proxy
+        without having to wait for a reconnect.
         """
         proxy = f"{host}:{port}"
         result = await self._run_adb(
@@ -186,17 +189,178 @@ class AdbRunner:
                 f"set_global_proxy failed: {result.error}",
                 duration=result.duration_seconds,
             )
+
+        # Broadcast PROXY_CHANGE so the system + apps re-read the value
+        # immediately. Best-effort — not fatal if it fails.
+        await self._broadcast_proxy_change(serial=serial)
+
         logger.info("Device proxy set to %s", proxy)
         return ToolResult.ok(proxy, duration=result.duration_seconds)
 
-    async def clear_global_proxy(self,
-                                  serial: Optional[str] = None) -> ToolResult[str]:
-        """Remove the WiFi proxy. Call this in teardown."""
-        result = await self._run_adb(
+    async def clear_global_proxy(
+        self,
+        serial: Optional[str] = None,
+        force_refresh: bool = True,
+    ) -> ToolResult[str]:
+        """Remove the WiFi proxy and restore working network state.
+
+        Modern Android caches network connectivity state. Just clearing
+        the proxy setting can leave the device unable to reach the
+        internet until something nudges the network stack. This method:
+
+        1. Sets http_proxy to ":0" (Android's canonical no-proxy value)
+        2. Deletes legacy proxy keys (host/port/exclusion list) — idempotent
+        3. Broadcasts PROXY_CHANGE to wake the connectivity service
+        4. If force_refresh: cycles WiFi to force a clean re-read
+        5. Verifies the proxy is actually cleared by reading it back
+
+        Returns ToolResult.fail (not ok) if any verification step shows
+        the proxy is still set — so the orchestrator's warning is
+        actually meaningful instead of a silent no-op.
+
+        Args:
+            serial: device serial; None = default device
+            force_refresh: if True, cycle WiFi after clearing for
+                guaranteed network state recovery (~3s connectivity gap).
+                Default True is the safe choice; pass False only if you
+                have another reason to avoid the WiFi blip.
+        """
+        # Step 1: set proxy to no-op
+        set_result = await self._run_adb(
             ["shell", "settings", "put", "global", "http_proxy", ":0"],
             serial=serial,
         )
-        return ToolResult.ok("", duration=result.duration_seconds)
+        if not set_result.success:
+            return ToolResult.fail(
+                f"clear_global_proxy: failed to set http_proxy=:0: "
+                f"{set_result.error}",
+                duration=set_result.duration_seconds,
+            )
+
+        # Step 2: best-effort delete of legacy keys (idempotent — safe
+        # to delete things that don't exist; returns "Deleted 0 rows")
+        for key in (
+            "global_http_proxy_host",
+            "global_http_proxy_port",
+            "global_http_proxy_exclusion_list",
+        ):
+            await self._run_adb(
+                ["shell", "settings", "delete", "global", key],
+                serial=serial,
+            )
+
+        # Step 3: broadcast PROXY_CHANGE — wakes the connectivity service
+        await self._broadcast_proxy_change(serial=serial)
+
+        # Step 4: optional WiFi cycle for stuck network state
+        if force_refresh:
+            cycle_result = await self._cycle_wifi(serial=serial)
+            if not cycle_result.success:
+                # Not fatal — proxy is cleared, but the device may take
+                # longer to recover internet on its own.
+                logger.warning(
+                    "WiFi cycle failed during proxy cleanup: %s",
+                    cycle_result.error,
+                )
+
+        # Step 5: verify the proxy is actually empty
+        verify_result = await self.get_global_proxy(serial=serial)
+        if verify_result.success:
+            current = verify_result.data.strip()
+            # Acceptable empty states: ":0", "null", empty string
+            if current and current not in (":0", "null"):
+                return ToolResult.fail(
+                    f"clear_global_proxy: proxy still set after cleanup: "
+                    f"{current!r} — manual intervention required",
+                    duration=set_result.duration_seconds,
+                )
+
+        logger.info(
+            "Device proxy cleared (force_refresh=%s, verified=%s)",
+            force_refresh, verify_result.success,
+        )
+        return ToolResult.ok("", duration=set_result.duration_seconds)
+
+    async def get_global_proxy(
+        self,
+        serial: Optional[str] = None,
+    ) -> ToolResult[str]:
+        """Read the current global http_proxy value.
+
+        Returns the raw value as Android reports it. When no proxy is
+        set, Android typically returns ":0" or "null" depending on
+        version/skin — both are acceptable empty states.
+        """
+        result = await self._run_adb(
+            ["shell", "settings", "get", "global", "http_proxy"],
+            serial=serial,
+        )
+        if not result.success:
+            return ToolResult.fail(
+                f"get_global_proxy failed: {result.error}",
+                duration=result.duration_seconds,
+            )
+        return ToolResult.ok(
+            result.data.stdout.strip(),
+            duration=result.duration_seconds,
+        )
+
+    async def _broadcast_proxy_change(
+        self,
+        serial: Optional[str] = None,
+    ) -> ToolResult[str]:
+        """Send PROXY_CHANGE broadcast so apps re-read proxy state.
+
+        Best-effort. Some Android versions/skins don't honor this but
+        it's cheap to send and helps on the ones that do.
+        """
+        result = await self._run_adb(
+            ["shell", "am", "broadcast", "-a",
+             "android.intent.action.PROXY_CHANGE"],
+            serial=serial,
+        )
+        return ToolResult.ok(
+            "broadcast sent" if result.success else "",
+            duration=result.duration_seconds,
+        )
+
+    async def _cycle_wifi(
+        self,
+        serial: Optional[str] = None,
+        wait_seconds: float = 2.0,
+    ) -> ToolResult[str]:
+        """Toggle WiFi off then on to force Android to re-read network config.
+
+        This is the reliable hammer for clearing stuck network state.
+        Costs ~3-5 seconds of connectivity. Use only when the lighter
+        PROXY_CHANGE broadcast isn't enough.
+        """
+        disable = await self._run_adb(
+            ["shell", "svc", "wifi", "disable"],
+            serial=serial,
+        )
+        if not disable.success:
+            return ToolResult.fail(
+                f"WiFi disable failed: {disable.error}",
+                duration=disable.duration_seconds,
+            )
+
+        await asyncio.sleep(wait_seconds)
+
+        enable = await self._run_adb(
+            ["shell", "svc", "wifi", "enable"],
+            serial=serial,
+        )
+        if not enable.success:
+            return ToolResult.fail(
+                f"WiFi enable failed: {enable.error}",
+                duration=enable.duration_seconds,
+            )
+
+        return ToolResult.ok(
+            "WiFi cycled",
+            duration=disable.duration_seconds + enable.duration_seconds,
+        )
 
     # ---------- Log capture ----------
 
