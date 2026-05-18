@@ -31,3 +31,5 @@ workspace/
 data/
 scan-results.json
 reports/
+.env
+.env.local
