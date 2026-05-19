@@ -404,6 +404,10 @@ class Orchestrator:
            (in a real run, user interacts with the app during this window)
         7.5) If --frida is enabled, run Frida sub-phase AFTER traffic capture,
              with the app still running, to hook runtime crypto + pinning.
+             The sub-phase re-launches the app right before attach to
+             handle the case where the app has been backgrounded/killed
+             during the long Phase 1 decompile + Phase 4 traffic-capture
+             windows.
         8. Stop the app, clear the proxy, stop mitmproxy
         9. Store the capture in ctx.sources['mitmproxy'] for dynamic agents
 
@@ -507,10 +511,14 @@ class Orchestrator:
 
             # 6.5) Frida sub-phase (Sprint 8.2). Runs AFTER traffic capture,
             # against the still-running app. Hooks observe runtime crypto
-            # and attempt cert pinning bypass. The app must be running for
-            # Frida to attach.
+            # and attempt cert pinning bypass. We pass adb + serial so the
+            # sub-phase can re-launch the app right before attach (the app
+            # may have been backgrounded or killed during Phase 1's long
+            # decompile + Phase 4's traffic-capture window).
             if self._frida_enabled:
-                await self._run_frida_subphase(package, scan_result)
+                await self._run_frida_subphase(
+                    package, scan_result, adb, device.serial,
+                )
 
         finally:
             # 7) Teardown — always run, even on failure
@@ -559,9 +567,21 @@ class Orchestrator:
     # ---------- Phase 4.5: Frida sub-phase (Sprint 8.2) ----------
 
     async def _run_frida_subphase(
-        self, package: str, scan_result: ScanResult,
+        self,
+        package: str,
+        scan_result: ScanResult,
+        adb: AdbRunner,
+        serial: str,
     ) -> None:
-        """Run Frida hooks against a still-running app.
+        """Run Frida hooks against the target app.
+
+        Re-launches the app right before attaching, because by the time
+        we get here the app has likely been backgrounded or killed by
+        Android. The Phase 1 decompile can take 1-3 minutes for large
+        apps (e.g. Signal at 22k Java files = ~2 minutes), and the
+        Phase 4 traffic-capture window adds another 30s of phone
+        idleness. Re-launching costs ~2s and guarantees a fresh,
+        running process for Frida to find.
 
         Best-effort. If Frida fails (zygiskfrida not active, app crashed,
         version mismatch), the failure is recorded as a warning and the
@@ -585,6 +605,23 @@ class Orchestrator:
                 "package": package,
             },
         )
+
+        # Re-launch the target app right before attach. Without this step,
+        # Frida frequently fails with "package not running" because the
+        # app got backgrounded during Phase 1 / Phase 4 idleness.
+        relaunch = await adb.start_app(package, serial=serial)
+        if relaunch.success:
+            logger.info(
+                "Phase 4.5: re-launched %s, waiting 2s for process init",
+                package,
+            )
+            await asyncio.sleep(2)
+        else:
+            logger.warning(
+                "Phase 4.5: re-launch of %s failed (%s) — attempting "
+                "attach anyway",
+                package, relaunch.error,
+            )
 
         frida = FridaRunner()
         attach_result = await frida.attach(package)
