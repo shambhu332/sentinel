@@ -109,6 +109,12 @@ def serve(host: str, port: int, reload: bool) -> None:
 @click.option("--frida-duration", type=int, default=20,
               help="Seconds to run Frida hooks during Phase 4 (default: 20). "
                    "Runs AFTER mitmproxy capture.")
+@click.option("--no-proxy", is_flag=True,
+              help="Skip mitmproxy and device proxy configuration during "
+                   "Phase 4. Useful for apps with anti-MITM detection that "
+                   "refuse to run when a proxy is set (Signal, banking apps, "
+                   "secure messengers). Frida hooks still fire normally; "
+                   "mitmproxy-based agents (N_003/N_004) produce no findings.")
 def scan(
     apk_path: Path,
     scope_url: str | None,
@@ -125,6 +131,7 @@ def scan(
     dynamic_port: int,
     frida: bool,
     frida_duration: int,
+    no_proxy: bool,
 ) -> None:
     """Run a security scan against an APK file."""
     asyncio.run(_run_scan(
@@ -143,6 +150,7 @@ def scan(
         dynamic_port=dynamic_port,
         frida=frida,
         frida_duration=frida_duration,
+        no_proxy=no_proxy,
     ))
 
 
@@ -162,6 +170,7 @@ async def _run_scan(
     dynamic_port: int,
     frida: bool,
     frida_duration: int,
+    no_proxy: bool,
 ) -> None:
     """Async implementation of the scan command."""
     from sentinel.agents.auth import HardcodedSecretsAgent
@@ -209,11 +218,18 @@ async def _run_scan(
         )
         return
     if dynamic:
-        console.print(
-            f"[bold yellow]Dynamic analysis enabled:[/] "
-            f"capture {dynamic_duration}s of traffic via mitmproxy on port "
-            f"{dynamic_port}",
-        )
+        if no_proxy:
+            console.print(
+                "[bold yellow]Dynamic analysis enabled (--no-proxy mode):[/] "
+                "mitmproxy + device proxy SKIPPED. N_003/N_004 will not fire. "
+                "Useful for apps that refuse to run under MITM.",
+            )
+        else:
+            console.print(
+                f"[bold yellow]Dynamic analysis enabled:[/] "
+                f"capture {dynamic_duration}s of traffic via mitmproxy on port "
+                f"{dynamic_port}",
+            )
         if frida:
             console.print(
                 f"[bold yellow]Frida runtime hooks enabled:[/] "
@@ -310,6 +326,7 @@ async def _run_scan(
             dynamic_port=dynamic_port,
             frida_enabled=frida,
             frida_duration_seconds=frida_duration,
+            proxy_enabled=not no_proxy,
         )
 
         # Status message reflects which optional phases are enabled
@@ -428,8 +445,11 @@ def _print_summary(ctx, result) -> None:
             "[yellow]Warnings[/]",
             f"[yellow]{len(result.warnings)}[/]",
         )
+        # Print warnings without truncation — Rich auto-wraps the cell to
+        # terminal width. The previous w[:120] cap was hiding diagnostic
+        # info (running-process lists, full error contexts).
         for i, w in enumerate(result.warnings[:10], 1):
-            table.add_row(f"  [dim]warn {i}[/]", f"[dim]{w[:120]}[/]")
+            table.add_row(f"  [dim]warn {i}[/]", f"[dim]{w}[/]")
 
     if result.error:
         table.add_row("[red]Error[/]", f"[red]{result.error}[/]")

@@ -137,6 +137,37 @@ class AdbRunner:
         return ToolResult.ok(result.data.stdout.strip(),
                              duration=result.duration_seconds)
 
+    async def is_installed(
+        self, package: str, serial: Optional[str] = None,
+    ) -> ToolResult[bool]:
+        """Check whether a package is currently installed on the device.
+
+        Uses `pm list packages <name>` which returns 'package:<name>' if
+        installed, empty otherwise. The orchestrator uses this to decide
+        whether to attempt install — calling `adb install -r` on an
+        already-installed app force-stops it as a side effect (Android
+        does this before staging the new APK), and if the install then
+        fails partway through (split APKs, signature mismatch, etc.) the
+        app is left in a killed state with no replacement installed.
+        Checking first lets us skip install entirely when not needed.
+        """
+        result = await self._run_adb(
+            ["shell", "pm", "list", "packages", package],
+            serial=serial,
+        )
+        if not result.success:
+            return ToolResult.fail(
+                f"pm list packages failed: {result.error}",
+                duration=result.duration_seconds,
+            )
+        # `pm list packages org.foo` returns "package:org.foo\n" if installed.
+        # The package name might match as a substring of another package
+        # (e.g. searching "org.foo" matches "org.foo.bar"), so we look for
+        # the exact form.
+        lines = result.data.stdout.strip().split("\n")
+        installed = any(line.strip() == f"package:{package}" for line in lines)
+        return ToolResult.ok(installed, duration=result.duration_seconds)
+
     async def start_app(self, package: str, activity: Optional[str] = None,
                         serial: Optional[str] = None) -> ToolResult[str]:
         """Launch an app. If activity not given, uses MAIN/LAUNCHER intent."""

@@ -10,6 +10,8 @@ Pipeline phases:
            when --dynamic is passed. Installs APK on connected device,
            captures HTTP/HTTPS traffic via mitmproxy, stores in
            ctx.sources['mitmproxy'] for N_003/N_004 to consume.
+           When --no-proxy is passed, the mitmproxy + device proxy
+           steps are skipped (useful for apps with anti-MITM detection).
 - Phase 4.5: Frida sub-phase (Sprint 8.2) — runs WITHIN phase 4 after
            the mitmproxy capture. Hooks runtime crypto (A_003) and
            cert pinning bypass (N_005). Stores capture in
@@ -99,6 +101,7 @@ class Orchestrator:
         dynamic_port: int = 8082,
         frida_enabled: bool = False,
         frida_duration_seconds: int = 20,
+        proxy_enabled: bool = True,
     ) -> None:
         self._context = context
         self._memory = memory
@@ -109,6 +112,7 @@ class Orchestrator:
         self._dynamic_port = dynamic_port
         self._frida_enabled = frida_enabled
         self._frida_duration_seconds = frida_duration_seconds
+        self._proxy_enabled = proxy_enabled
 
     async def run(self) -> ScanResult:
         """Execute the full scan."""
@@ -130,10 +134,7 @@ class Orchestrator:
             await self._phase1_recon(result)
             result.phase_timings["phase1"] = asyncio.get_event_loop().time() - start
 
-            # Phase 4: Dynamic analysis (Sprint 8.1) — runs BEFORE Phase 2
-            # so dynamic agents have captures available. Named Phase 4 to
-            # reflect logical pipeline tier (later sprints extend this with
-            # Frida hooks + emulator automation), not execution order.
+            # Phase 4: Dynamic analysis (Sprint 8.1)
             if self._dynamic_enabled:
                 start = asyncio.get_event_loop().time()
                 try:
@@ -176,7 +177,6 @@ class Orchestrator:
             result.status = "completed"
 
         except OrchestratorError as e:
-            # Only Phase 0 (ingestion) failures are fatal — APK missing/invalid
             result.status = "failed"
             result.error = str(e)
             logger.exception("Scan %s failed", self._context.session_id)
@@ -226,14 +226,7 @@ class Orchestrator:
     # ---------- Phase 1: Recon (parallel) ----------
 
     async def _phase1_recon(self, scan_result: ScanResult) -> None:
-        """Run all decompilers + analyzers in parallel.
-
-        Each tool's success/failure is independent of the others. Even if
-        JADX times out, Androguard typically succeeds within 30s — so the
-        scan can produce findings via bytecode analysis.
-
-        ctx.sources is populated with whatever succeeded.
-        """
+        """Run all decompilers + analyzers in parallel."""
         logger.info("[%s] Phase 1: Parallel Recon", self._context.session_id)
         await self._memory.publish_event(
             self._context.session_id, "phase.started", {"phase": 1},
@@ -243,25 +236,22 @@ class Orchestrator:
         decompile_dir = ws / "decompiled"
         resources_dir = ws / "resources"
 
-        # Build coroutines for all tools — they'll run concurrently
         jadx_task = self._run_jadx(decompile_dir)
         androguard_task = self._run_androguard()
         apktool_task = self._run_apktool(resources_dir)
         manifest_task = self._run_manifest()
 
-        # Wait for all tools, exceptions become results
         jadx_res, androguard_res, apktool_res, manifest_res = await asyncio.gather(
             jadx_task, androguard_task, apktool_task, manifest_task,
             return_exceptions=True,
         )
 
-        # Process JADX result
         if isinstance(jadx_res, BaseException):
             logger.exception("JADX task crashed", exc_info=jadx_res)
             scan_result.warnings.append(f"JADX crashed: {jadx_res}")
         elif jadx_res and jadx_res.success:
             self._context.sources["jadx"] = jadx_res.data
-            self._context.decompiled_dir = decompile_dir  # backwards compat
+            self._context.decompiled_dir = decompile_dir
             logger.info(
                 "JADX produced %d Java files in %.1fs",
                 jadx_res.data.java_file_count, jadx_res.duration_seconds,
@@ -273,7 +263,6 @@ class Orchestrator:
             logger.warning("JADX failed: %s", error)
             scan_result.warnings.append(f"JADX failed: {error}")
 
-        # Process Androguard result
         if isinstance(androguard_res, BaseException):
             logger.exception("Androguard task crashed", exc_info=androguard_res)
             scan_result.warnings.append(f"Androguard crashed: {androguard_res}")
@@ -292,20 +281,17 @@ class Orchestrator:
             logger.warning("Androguard failed: %s", error)
             scan_result.warnings.append(f"Androguard failed: {error}")
 
-        # Process apktool result
         if isinstance(apktool_res, BaseException):
             logger.exception("apktool task crashed", exc_info=apktool_res)
             scan_result.warnings.append(f"apktool crashed: {apktool_res}")
         elif apktool_res is True:
             self._context.sources["apktool"] = {"resources_dir": resources_dir}
-            self._context.resources_dir = resources_dir  # backwards compat
+            self._context.resources_dir = resources_dir
             logger.info("apktool produced manifest + resources")
         elif isinstance(apktool_res, str):
-            # Non-fatal apktool failure (string error message)
             logger.warning("apktool failed: %s", apktool_res)
             scan_result.warnings.append(f"apktool failed: {apktool_res}")
 
-        # Process manifest result
         if isinstance(manifest_res, BaseException):
             logger.exception("manifest task crashed", exc_info=manifest_res)
             scan_result.warnings.append(f"manifest crashed: {manifest_res}")
@@ -339,7 +325,6 @@ class Orchestrator:
         )
 
     async def _run_jadx(self, output_dir: Path) -> Any:
-        """Run JADX. Returns a ToolResult or None on internal error."""
         try:
             jadx = JadxRunner()
             return await jadx.decompile(self._context.apk_path, output_dir)
@@ -348,7 +333,6 @@ class Orchestrator:
             return None
 
     async def _run_androguard(self) -> Any:
-        """Run Androguard. Returns a ToolResult or None on internal error."""
         try:
             analyzer = AndroguardAnalyzer()
             return await analyzer.analyze(self._context.apk_path)
@@ -357,11 +341,6 @@ class Orchestrator:
             return None
 
     async def _run_apktool(self, output_dir: Path) -> Any:
-        """Run apktool. Returns True on success or error string on failure.
-
-        apktool still raises ApktoolError today (will migrate to ToolResult
-        in a later sprint). We catch the exception here.
-        """
         try:
             apktool = ApktoolRunner()
             await apktool.decode(self._context.apk_path, output_dir)
@@ -373,10 +352,8 @@ class Orchestrator:
             return f"{type(e).__name__}: {e}"
 
     async def _run_manifest(self) -> dict:
-        """Parse the APK manifest. Returns a dict (empty on failure)."""
         try:
             parser = ManifestParser()
-            # ManifestParser.parse() is synchronous and CPU-bound — run in executor
             loop = asyncio.get_event_loop()
             return await loop.run_in_executor(
                 None, parser.parse, self._context.apk_path,
@@ -391,33 +368,24 @@ class Orchestrator:
     # ---------- Phase 4: Dynamic Analysis (Sprint 8.1) ----------
 
     async def _phase4_dynamic(self, scan_result: ScanResult) -> None:
-        """Run dynamic analysis: install APK, capture traffic, store flows.
+        """Run dynamic analysis.
 
-        Pipeline:
-        1. Verify a device is connected via adb
-        2. Get the target package from manifest (or skip if unknown)
-        3. Install the APK on the device
-        4. Start mitmproxy on the configured port
-        5. Configure the device to proxy through laptop:port
-        6. Launch the app
-        7. Wait dynamic_duration_seconds for traffic capture
-           (in a real run, user interacts with the app during this window)
-        7.5) If --frida is enabled, run Frida sub-phase AFTER traffic capture,
-             with the app still running, to hook runtime crypto + pinning.
-             The sub-phase re-launches the app right before attach to
-             handle the case where the app has been backgrounded/killed
-             during the long Phase 1 decompile + Phase 4 traffic-capture
-             windows.
-        8. Stop the app, clear the proxy, stop mitmproxy
-        9. Store the capture in ctx.sources['mitmproxy'] for dynamic agents
+        When self._proxy_enabled is True (default): full mitmproxy capture
+        + device proxy config + traffic flow. N_003/N_004 will have data.
 
-        The whole phase is best-effort. If any step fails, we log it as a
-        warning and skip the rest — SAST findings still get produced.
+        When self._proxy_enabled is False (--no-proxy): skip mitmproxy
+        entirely. Just install (best-effort), launch app, run Frida
+        sub-phase. Useful for apps with anti-MITM detection (Signal,
+        banking apps) that exit when a proxy is set.
+
+        The whole phase is best-effort. If any step fails, we log it as
+        a warning and skip the rest — SAST findings still get produced.
         """
-        logger.info("[%s] Phase 4: Dynamic analysis",
-                    self._context.session_id)
+        logger.info("[%s] Phase 4: Dynamic analysis (proxy=%s)",
+                    self._context.session_id, self._proxy_enabled)
         await self._memory.publish_event(
-            self._context.session_id, "phase.started", {"phase": 4},
+            self._context.session_id, "phase.started",
+            {"phase": 4, "proxy_enabled": self._proxy_enabled},
         )
 
         package = (self._context.manifest or {}).get("package")
@@ -441,47 +409,71 @@ class Orchestrator:
         logger.info("Phase 4 device: %s (%s)",
                     device.serial, device.properties.get("model", "?"))
 
-        # 2) Install the APK (best-effort; may already be present)
-        install_result = await adb.install_apk(
-            self._context.apk_path, serial=device.serial, replace=True,
+        # 2) Install the APK ONLY if it's not already on the device.
+        # `adb install -r` force-stops the existing app as a side effect,
+        # and if the install fails partway through (split APKs, signature
+        # mismatch, etc.) the running process gets killed with nothing
+        # to replace it. For DAST scans against apps installed via Play
+        # Store (Signal, banking apps), the install is both unnecessary
+        # and destructive — skip it.
+        already_installed = await adb.is_installed(
+            package, serial=device.serial,
         )
-        if not install_result.success:
-            # Install failure may not be fatal — package may already be on device
-            logger.warning("APK install failed (may already be installed): %s",
-                           install_result.error)
-            scan_result.warnings.append(
-                f"Phase 4: APK install warning: {install_result.error}",
+        if already_installed.success and already_installed.data:
+            logger.info(
+                "Package %s already installed on device, skipping install",
+                package,
+            )
+        else:
+            install_result = await adb.install_apk(
+                self._context.apk_path, serial=device.serial, replace=True,
+            )
+            if not install_result.success:
+                logger.warning(
+                    "APK install failed (may already be installed): %s",
+                    install_result.error,
+                )
+                scan_result.warnings.append(
+                    f"Phase 4: APK install warning: {install_result.error}",
+                )
+
+        # 3) Start mitmproxy (only in proxy mode)
+        mitm_started = False
+        proxy_host = ""
+        proxy_port = 0
+        if self._proxy_enabled:
+            mitm_start = await mitmproxy.start(
+                self._context.workspace / "dynamic",
+            )
+            if not mitm_start.success:
+                scan_result.warnings.append(
+                    f"Phase 4: mitmproxy start failed: {mitm_start.error}",
+                )
+                return
+            mitm_started = True
+            proxy_host = mitm_start.data["host"]
+            proxy_port = mitm_start.data["port"]
+            logger.info("mitmproxy listening on %s:%d", proxy_host, proxy_port)
+        else:
+            logger.info(
+                "Phase 4: --no-proxy mode, skipping mitmproxy + device proxy",
             )
 
-        # 3) Start mitmproxy
-        mitm_start = await mitmproxy.start(
-            self._context.workspace / "dynamic",
-        )
-        if not mitm_start.success:
-            scan_result.warnings.append(
-                f"Phase 4: mitmproxy start failed: {mitm_start.error}",
-            )
-            return
-
-        proxy_host = mitm_start.data["host"]
-        proxy_port = mitm_start.data["port"]
-        logger.info("mitmproxy listening on %s:%d", proxy_host, proxy_port)
-
-        # Track what we configured so we can roll it all back
         proxy_set = False
         app_started = False
 
         try:
-            # 4) Configure device proxy
-            proxy_result = await adb.set_global_proxy(
-                proxy_host, proxy_port, serial=device.serial,
-            )
-            proxy_set = proxy_result.success
-            if not proxy_set:
-                scan_result.warnings.append(
-                    f"Phase 4: proxy config failed: {proxy_result.error}",
+            # 4) Configure device proxy (only in proxy mode)
+            if self._proxy_enabled:
+                proxy_result = await adb.set_global_proxy(
+                    proxy_host, proxy_port, serial=device.serial,
                 )
-                return
+                proxy_set = proxy_result.success
+                if not proxy_set:
+                    scan_result.warnings.append(
+                        f"Phase 4: proxy config failed: {proxy_result.error}",
+                    )
+                    return
 
             # 5) Launch app
             launch_result = await adb.start_app(package, serial=device.serial)
@@ -494,27 +486,22 @@ class Orchestrator:
 
             # 6) Capture window — user interacts during this time
             logger.info(
-                "Phase 4: capturing traffic for %ds (interact with the app now)",
+                "Phase 4: capturing for %ds (interact with the app now)",
                 self._dynamic_duration_seconds,
             )
             await self._memory.publish_event(
                 self._context.session_id, "phase.progress",
                 {
                     "phase": 4,
-                    "status": "capturing_traffic",
+                    "status": "capturing_traffic" if self._proxy_enabled else "waiting_for_interaction",
                     "duration_seconds": self._dynamic_duration_seconds,
-                    "proxy": f"{proxy_host}:{proxy_port}",
+                    "proxy": f"{proxy_host}:{proxy_port}" if self._proxy_enabled else "(disabled)",
                     "package": package,
                 },
             )
             await asyncio.sleep(self._dynamic_duration_seconds)
 
-            # 6.5) Frida sub-phase (Sprint 8.2). Runs AFTER traffic capture,
-            # against the still-running app. Hooks observe runtime crypto
-            # and attempt cert pinning bypass. We pass adb + serial so the
-            # sub-phase can re-launch the app right before attach (the app
-            # may have been backgrounded or killed during Phase 1's long
-            # decompile + Phase 4's traffic-capture window).
+            # 6.5) Frida sub-phase
             if self._frida_enabled:
                 await self._run_frida_subphase(
                     package, scan_result, adb, device.serial,
@@ -534,35 +521,37 @@ class Orchestrator:
                     logger.warning("proxy clear returned non-success: %s",
                                    clear_result.error)
 
-            mitm_stop = await mitmproxy.stop()
-            if mitm_stop.success:
-                capture = mitm_stop.data
-                self._context.sources["mitmproxy"] = capture
-                logger.info(
-                    "Phase 4: captured %d flows in %.1fs",
-                    capture.flow_count, capture.duration_seconds,
-                )
-                await self._memory.publish_event(
-                    self._context.session_id, "phase.completed",
-                    {
-                        "phase": 4,
-                        "flow_count": capture.flow_count,
-                        "tls_failed_count": sum(
-                            1 for f in capture.flows if f.tls_failed
-                        ),
-                        "https_success_count": sum(
-                            1 for f in capture.flows
-                            if f.scheme == "https" and not f.tls_failed
-                        ),
-                        "http_count": sum(
-                            1 for f in capture.flows if f.scheme == "http"
-                        ),
-                    },
-                )
-            else:
-                scan_result.warnings.append(
-                    f"Phase 4: mitmproxy stop failed: {mitm_stop.error}",
-                )
+            # Only stop mitmproxy if we started it
+            if mitm_started:
+                mitm_stop = await mitmproxy.stop()
+                if mitm_stop.success:
+                    capture = mitm_stop.data
+                    self._context.sources["mitmproxy"] = capture
+                    logger.info(
+                        "Phase 4: captured %d flows in %.1fs",
+                        capture.flow_count, capture.duration_seconds,
+                    )
+                    await self._memory.publish_event(
+                        self._context.session_id, "phase.completed",
+                        {
+                            "phase": 4,
+                            "flow_count": capture.flow_count,
+                            "tls_failed_count": sum(
+                                1 for f in capture.flows if f.tls_failed
+                            ),
+                            "https_success_count": sum(
+                                1 for f in capture.flows
+                                if f.scheme == "https" and not f.tls_failed
+                            ),
+                            "http_count": sum(
+                                1 for f in capture.flows if f.scheme == "http"
+                            ),
+                        },
+                    )
+                else:
+                    scan_result.warnings.append(
+                        f"Phase 4: mitmproxy stop failed: {mitm_stop.error}",
+                    )
 
     # ---------- Phase 4.5: Frida sub-phase (Sprint 8.2) ----------
 
@@ -575,17 +564,9 @@ class Orchestrator:
     ) -> None:
         """Run Frida hooks against the target app.
 
-        Re-launches the app right before attaching, because by the time
-        we get here the app has likely been backgrounded or killed by
-        Android. The Phase 1 decompile can take 1-3 minutes for large
-        apps (e.g. Signal at 22k Java files = ~2 minutes), and the
-        Phase 4 traffic-capture window adds another 30s of phone
-        idleness. Re-launching costs ~2s and guarantees a fresh,
-        running process for Frida to find.
-
-        Best-effort. If Frida fails (zygiskfrida not active, app crashed,
-        version mismatch), the failure is recorded as a warning and the
-        scan continues with what we already captured from mitmproxy.
+        Re-launches the app right before attaching to handle the case
+        where the app got backgrounded or killed during the long Phase 1
+        decompile and the Phase 4 traffic-capture window.
 
         Hooks installed (combined via ALL_RUNTIME_HOOKS):
         - Cipher.getInstance (A_003): runtime crypto algorithm use
@@ -606,9 +587,7 @@ class Orchestrator:
             },
         )
 
-        # Re-launch the target app right before attach. Without this step,
-        # Frida frequently fails with "package not running" because the
-        # app got backgrounded during Phase 1 / Phase 4 idleness.
+        # Re-launch the target app right before attach
         relaunch = await adb.start_app(package, serial=serial)
         if relaunch.success:
             logger.info(
@@ -637,7 +616,6 @@ class Orchestrator:
                 f"Phase 4.5 Frida script injection failed: "
                 f"{inject_result.error}",
             )
-            # Still detach cleanly
             await frida.detach()
             return
 
@@ -700,7 +678,7 @@ class Orchestrator:
 
     async def _phase3_triage(self, findings: list[Finding]) -> list[Finding]:
         """Run LLM triage on the collected findings."""
-        assert self._triager is not None  # guarded by caller
+        assert self._triager is not None
 
         logger.info(
             "[%s] Phase 3: LLM triage of %d findings",
@@ -713,7 +691,6 @@ class Orchestrator:
 
         triaged = await self._triager.triage(findings, self._context)
 
-        # Tally outcomes for the event log
         from sentinel.triage import TriageOutcome
         outcomes: dict[str, int] = {o.value: 0 for o in TriageOutcome}
         for f in triaged:
