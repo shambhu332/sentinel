@@ -22,6 +22,16 @@ proceeds.
 Threading note: Frida's Python API is callback-based. We bridge it to
 asyncio by collecting messages in a list with a lock, and exposing the
 collected events when the caller calls stop().
+
+Process lookup note: Frida's Device.enumerate_processes() returns each
+running process by *name*, which on Android is frequently the app's
+display label ("Signal", "campus 4.0", "WhatsApp"), not the package
+identifier ("org.thoughtcrime.securesms", "com.global.edu.campus",
+"com.whatsapp"). Matching the package name against process.name is
+unreliable across vendors and versions. We use
+Device.enumerate_applications() — which exposes the identifier (package
+name) alongside the pid — as the primary lookup, and fall back to
+process-name matching only for non-app processes and edge cases.
 """
 from __future__ import annotations
 
@@ -145,7 +155,7 @@ class FridaRunner:
                 )
                 return ToolResult.fail(
                     f"Package '{package}' not running on device after "
-                    f"5s of retries. Running processes (filtered): {diag}. "
+                    f"5s of retries. {diag}. "
                     f"Likely causes: screen timeout backgrounded the app, "
                     f"Android OOM-killed it, or it crashed at launch. "
                     f"Fix: set screen timeout to 10+ minutes and keep the "
@@ -242,32 +252,55 @@ class FridaRunner:
     # ---------- Internals ----------
 
     def _find_pid(self, package: str) -> Optional[int]:
-        """Find the running PID for a package name.
+        """Find the running PID for an Android package.
 
-        Tries in order:
-        1. Exact match (proc.name == package) — main UI process. Preferred
-           because Java/runtime hooks need the UI process where business
-           logic runs, not background services.
-        2. Sub-process match (proc.name starts with package + ':') —
-           catches Signal's ':messaging', WhatsApp's ':voip', etc. Used
-           as a fallback when the main UI has been killed but services
-           are alive. Frida can still hook these for some classes of
-           events, though the main UI is preferred.
+        Strategy:
+        1. Primary — Device.enumerate_applications(): returns Application
+           objects with .identifier (package name like
+           "org.thoughtcrime.securesms"), .name (display label like
+           "Signal"), and .pid (running pid, or 0 if not running). This
+           is the right API for matching by package name.
+        2. Fallback — Device.enumerate_processes(): returns Process
+           objects with .name (process name, frequently the display
+           label on Android, not the package identifier). Used to catch
+           daemons, sub-processes, and vendor-specific cases that don't
+           appear as Applications.
 
-        Logs the running processes that look related when neither matches,
-        so the warning message in scan_result.warnings actually tells the
-        user what's there.
+        On previous versions this method only used enumerate_processes()
+        and matched by process.name, which silently failed whenever
+        Android reported the process name as the app's display label
+        (e.g. "Signal" vs "org.thoughtcrime.securesms"). That was the
+        root cause of every "Package not running on device" warning
+        users hit during Sprint 8.2 Part B real-device validation.
         """
         try:
-            apps = list(self._device.enumerate_processes())
+            # ---- Primary: identifier-based lookup ----
+            try:
+                apps = list(self._device.enumerate_applications())
+                for app in apps:
+                    pid = getattr(app, "pid", 0)
+                    if app.identifier == package and pid > 0:
+                        return pid
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    "Frida enumerate_applications failed: %s — "
+                    "falling back to process enumeration",
+                    e,
+                )
 
-            # Pass 1: exact match
-            for proc in apps:
+            # ---- Fallback: process-name match ----
+            procs = list(self._device.enumerate_processes())
+
+            # Pass 1: exact match on process name (main UI process when
+            # Android happens to report it as the package name)
+            for proc in procs:
                 if proc.name == package:
                     return proc.pid
 
-            # Pass 2: prefix match for sub-processes
-            for proc in apps:
+            # Pass 2: sub-process match (e.g. package:messaging, package:gcm).
+            # Frida can hook these for some classes of events, though the
+            # main UI is preferred.
+            for proc in procs:
                 if proc.name.startswith(package + ":"):
                     logger.warning(
                         "Frida: main UI for %s not running; attaching to "
@@ -276,19 +309,36 @@ class FridaRunner:
                     )
                     return proc.pid
 
-            # Diagnostic: log any process that shares a recognisable
-            # component with the package name, to help debugging
+            # ---- Diagnostic: log anything that looks related ----
+            # Pull keywords from the package name and scan both apps
+            # and processes for substring matches. The most likely cause
+            # of reaching this branch is that the app's identifier in
+            # enumerate_applications doesn't exactly match `package`
+            # (vendor remapping, alias, etc.) — having both views helps.
             keywords = [p for p in package.split(".") if len(p) > 3]
-            similar = []
-            for proc in apps:
+            similar: list[str] = []
+            try:
+                for app in self._device.enumerate_applications():
+                    pid = getattr(app, "pid", 0)
+                    if pid <= 0:
+                        continue
+                    ident_lower = app.identifier.lower()
+                    if any(kw.lower() in ident_lower for kw in keywords):
+                        similar.append(
+                            f"app: {app.identifier} "
+                            f"(pid {pid}, label={app.name!r})"
+                        )
+            except Exception:  # noqa: BLE001
+                pass
+            for proc in procs:
                 lower = proc.name.lower()
                 if any(kw.lower() in lower for kw in keywords):
-                    similar.append(f"{proc.name} (pid {proc.pid})")
+                    similar.append(f"proc: {proc.name} (pid {proc.pid})")
             if similar:
                 logger.warning(
-                    "Frida _find_pid: '%s' not found. Similar processes "
-                    "running: %s",
-                    package, ", ".join(similar[:8]),
+                    "Frida _find_pid: '%s' not found via either application "
+                    "identifier or process name. Similar entries: %s",
+                    package, "; ".join(similar[:8]),
                 )
 
         except Exception:  # noqa: BLE001
@@ -296,29 +346,55 @@ class FridaRunner:
         return None
 
     def _diag_processes(self, package: str) -> str:
-        """Return a short string listing processes that share a name
-        component with the package, for inclusion in error messages.
+        """Return a short string describing what's running, for error messages.
 
-        Useful when _find_pid returns None — tells the user exactly what
-        was running on the device at the moment we couldn't find their
-        target, which surfaces in scan_result.warnings via attach()'s
-        error message.
+        Scans both the application list (identifier-based) and the
+        process list (name-based) so the diagnostic surfaces whichever
+        view actually contains useful information for the user.
         """
         try:
-            apps = list(self._device.enumerate_processes())
             keywords = [p for p in package.split(".") if len(p) > 3]
             if not keywords:
                 return "no usable keywords from package name"
+
+            # First: matching applications (identifier-based — most reliable)
+            try:
+                apps = list(self._device.enumerate_applications())
+                running_apps = []
+                for app in apps:
+                    pid = getattr(app, "pid", 0)
+                    if pid <= 0:
+                        continue
+                    ident_lower = app.identifier.lower()
+                    if any(kw.lower() in ident_lower for kw in keywords):
+                        running_apps.append(
+                            f"{app.identifier}(pid {pid}, label={app.name!r})"
+                        )
+                if running_apps:
+                    return "matching applications: " + ", ".join(
+                        running_apps[:6],
+                    )
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    "enumerate_applications failed in _diag: %s", e,
+                )
+
+            # Second: matching processes (name-based fallback)
+            procs = list(self._device.enumerate_processes())
             similar = []
-            for proc in apps:
+            for proc in procs:
                 lower = proc.name.lower()
                 if any(kw.lower() in lower for kw in keywords):
                     similar.append(f"{proc.name}(pid {proc.pid})")
             if similar:
-                return ", ".join(similar[:6])
-            return f"no process matching {' or '.join(keywords)}"
+                return "matching processes: " + ", ".join(similar[:6])
+
+            return (
+                f"no application or process matching: "
+                f"{' or '.join(keywords)}"
+            )
         except Exception as e:  # noqa: BLE001
-            return f"could not enumerate processes: {e}"
+            return f"could not enumerate processes/apps: {e}"
 
     def _on_message(self, message: dict, data: Any) -> None:
         """Callback invoked by Frida for every message from the script.
