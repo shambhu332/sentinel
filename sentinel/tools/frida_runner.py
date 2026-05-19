@@ -32,6 +32,12 @@ unreliable across vendors and versions. We use
 Device.enumerate_applications() — which exposes the identifier (package
 name) alongside the pid — as the primary lookup, and fall back to
 process-name matching only for non-app processes and edge cases.
+
+Attach retry note: zygiskfrida's embedded frida-server can occasionally
+drop a connection during attach, especially under load. We retry the
+attach call a few times before giving up. If retries are exhausted,
+the user sees a message pointing at the actual cause (server died on
+the device) rather than a confusing low-level traceback.
 """
 from __future__ import annotations
 
@@ -80,6 +86,12 @@ class FridaCapture:
 
 class FridaRunner:
     """Async wrapper for Frida USB-device instrumentation."""
+
+    # Number of times to retry the actual attach() call if frida-server
+    # drops the connection. zygiskfrida's server can momentarily go
+    # unresponsive under load; usually one retry is enough.
+    ATTACH_RETRY_COUNT = 3
+    ATTACH_RETRY_DELAY_SECONDS = 2.0
 
     def __init__(self) -> None:
         self._device: Any = None
@@ -163,10 +175,68 @@ class FridaRunner:
                 )
             self._target_pid = pid
 
-            # Attach to the process
-            self._session = await self._loop.run_in_executor(
-                None, self._device.attach, pid,
-            )
+            # Attach to the process — with retries because zygiskfrida's
+            # embedded frida-server can momentarily drop the connection
+            # under load. We catch ServerNotRunningError (and any other
+            # frida exception subclass) and retry with backoff before
+            # giving up. After exhausting retries we return a message
+            # that tells the user the actual cause and how to fix it,
+            # rather than the raw low-level traceback.
+            last_err: Optional[BaseException] = None
+            for attempt in range(1, self.ATTACH_RETRY_COUNT + 1):
+                try:
+                    self._session = await self._loop.run_in_executor(
+                        None, self._device.attach, pid,
+                    )
+                    last_err = None
+                    if attempt > 1:
+                        logger.info(
+                            "Frida: attached to PID %d on attempt %d",
+                            pid, attempt,
+                        )
+                    break
+                except frida.ServerNotRunningError as e:
+                    last_err = e
+                    logger.warning(
+                        "Frida attach attempt %d/%d failed: "
+                        "frida-server connection closed (%s) — "
+                        "retrying in %.1fs",
+                        attempt, self.ATTACH_RETRY_COUNT, e,
+                        self.ATTACH_RETRY_DELAY_SECONDS,
+                    )
+                    if attempt < self.ATTACH_RETRY_COUNT:
+                        await asyncio.sleep(self.ATTACH_RETRY_DELAY_SECONDS)
+                except (frida.ProcessNotFoundError,
+                        frida.NotSupportedError) as e:
+                    # These are deterministic — retrying won't help.
+                    last_err = e
+                    break
+                except Exception as e:  # noqa: BLE001
+                    last_err = e
+                    logger.warning(
+                        "Frida attach attempt %d/%d failed: %s — retrying",
+                        attempt, self.ATTACH_RETRY_COUNT, e,
+                    )
+                    if attempt < self.ATTACH_RETRY_COUNT:
+                        await asyncio.sleep(self.ATTACH_RETRY_DELAY_SECONDS)
+
+            if last_err is not None:
+                if isinstance(last_err, frida.ServerNotRunningError):
+                    return ToolResult.fail(
+                        f"Frida attach to PID {pid} failed after "
+                        f"{self.ATTACH_RETRY_COUNT} retries: "
+                        f"frida-server on the device is not reachable. "
+                        f"This usually means zygiskfrida's frida-server "
+                        f"died or was unloaded. Fix: reboot the phone "
+                        f"to restart zygiskfrida, then verify with "
+                        f"`adb shell \"su -c 'ps -A | grep frida'\"` — "
+                        f"you should see a frida-server process running.",
+                    )
+                return ToolResult.fail(
+                    f"Frida attach to PID {pid} failed: "
+                    f"{type(last_err).__name__}: {last_err}",
+                )
+
             logger.info("Frida attached to %s (pid %d)", package, pid)
             return ToolResult.ok({
                 "package": package,
@@ -264,7 +334,7 @@ class FridaRunner:
            objects with .name (process name, frequently the display
            label on Android, not the package identifier). Used to catch
            daemons, sub-processes, and vendor-specific cases that don't
-           appear as Applications.
+           appear in the application list.
 
         On previous versions this method only used enumerate_processes()
         and matched by process.name, which silently failed whenever
@@ -310,11 +380,6 @@ class FridaRunner:
                     return proc.pid
 
             # ---- Diagnostic: log anything that looks related ----
-            # Pull keywords from the package name and scan both apps
-            # and processes for substring matches. The most likely cause
-            # of reaching this branch is that the app's identifier in
-            # enumerate_applications doesn't exactly match `package`
-            # (vendor remapping, alias, etc.) — having both views helps.
             keywords = [p for p in package.split(".") if len(p) > 3]
             similar: list[str] = []
             try:
