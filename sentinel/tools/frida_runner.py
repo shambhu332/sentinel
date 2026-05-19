@@ -119,14 +119,37 @@ class FridaRunner:
 
             # Find the PID for our package. With zygiskfrida, gadget injection
             # happens automatically when the app starts, so we just need to
-            # attach to the already-running process.
-            pid = await self._loop.run_in_executor(
-                None, self._find_pid, package,
-            )
+            # attach to the already-running process. We retry a few times
+            # because the orchestrator's start_app may return success while
+            # the app process is still initialising (race window of 1-2s).
+            pid: Optional[int] = None
+            for attempt in range(1, 6):
+                pid = await self._loop.run_in_executor(
+                    None, self._find_pid, package,
+                )
+                if pid is not None:
+                    if attempt > 1:
+                        logger.info(
+                            "Frida: found %s after %d attempts",
+                            package, attempt,
+                        )
+                    break
+                await asyncio.sleep(1.0)
+
             if pid is None:
+                # Get diagnostic info: what processes WERE running?
+                # This surfaces in scan_result.warnings so the user can
+                # see exactly what was on the device when attach failed.
+                diag = await self._loop.run_in_executor(
+                    None, self._diag_processes, package,
+                )
                 return ToolResult.fail(
-                    f"Package '{package}' not running on device. "
-                    f"Start it via adb first.",
+                    f"Package '{package}' not running on device after "
+                    f"5s of retries. Running processes (filtered): {diag}. "
+                    f"Likely causes: screen timeout backgrounded the app, "
+                    f"Android OOM-killed it, or it crashed at launch. "
+                    f"Fix: set screen timeout to 10+ minutes and keep the "
+                    f"app actively in foreground throughout the entire scan.",
                 )
             self._target_pid = pid
 
@@ -219,16 +242,83 @@ class FridaRunner:
     # ---------- Internals ----------
 
     def _find_pid(self, package: str) -> Optional[int]:
-        """Find the running PID for a package name."""
+        """Find the running PID for a package name.
+
+        Tries in order:
+        1. Exact match (proc.name == package) — main UI process. Preferred
+           because Java/runtime hooks need the UI process where business
+           logic runs, not background services.
+        2. Sub-process match (proc.name starts with package + ':') —
+           catches Signal's ':messaging', WhatsApp's ':voip', etc. Used
+           as a fallback when the main UI has been killed but services
+           are alive. Frida can still hook these for some classes of
+           events, though the main UI is preferred.
+
+        Logs the running processes that look related when neither matches,
+        so the warning message in scan_result.warnings actually tells the
+        user what's there.
+        """
         try:
-            apps = self._device.enumerate_processes()
-            # Frida lists processes by name; for apps it's the package name
+            apps = list(self._device.enumerate_processes())
+
+            # Pass 1: exact match
             for proc in apps:
                 if proc.name == package:
                     return proc.pid
+
+            # Pass 2: prefix match for sub-processes
+            for proc in apps:
+                if proc.name.startswith(package + ":"):
+                    logger.warning(
+                        "Frida: main UI for %s not running; attaching to "
+                        "sub-process %s (PID %d). Some hooks may not fire.",
+                        package, proc.name, proc.pid,
+                    )
+                    return proc.pid
+
+            # Diagnostic: log any process that shares a recognisable
+            # component with the package name, to help debugging
+            keywords = [p for p in package.split(".") if len(p) > 3]
+            similar = []
+            for proc in apps:
+                lower = proc.name.lower()
+                if any(kw.lower() in lower for kw in keywords):
+                    similar.append(f"{proc.name} (pid {proc.pid})")
+            if similar:
+                logger.warning(
+                    "Frida _find_pid: '%s' not found. Similar processes "
+                    "running: %s",
+                    package, ", ".join(similar[:8]),
+                )
+
         except Exception:  # noqa: BLE001
             logger.exception("_find_pid failed")
         return None
+
+    def _diag_processes(self, package: str) -> str:
+        """Return a short string listing processes that share a name
+        component with the package, for inclusion in error messages.
+
+        Useful when _find_pid returns None — tells the user exactly what
+        was running on the device at the moment we couldn't find their
+        target, which surfaces in scan_result.warnings via attach()'s
+        error message.
+        """
+        try:
+            apps = list(self._device.enumerate_processes())
+            keywords = [p for p in package.split(".") if len(p) > 3]
+            if not keywords:
+                return "no usable keywords from package name"
+            similar = []
+            for proc in apps:
+                lower = proc.name.lower()
+                if any(kw.lower() in lower for kw in keywords):
+                    similar.append(f"{proc.name}(pid {proc.pid})")
+            if similar:
+                return ", ".join(similar[:6])
+            return f"no process matching {' or '.join(keywords)}"
+        except Exception as e:  # noqa: BLE001
+            return f"could not enumerate processes: {e}"
 
     def _on_message(self, message: dict, data: Any) -> None:
         """Callback invoked by Frida for every message from the script.
