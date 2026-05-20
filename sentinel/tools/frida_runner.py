@@ -8,12 +8,19 @@ Frida lets us hook arbitrary Java/native methods at runtime, observing
 
 Architecture:
 1. We use the USB-connected Android device (frida.get_usb_device)
-2. zygiskfrida (already installed on the phone) auto-injects Frida into
-   every spawned app — so we don't need to manually push/start frida-server
+2. A standalone frida-server runs at /data/local/tmp/frida-server on the
+   phone (auto-started after boot via a Magisk post-fs-data hook)
 3. We attach to the target app's process AFTER it has been started
 4. We inject a JS hook script; the script sends events back to us via
    the message protocol
 5. Each event is recorded in a list and returned as a FridaCapture
+
+Frida version note: this project targets the Frida 16.x line because
+Frida 17 removed the built-in Java bridge from the default agent.
+Frida 17 requires bundling frida-java-bridge via frida-compile, which
+adds a Node.js build dependency. Moving to Frida 17 with a bundled
+bridge is tracked as a future enhancement. Today, pin frida to
+"~16.7" in pyproject.toml and run a matching 16.x frida-server.
 
 Crash-proof: all operations return ToolResult. Hook crashes don't kill
 the scan — they're logged as warnings and the rest of the pipeline
@@ -33,11 +40,16 @@ Device.enumerate_applications() — which exposes the identifier (package
 name) alongside the pid — as the primary lookup, and fall back to
 process-name matching only for non-app processes and edge cases.
 
-Attach retry note: zygiskfrida's embedded frida-server can occasionally
-drop a connection during attach, especially under load. We retry the
-attach call a few times before giving up. If retries are exhausted,
-the user sees a message pointing at the actual cause (server died on
-the device) rather than a confusing low-level traceback.
+Attach retry note: frida-server can occasionally drop a connection
+during attach, especially under load. We retry the attach call a few
+times before giving up. If retries are exhausted, the user sees a
+message pointing at the actual cause rather than a confusing low-level
+traceback.
+
+Hook script note: each hook script is wrapped in an IIFE that polls
+for Java bridge availability before calling Java.perform(). This makes
+the script resilient to runtime-init timing on slow targets and
+forward-compatible with bundled-bridge setups on Frida 17+.
 """
 from __future__ import annotations
 
@@ -88,7 +100,7 @@ class FridaRunner:
     """Async wrapper for Frida USB-device instrumentation."""
 
     # Number of times to retry the actual attach() call if frida-server
-    # drops the connection. zygiskfrida's server can momentarily go
+    # drops the connection. The standalone server can momentarily go
     # unresponsive under load; usually one retry is enough.
     ATTACH_RETRY_COUNT = 3
     ATTACH_RETRY_DELAY_SECONDS = 2.0
@@ -139,10 +151,8 @@ class FridaRunner:
                 self._device.name, self._device.type,
             )
 
-            # Find the PID for our package. With zygiskfrida, gadget injection
-            # happens automatically when the app starts, so we just need to
-            # attach to the already-running process. We retry a few times
-            # because the orchestrator's start_app may return success while
+            # Find the PID for our package via Device.enumerate_applications.
+            # We retry a few times because start_app may return success while
             # the app process is still initialising (race window of 1-2s).
             pid: Optional[int] = None
             for attempt in range(1, 6):
@@ -159,9 +169,6 @@ class FridaRunner:
                 await asyncio.sleep(1.0)
 
             if pid is None:
-                # Get diagnostic info: what processes WERE running?
-                # This surfaces in scan_result.warnings so the user can
-                # see exactly what was on the device when attach failed.
                 diag = await self._loop.run_in_executor(
                     None, self._diag_processes, package,
                 )
@@ -175,13 +182,7 @@ class FridaRunner:
                 )
             self._target_pid = pid
 
-            # Attach to the process — with retries because zygiskfrida's
-            # embedded frida-server can momentarily drop the connection
-            # under load. We catch ServerNotRunningError (and any other
-            # frida exception subclass) and retry with backoff before
-            # giving up. After exhausting retries we return a message
-            # that tells the user the actual cause and how to fix it,
-            # rather than the raw low-level traceback.
+            # Attach with retries
             last_err: Optional[BaseException] = None
             for attempt in range(1, self.ATTACH_RETRY_COUNT + 1):
                 try:
@@ -208,7 +209,6 @@ class FridaRunner:
                         await asyncio.sleep(self.ATTACH_RETRY_DELAY_SECONDS)
                 except (frida.ProcessNotFoundError,
                         frida.NotSupportedError) as e:
-                    # These are deterministic — retrying won't help.
                     last_err = e
                     break
                 except Exception as e:  # noqa: BLE001
@@ -226,11 +226,11 @@ class FridaRunner:
                         f"Frida attach to PID {pid} failed after "
                         f"{self.ATTACH_RETRY_COUNT} retries: "
                         f"frida-server on the device is not reachable. "
-                        f"This usually means zygiskfrida's frida-server "
-                        f"died or was unloaded. Fix: reboot the phone "
-                        f"to restart zygiskfrida, then verify with "
-                        f"`adb shell \"su -c 'ps -A | grep frida'\"` — "
-                        f"you should see a frida-server process running.",
+                        f"Fix: verify frida-server is alive with "
+                        f"`adb shell \"su -c 'ps -A | grep frida'\"` and "
+                        f"restart it with `adb shell \"su -c "
+                        f"'nohup /data/local/tmp/frida-server "
+                        f">/dev/null 2>&1 &'\"` if needed.",
                     )
                 return ToolResult.fail(
                     f"Frida attach to PID {pid} failed: "
@@ -328,23 +328,15 @@ class FridaRunner:
         1. Primary — Device.enumerate_applications(): returns Application
            objects with .identifier (package name like
            "org.thoughtcrime.securesms"), .name (display label like
-           "Signal"), and .pid (running pid, or 0 if not running). This
-           is the right API for matching by package name.
+           "Signal"), and .pid (running pid, or 0 if not running).
         2. Fallback — Device.enumerate_processes(): returns Process
            objects with .name (process name, frequently the display
            label on Android, not the package identifier). Used to catch
            daemons, sub-processes, and vendor-specific cases that don't
            appear in the application list.
-
-        On previous versions this method only used enumerate_processes()
-        and matched by process.name, which silently failed whenever
-        Android reported the process name as the app's display label
-        (e.g. "Signal" vs "org.thoughtcrime.securesms"). That was the
-        root cause of every "Package not running on device" warning
-        users hit during Sprint 8.2 Part B real-device validation.
         """
         try:
-            # ---- Primary: identifier-based lookup ----
+            # Primary: identifier-based lookup
             try:
                 apps = list(self._device.enumerate_applications())
                 for app in apps:
@@ -358,18 +350,13 @@ class FridaRunner:
                     e,
                 )
 
-            # ---- Fallback: process-name match ----
+            # Fallback: process-name match
             procs = list(self._device.enumerate_processes())
 
-            # Pass 1: exact match on process name (main UI process when
-            # Android happens to report it as the package name)
             for proc in procs:
                 if proc.name == package:
                     return proc.pid
 
-            # Pass 2: sub-process match (e.g. package:messaging, package:gcm).
-            # Frida can hook these for some classes of events, though the
-            # main UI is preferred.
             for proc in procs:
                 if proc.name.startswith(package + ":"):
                     logger.warning(
@@ -379,7 +366,7 @@ class FridaRunner:
                     )
                     return proc.pid
 
-            # ---- Diagnostic: log anything that looks related ----
+            # Diagnostic logging
             keywords = [p for p in package.split(".") if len(p) > 3]
             similar: list[str] = []
             try:
@@ -411,18 +398,12 @@ class FridaRunner:
         return None
 
     def _diag_processes(self, package: str) -> str:
-        """Return a short string describing what's running, for error messages.
-
-        Scans both the application list (identifier-based) and the
-        process list (name-based) so the diagnostic surfaces whichever
-        view actually contains useful information for the user.
-        """
+        """Return a short string describing what's running, for error messages."""
         try:
             keywords = [p for p in package.split(".") if len(p) > 3]
             if not keywords:
                 return "no usable keywords from package name"
 
-            # First: matching applications (identifier-based — most reliable)
             try:
                 apps = list(self._device.enumerate_applications())
                 running_apps = []
@@ -444,7 +425,6 @@ class FridaRunner:
                     "enumerate_applications failed in _diag: %s", e,
                 )
 
-            # Second: matching processes (name-based fallback)
             procs = list(self._device.enumerate_processes())
             similar = []
             for proc in procs:
@@ -462,11 +442,7 @@ class FridaRunner:
             return f"could not enumerate processes/apps: {e}"
 
     def _on_message(self, message: dict, data: Any) -> None:
-        """Callback invoked by Frida for every message from the script.
-
-        Called from Frida's thread, not the asyncio loop. We schedule the
-        coroutine on the loop via run_coroutine_threadsafe.
-        """
+        """Callback invoked by Frida for every message from the script."""
         try:
             if message.get("type") == "error":
                 err = message.get("description", "?")
@@ -480,7 +456,6 @@ class FridaRunner:
 
             payload = message.get("payload", {})
             if not isinstance(payload, dict):
-                # Some scripts send raw strings; normalize
                 payload = {"raw": str(payload)}
 
             kind = payload.get("kind", "unknown")
@@ -490,11 +465,9 @@ class FridaRunner:
                 timestamp=time.time(),
             )
 
-            # Schedule the append on the asyncio loop in a thread-safe way
             future = asyncio.run_coroutine_threadsafe(
                 self._append_event(event), self._loop,
             )
-            # Don't block here — fire and forget. If append fails, log it.
             future.add_done_callback(self._log_append_errors)
 
         except Exception:  # noqa: BLE001
@@ -513,266 +486,258 @@ class FridaRunner:
 
 
 # ---------- Pre-built hook scripts ----------
+#
+# Each script is wrapped in an IIFE with a Java-availability poll
+# (typeof guard + setInterval) before calling Java.perform. This makes
+# the hooks resilient to:
+#   - Slow Java bridge init in some target processes
+#   - Minor client/server version skews where the agent loads the
+#     bridge slightly late
+#   - Future Frida 17+ setups with frida-java-bridge bundled in
+# The typeof guard is required because referencing an undeclared
+# global throws in strict-mode contexts.
 
-# A_003 — Cipher.getInstance hook
 CIPHER_GETINSTANCE_HOOK = r"""
 /*
- * SENTINEL Frida hook -- javax.crypto.Cipher.getInstance
- *
- * Logs every Cipher.getInstance() call to detect weak algorithms in
- * actual runtime use (vs just declared in code). Catches DES, RC4,
- * MD5, ECB mode, and other weak constructs.
+ * SENTINEL Frida hook -- javax.crypto.Cipher.getInstance (A_003)
  */
-Java.perform(function() {
-    try {
-        var Cipher = Java.use('javax.crypto.Cipher');
-
-        // Cipher.getInstance(String transformation)
-        Cipher.getInstance.overload('java.lang.String').implementation = function(t) {
-            send({
-                kind: 'crypto.cipher',
-                algorithm: t,
-                overload: 'string'
-            });
-            return this.getInstance(t);
-        };
-
-        // Cipher.getInstance(String, String)
-        Cipher.getInstance.overload(
-            'java.lang.String', 'java.lang.String'
-        ).implementation = function(t, p) {
-            send({
-                kind: 'crypto.cipher',
-                algorithm: t,
-                provider: p,
-                overload: 'string_string'
-            });
-            return this.getInstance(t, p);
-        };
-
-        // Cipher.getInstance(String, Provider)
-        Cipher.getInstance.overload(
-            'java.lang.String', 'java.security.Provider'
-        ).implementation = function(t, p) {
-            send({
-                kind: 'crypto.cipher',
-                algorithm: t,
-                provider: p ? p.getName() : 'null',
-                overload: 'string_provider'
-            });
-            return this.getInstance(t, p);
-        };
-
-        // MessageDigest.getInstance -- catches MD5, SHA-1 in actual use
-        var MessageDigest = Java.use('java.security.MessageDigest');
-        MessageDigest.getInstance.overload('java.lang.String').implementation = function(a) {
-            send({
-                kind: 'crypto.digest',
-                algorithm: a
-            });
-            return this.getInstance(a);
-        };
-
-        // KeyGenerator.getInstance -- catches weak key generation
+(function() {
+    function setupCryptoHooks() {
         try {
-            var KeyGenerator = Java.use('javax.crypto.KeyGenerator');
-            KeyGenerator.getInstance.overload('java.lang.String').implementation = function(a) {
-                send({
-                    kind: 'crypto.keygen',
-                    algorithm: a
-                });
+            var Cipher = Java.use('javax.crypto.Cipher');
+
+            Cipher.getInstance.overload('java.lang.String').implementation = function(t) {
+                send({kind: 'crypto.cipher', algorithm: t, overload: 'string'});
+                return this.getInstance(t);
+            };
+
+            Cipher.getInstance.overload(
+                'java.lang.String', 'java.lang.String'
+            ).implementation = function(t, p) {
+                send({kind: 'crypto.cipher', algorithm: t, provider: p,
+                      overload: 'string_string'});
+                return this.getInstance(t, p);
+            };
+
+            Cipher.getInstance.overload(
+                'java.lang.String', 'java.security.Provider'
+            ).implementation = function(t, p) {
+                send({kind: 'crypto.cipher', algorithm: t,
+                      provider: p ? p.getName() : 'null',
+                      overload: 'string_provider'});
+                return this.getInstance(t, p);
+            };
+
+            var MessageDigest = Java.use('java.security.MessageDigest');
+            MessageDigest.getInstance.overload('java.lang.String').implementation = function(a) {
+                send({kind: 'crypto.digest', algorithm: a});
                 return this.getInstance(a);
             };
-        } catch(e) {
-            // Some apps shrink this class out, ignore
-        }
 
-        send({kind: 'crypto.hooks_installed', count: 4});
-    } catch(err) {
-        send({kind: 'error', message: 'crypto hooks: ' + err.toString()});
+            try {
+                var KeyGenerator = Java.use('javax.crypto.KeyGenerator');
+                KeyGenerator.getInstance.overload('java.lang.String').implementation = function(a) {
+                    send({kind: 'crypto.keygen', algorithm: a});
+                    return this.getInstance(a);
+                };
+            } catch(e) {
+                // Some apps shrink this class out, ignore
+            }
+
+            send({kind: 'crypto.hooks_installed', count: 4});
+        } catch(err) {
+            send({kind: 'error', message: 'crypto hooks: ' + err.toString()});
+        }
     }
-});
+
+    if (typeof Java !== 'undefined' && Java.available) {
+        Java.perform(setupCryptoHooks);
+    } else {
+        var attempts = 0;
+        var poll = setInterval(function() {
+            attempts++;
+            if (typeof Java !== 'undefined' && Java.available) {
+                clearInterval(poll);
+                Java.perform(setupCryptoHooks);
+            } else if (attempts >= 30) {
+                clearInterval(poll);
+                send({
+                    kind: 'error',
+                    message: 'crypto: Java bridge unavailable after 3s. '
+                           + 'Frida 17 ships without Java by default — '
+                           + 'either downgrade to Frida 16 or bundle '
+                           + 'frida-java-bridge via frida-compile.'
+                });
+            }
+        }, 100);
+    }
+})();
 """
 
 
-# N_005 — Certificate Pinning Bypass hook
-#
-# Attempts to bypass every major Android cert-pinning library at runtime.
-# For each library:
-#   - Java.use(class) fails  -> library not in app, silently skip
-#   - Java.use(class) succeeds + replacement runs -> tls.bypass event (= bug)
-#   - Java.use(class) succeeds but hook setup throws -> tls.bypass_failed
-#     event (= pinning survived our generic bypass)
-#
-# Libraries covered:
-#   - okhttp3.CertificatePinner (canonical OkHttp pinning)
-#   - android.net.http.X509TrustManagerExtensions (Android TrustManager)
-#   - android.webkit.WebViewClient.onReceivedSslError (WebView SSL bypass)
-#   - com.datatheorem.android.trustkit (TrustKit library)
-#   - org.conscrypt.Platform (Conscrypt, modern Android)
-#   - okhttp3.internal.tls.OkHostnameVerifier (hostname checks)
-#
-# WebView limitation: this hooks the BASE WebViewClient class. Apps that
-# subclass WebViewClient and override onReceivedSslError will not be
-# intercepted by this hook alone. Hooking subclasses generically requires
-# Java.choose or class-load instrumentation, deferred to a future sprint.
 CERT_PINNING_BYPASS_HOOK = r"""
-Java.perform(function() {
-    var installed = [];
+/*
+ * SENTINEL N_005 -- Certificate Pinning Bypass (Frida)
+ *
+ * For each pinning library:
+ *   - ClassNotFoundException -> library not in app, silently skip
+ *   - Hook installs -> tls.bypass on every check call (= bug finding)
+ *   - Hook setup throws after class load -> tls.bypass_failed
+ *     (= pinning survived our generic bypass, INFO observation)
+ *
+ * WebView limitation: hooks only the BASE WebViewClient class. Apps
+ * that subclass WebViewClient and override onReceivedSslError require
+ * Java.choose or class-load instrumentation — deferred.
+ */
+(function() {
+    function setupPinningHooks() {
+        var installed = [];
 
-    function tryHook(label, fn) {
-        try {
-            fn();
-            installed.push(label);
-        } catch(e) {
-            var msg = e.toString();
-            // ClassNotFoundException = library simply isn't in the app -> skip
-            if (msg.indexOf("ClassNotFoundException") !== -1) {
-                return;
+        function tryHook(label, fn) {
+            try {
+                fn();
+                installed.push(label);
+            } catch(e) {
+                var msg = e.toString();
+                if (msg.indexOf("ClassNotFoundException") !== -1) {
+                    return;
+                }
+                send({kind: 'tls.bypass_failed', library: label, error: msg});
             }
-            // Anything else after class load = pinning library is present
-            // but our bypass attempt failed (overload mismatch, anti-Frida,
-            // obfuscation). Emit a 'survived' signal.
-            send({
-                kind: 'tls.bypass_failed',
-                library: label,
-                error: msg
-            });
         }
+
+        // ---- OkHttp CertificatePinner ----
+        tryHook('okhttp.CertificatePinner', function() {
+            var Pinner = Java.use('okhttp3.CertificatePinner');
+            Pinner.check.overload(
+                'java.lang.String', 'java.util.List'
+            ).implementation = function(hostname, certs) {
+                send({kind: 'tls.bypass',
+                      library: 'okhttp.CertificatePinner',
+                      method: 'check(String, List)',
+                      host: hostname});
+            };
+            try {
+                Pinner['check$okhttp'].overload(
+                    'java.lang.String', 'kotlin.jvm.functions.Function0'
+                ).implementation = function(hostname, fn) {
+                    send({kind: 'tls.bypass',
+                          library: 'okhttp.CertificatePinner',
+                          method: 'check$okhttp',
+                          host: hostname});
+                };
+            } catch(e) {
+                // older OkHttp without this overload
+            }
+        });
+
+        // ---- X509TrustManagerExtensions ----
+        tryHook('X509TrustManager', function() {
+            var TMExt = Java.use('android.net.http.X509TrustManagerExtensions');
+            TMExt.checkServerTrusted.overload(
+                '[Ljava.security.cert.X509Certificate;',
+                'java.lang.String',
+                'java.lang.String'
+            ).implementation = function(chain, authType, host) {
+                send({kind: 'tls.bypass',
+                      library: 'X509TrustManager',
+                      method: 'X509TrustManagerExtensions.checkServerTrusted',
+                      host: host});
+                return Java.use('java.util.Collections').emptyList();
+            };
+        });
+
+        // ---- WebViewClient ----
+        tryHook('WebViewClient.onReceivedSslError', function() {
+            var WVC = Java.use('android.webkit.WebViewClient');
+            WVC.onReceivedSslError.implementation = function(view, handler, error) {
+                var url = '';
+                try { url = error ? error.getUrl() : ''; } catch(e) {}
+                send({kind: 'tls.bypass',
+                      library: 'WebViewClient.onReceivedSslError',
+                      method: 'onReceivedSslError',
+                      host: url});
+                handler.proceed();
+            };
+        });
+
+        // ---- TrustKit ----
+        tryHook('TrustKit', function() {
+            var TK = Java.use(
+                'com.datatheorem.android.trustkit.pinning.OkHostnameVerifier'
+            );
+            TK.verify.overload(
+                'java.lang.String', 'javax.net.ssl.SSLSession'
+            ).implementation = function(hostname, session) {
+                send({kind: 'tls.bypass',
+                      library: 'TrustKit',
+                      method: 'OkHostnameVerifier.verify',
+                      host: hostname});
+                return true;
+            };
+        });
+
+        // ---- Conscrypt Platform ----
+        tryHook('Conscrypt.Platform', function() {
+            var Plat = Java.use('org.conscrypt.Platform');
+            Plat.checkServerTrusted.overload(
+                'javax.net.ssl.X509TrustManager',
+                '[Ljava.security.cert.X509Certificate;',
+                'java.lang.String',
+                'javax.net.ssl.SSLSession'
+            ).implementation = function(tm, chain, authType, session) {
+                send({kind: 'tls.bypass',
+                      library: 'Conscrypt.Platform',
+                      method: 'checkServerTrusted',
+                      host: ''});
+            };
+        });
+
+        // ---- OkHostnameVerifier ----
+        tryHook('HostnameVerifier', function() {
+            var OKHV = Java.use('okhttp3.internal.tls.OkHostnameVerifier');
+            OKHV.verify.overload(
+                'java.lang.String', 'javax.net.ssl.SSLSession'
+            ).implementation = function(hostname, session) {
+                send({kind: 'tls.bypass',
+                      library: 'HostnameVerifier',
+                      method: 'OkHostnameVerifier.verify',
+                      host: hostname});
+                return true;
+            };
+        });
+
+        send({
+            kind: 'tls.hooks_installed',
+            libraries: installed,
+            count: installed.length
+        });
     }
 
-    // ---- OkHttp CertificatePinner ----
-    tryHook('okhttp.CertificatePinner', function() {
-        var Pinner = Java.use('okhttp3.CertificatePinner');
-        // check(String, List)
-        Pinner.check.overload(
-            'java.lang.String', 'java.util.List'
-        ).implementation = function(hostname, certs) {
-            send({
-                kind: 'tls.bypass',
-                library: 'okhttp.CertificatePinner',
-                method: 'check(String, List)',
-                host: hostname
-            });
-            // no-op: skip pin validation
-        };
-        // Optional: check$okhttp on Kotlin internal name (newer versions)
-        try {
-            Pinner['check$okhttp'].overload(
-                'java.lang.String', 'kotlin.jvm.functions.Function0'
-            ).implementation = function(hostname, fn) {
+    if (typeof Java !== 'undefined' && Java.available) {
+        Java.perform(setupPinningHooks);
+    } else {
+        var attempts = 0;
+        var poll = setInterval(function() {
+            attempts++;
+            if (typeof Java !== 'undefined' && Java.available) {
+                clearInterval(poll);
+                Java.perform(setupPinningHooks);
+            } else if (attempts >= 30) {
+                clearInterval(poll);
                 send({
-                    kind: 'tls.bypass',
-                    library: 'okhttp.CertificatePinner',
-                    method: 'check$okhttp',
-                    host: hostname
+                    kind: 'error',
+                    message: 'pinning: Java bridge unavailable after 3s. '
+                           + 'Frida 17 ships without Java by default — '
+                           + 'either downgrade to Frida 16 or bundle '
+                           + 'frida-java-bridge via frida-compile.'
                 });
-            };
-        } catch(e) {
-            // older OkHttp without this overload — fine
-        }
-    });
-
-    // ---- X509TrustManagerExtensions (Android system) ----
-    tryHook('X509TrustManager', function() {
-        var TMExt = Java.use('android.net.http.X509TrustManagerExtensions');
-        TMExt.checkServerTrusted.overload(
-            '[Ljava.security.cert.X509Certificate;',
-            'java.lang.String',
-            'java.lang.String'
-        ).implementation = function(chain, authType, host) {
-            send({
-                kind: 'tls.bypass',
-                library: 'X509TrustManager',
-                method: 'X509TrustManagerExtensions.checkServerTrusted',
-                host: host
-            });
-            // Return an empty list — caller iterates the chain, empty is safe
-            return Java.use('java.util.Collections').emptyList();
-        };
-    });
-
-    // ---- WebViewClient ----
-    tryHook('WebViewClient.onReceivedSslError', function() {
-        var WVC = Java.use('android.webkit.WebViewClient');
-        WVC.onReceivedSslError.implementation = function(view, handler, error) {
-            var url = '';
-            try { url = error ? error.getUrl() : ''; } catch(e) {}
-            send({
-                kind: 'tls.bypass',
-                library: 'WebViewClient.onReceivedSslError',
-                method: 'onReceivedSslError',
-                host: url
-            });
-            handler.proceed();  // accept the bad cert
-        };
-    });
-
-    // ---- TrustKit ----
-    tryHook('TrustKit', function() {
-        var TK = Java.use(
-            'com.datatheorem.android.trustkit.pinning.OkHostnameVerifier'
-        );
-        TK.verify.overload(
-            'java.lang.String', 'javax.net.ssl.SSLSession'
-        ).implementation = function(hostname, session) {
-            send({
-                kind: 'tls.bypass',
-                library: 'TrustKit',
-                method: 'OkHostnameVerifier.verify',
-                host: hostname
-            });
-            return true;
-        };
-    });
-
-    // ---- Conscrypt Platform (modern Android) ----
-    tryHook('Conscrypt.Platform', function() {
-        var Plat = Java.use('org.conscrypt.Platform');
-        Plat.checkServerTrusted.overload(
-            'javax.net.ssl.X509TrustManager',
-            '[Ljava.security.cert.X509Certificate;',
-            'java.lang.String',
-            'javax.net.ssl.SSLSession'
-        ).implementation = function(tm, chain, authType, session) {
-            send({
-                kind: 'tls.bypass',
-                library: 'Conscrypt.Platform',
-                method: 'checkServerTrusted',
-                host: ''
-            });
-            // no-op
-        };
-    });
-
-    // ---- OkHostnameVerifier ----
-    tryHook('HostnameVerifier', function() {
-        var OKHV = Java.use('okhttp3.internal.tls.OkHostnameVerifier');
-        OKHV.verify.overload(
-            'java.lang.String', 'javax.net.ssl.SSLSession'
-        ).implementation = function(hostname, session) {
-            send({
-                kind: 'tls.bypass',
-                library: 'HostnameVerifier',
-                method: 'OkHostnameVerifier.verify',
-                host: hostname
-            });
-            return true;
-        };
-    });
-
-    // ---- Final diagnostic ----
-    send({
-        kind: 'tls.hooks_installed',
-        libraries: installed,
-        count: installed.length
-    });
-});
+            }
+        }, 100);
+    }
+})();
 """
 
 
 # Aggregate of all hook scripts injected during Phase 4.5.
-# Multiple Java.perform blocks coexist fine in one script — each block
-# independently sets up its hooks, and a failure in one does not stop
-# the others.
 ALL_RUNTIME_HOOKS = CIPHER_GETINSTANCE_HOOK + "\n\n" + CERT_PINNING_BYPASS_HOOK
