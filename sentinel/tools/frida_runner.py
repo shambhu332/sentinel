@@ -8,43 +8,29 @@ Frida lets us hook arbitrary Java/native methods at runtime, observing
 
 Architecture:
 1. We use the USB-connected Android device (frida.get_usb_device)
-2. A standalone frida-server runs at /data/local/tmp/frida-server on the
-   phone (auto-started after boot via a Magisk post-fs-data hook)
+2. A standalone frida-server runs at /data/local/tmp/frida-server on
+   the phone (Frida 16.x — Frida 17 removed the built-in Java bridge)
 3. We attach to the target app's process AFTER it has been started
-4. We inject a JS hook script; the script sends events back to us via
-   the message protocol
-5. Each event is recorded in a list and returned as a FridaCapture
+4. We inject a JS hook script; the script sends events back via the
+   message protocol; each event is recorded in a FridaCapture
 
-Frida version note: this project targets the Frida 16.x line because
-Frida 17 removed the built-in Java bridge from the default agent.
-Frida 17 requires bundling frida-java-bridge via frida-compile, which
-adds a Node.js build dependency. Moving to Frida 17 with a bundled
-bridge is tracked as a future enhancement. Today, pin frida to
-"~16.7" in pyproject.toml and run a matching 16.x frida-server.
+Frida version note: this project targets the Frida 16.x line.
+Frida 17 (April 2025) removed the built-in Java bridge from the
+default agent. Moving to Frida 17 with a bundled frida-java-bridge
+is a future enhancement.
 
-Crash-proof: all operations return ToolResult. Hook crashes don't kill
-the scan — they're logged as warnings and the rest of the pipeline
-proceeds.
-
-Threading note: Frida's Python API is callback-based. We bridge it to
-asyncio by collecting messages in a list with a lock, and exposing the
-collected events when the caller calls stop().
-
-Process lookup note: Frida's Device.enumerate_processes() returns each
-running process by *name*, which on Android is frequently the app's
-display label ("Signal", "campus 4.0", "WhatsApp"), not the package
-identifier ("org.thoughtcrime.securesms", "com.global.edu.campus",
-"com.whatsapp"). Matching the package name against process.name is
-unreliable across vendors and versions. We use
-Device.enumerate_applications() — which exposes the identifier (package
-name) alongside the pid — as the primary lookup, and fall back to
-process-name matching only for non-app processes and edge cases.
+PID lookup strategy (in order):
+1. Device.enumerate_applications() — primary, gives identifier + pid
+2. Device.enumerate_processes() — fallback for daemons/sub-processes
+3. `adb shell pidof <package>` — tertiary, bypasses Frida enumeration
+   entirely. Necessary on Samsung kernels with strict YAMA ptrace
+   restrictions where Frida's full-process iteration trips on a single
+   ptrace-protected process and fails the whole enumerate call, even
+   when attaching to a single known PID would work fine.
 
 Attach retry note: frida-server can occasionally drop a connection
 during attach, especially under load. We retry the attach call a few
-times before giving up. If retries are exhausted, the user sees a
-message pointing at the actual cause rather than a confusing low-level
-traceback.
+times before giving up.
 
 Hook script note: each hook script is wrapped in an IIFE that polls
 for Java bridge availability before calling Java.perform(). This makes
@@ -55,6 +41,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import shutil
+import subprocess
 import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
@@ -75,10 +63,8 @@ class FridaHookEvent:
     - "crypto.hooks_installed": diagnostic, crypto hooks loaded successfully
     - "tls.pin_check": from cert pinning check hooks (N_005)
     - "tls.bypass": when a pin check is bypassed by our script (N_005)
-    - "tls.bypass_failed": pinning library present but bypass setup failed,
-      indicating the app resists our generic bypass (N_005 "survived" signal)
-    - "tls.hooks_installed": diagnostic, lists pinning libraries successfully
-      hooked during the session (N_005)
+    - "tls.bypass_failed": pinning library present but bypass setup failed
+    - "tls.hooks_installed": diagnostic, lists pinning libraries hooked
     - "error": something went wrong inside the script
     """
     kind: str
@@ -100,10 +86,12 @@ class FridaRunner:
     """Async wrapper for Frida USB-device instrumentation."""
 
     # Number of times to retry the actual attach() call if frida-server
-    # drops the connection. The standalone server can momentarily go
-    # unresponsive under load; usually one retry is enough.
+    # drops the connection.
     ATTACH_RETRY_COUNT = 3
     ATTACH_RETRY_DELAY_SECONDS = 2.0
+
+    # Timeout for the adb pidof fallback in _find_pid.
+    ADB_PIDOF_TIMEOUT_SECONDS = 5.0
 
     def __init__(self) -> None:
         self._device: Any = None
@@ -125,11 +113,7 @@ class FridaRunner:
             )
 
     async def attach(self, package: str) -> ToolResult[dict]:
-        """Attach to the named package on the USB device.
-
-        Requires the package to be currently running on the device.
-        Returns a dict with package, pid, device name.
-        """
+        """Attach to the named package on the USB device."""
         if self._frida_unavailable_reason:
             return ToolResult.fail(self._frida_unavailable_reason)
 
@@ -142,7 +126,6 @@ class FridaRunner:
         try:
             import frida
 
-            # Get USB-connected Android device
             self._device = await self._loop.run_in_executor(
                 None, frida.get_usb_device, 5000,
             )
@@ -151,9 +134,6 @@ class FridaRunner:
                 self._device.name, self._device.type,
             )
 
-            # Find the PID for our package via Device.enumerate_applications.
-            # We retry a few times because start_app may return success while
-            # the app process is still initialising (race window of 1-2s).
             pid: Optional[int] = None
             for attempt in range(1, 6):
                 pid = await self._loop.run_in_executor(
@@ -182,7 +162,6 @@ class FridaRunner:
                 )
             self._target_pid = pid
 
-            # Attach with retries
             last_err: Optional[BaseException] = None
             for attempt in range(1, self.ATTACH_RETRY_COUNT + 1):
                 try:
@@ -226,11 +205,18 @@ class FridaRunner:
                         f"Frida attach to PID {pid} failed after "
                         f"{self.ATTACH_RETRY_COUNT} retries: "
                         f"frida-server on the device is not reachable. "
-                        f"Fix: verify frida-server is alive with "
-                        f"`adb shell \"su -c 'ps -A | grep frida'\"` and "
-                        f"restart it with `adb shell \"su -c "
+                        f"Fix: restart it with `adb shell \"su -c "
                         f"'nohup /data/local/tmp/frida-server "
-                        f">/dev/null 2>&1 &'\"` if needed.",
+                        f">/dev/null 2>&1 &'\"`.",
+                    )
+                if isinstance(last_err, frida.NotSupportedError):
+                    return ToolResult.fail(
+                        f"Frida attach to PID {pid} failed: "
+                        f"{last_err}. This usually means the device's "
+                        f"kernel restricts ptrace. Try: "
+                        f"`adb shell \"su -c 'echo 0 > "
+                        f"/proc/sys/kernel/yama/ptrace_scope; "
+                        f"setenforce 0'\"`.",
                     )
                 return ToolResult.fail(
                     f"Frida attach to PID {pid} failed: "
@@ -250,13 +236,7 @@ class FridaRunner:
             )
 
     async def inject_script(self, script_source: str) -> ToolResult[str]:
-        """Compile and load a Frida JS hook script.
-
-        The script's send() calls become Python message events that we
-        record. Call this AFTER attach(), BEFORE the user interacts
-        with the app, so the hooks are live before any sensitive
-        operation happens.
-        """
+        """Compile and load a Frida JS hook script."""
         if self._session is None:
             return ToolResult.fail("No active Frida session — call attach() first")
         if self._frida_unavailable_reason:
@@ -283,7 +263,6 @@ class FridaRunner:
         """Detach and return all captured events."""
         duration = time.monotonic() - self._start_time
 
-        # Clean up — best effort
         if self._script is not None:
             try:
                 await self._loop.run_in_executor(None, self._script.unload)
@@ -312,7 +291,6 @@ class FridaRunner:
             len(events_copy), duration, len(self._script_errors),
         )
 
-        # Reset state
         self._script = None
         self._session = None
         self._device = None
@@ -324,19 +302,20 @@ class FridaRunner:
     def _find_pid(self, package: str) -> Optional[int]:
         """Find the running PID for an Android package.
 
-        Strategy:
-        1. Primary — Device.enumerate_applications(): returns Application
-           objects with .identifier (package name like
-           "org.thoughtcrime.securesms"), .name (display label like
-           "Signal"), and .pid (running pid, or 0 if not running).
-        2. Fallback — Device.enumerate_processes(): returns Process
-           objects with .name (process name, frequently the display
-           label on Android, not the package identifier). Used to catch
-           daemons, sub-processes, and vendor-specific cases that don't
-           appear in the application list.
+        Strategy (in order):
+        1. Device.enumerate_applications() — identifier-based lookup.
+           Most reliable when it works.
+        2. Device.enumerate_processes() — process-name lookup, used
+           for daemons and sub-processes that don't appear as apps.
+        3. `adb shell pidof <package>` — bypasses Frida entirely.
+           Required on devices where Frida's enumeration hits ptrace
+           I/O errors due to YAMA restrictions or vendor-hardened
+           processes that refuse introspection. Attaching to a single
+           known PID still works on these devices — only the
+           iterate-everything enumerate calls fail.
         """
         try:
-            # Primary: identifier-based lookup
+            # ---- Primary: Frida enumerate_applications ----
             try:
                 apps = list(self._device.enumerate_applications())
                 for app in apps:
@@ -345,86 +324,156 @@ class FridaRunner:
                         return pid
             except Exception as e:  # noqa: BLE001
                 logger.warning(
-                    "Frida enumerate_applications failed: %s — "
-                    "falling back to process enumeration",
+                    "Frida enumerate_applications failed (%s) — "
+                    "falling back to enumerate_processes",
                     e,
                 )
 
-            # Fallback: process-name match
-            procs = list(self._device.enumerate_processes())
-
-            for proc in procs:
-                if proc.name == package:
-                    return proc.pid
-
-            for proc in procs:
-                if proc.name.startswith(package + ":"):
-                    logger.warning(
-                        "Frida: main UI for %s not running; attaching to "
-                        "sub-process %s (PID %d). Some hooks may not fire.",
-                        package, proc.name, proc.pid,
-                    )
-                    return proc.pid
-
-            # Diagnostic logging
-            keywords = [p for p in package.split(".") if len(p) > 3]
-            similar: list[str] = []
+            # ---- Secondary: Frida enumerate_processes ----
             try:
-                for app in self._device.enumerate_applications():
-                    pid = getattr(app, "pid", 0)
-                    if pid <= 0:
-                        continue
-                    ident_lower = app.identifier.lower()
-                    if any(kw.lower() in ident_lower for kw in keywords):
-                        similar.append(
-                            f"app: {app.identifier} "
-                            f"(pid {pid}, label={app.name!r})"
+                procs = list(self._device.enumerate_processes())
+                for proc in procs:
+                    if proc.name == package:
+                        return proc.pid
+                for proc in procs:
+                    if proc.name.startswith(package + ":"):
+                        logger.warning(
+                            "Frida: main UI for %s not running; attaching "
+                            "to sub-process %s (PID %d). Some hooks may "
+                            "not fire.",
+                            package, proc.name, proc.pid,
                         )
-            except Exception:  # noqa: BLE001
-                pass
-            for proc in procs:
-                lower = proc.name.lower()
-                if any(kw.lower() in lower for kw in keywords):
-                    similar.append(f"proc: {proc.name} (pid {proc.pid})")
-            if similar:
+                        return proc.pid
+            except Exception as e:  # noqa: BLE001
                 logger.warning(
-                    "Frida _find_pid: '%s' not found via either application "
-                    "identifier or process name. Similar entries: %s",
-                    package, "; ".join(similar[:8]),
+                    "Frida enumerate_processes failed (%s) — "
+                    "falling back to adb pidof",
+                    e,
                 )
+
+            # ---- Tertiary: adb pidof ----
+            adb_pid = self._pid_via_adb(package)
+            if adb_pid is not None:
+                logger.info(
+                    "Frida _find_pid: found %s via adb pidof (PID %d). "
+                    "Frida's process enumeration is unavailable on this "
+                    "device — likely YAMA ptrace restrictions.",
+                    package, adb_pid,
+                )
+                return adb_pid
+
+            # ---- All three failed — log diagnostic info ----
+            self._log_similar_processes(package)
 
         except Exception:  # noqa: BLE001
             logger.exception("_find_pid failed")
         return None
 
-    def _diag_processes(self, package: str) -> str:
-        """Return a short string describing what's running, for error messages."""
+    def _pid_via_adb(self, package: str) -> Optional[int]:
+        """Get the PID of a package via `adb shell pidof`.
+
+        Doesn't use Frida at all — just calls adb directly. Used when
+        Frida's process enumeration is failing but the device is
+        otherwise reachable.
+        """
+        adb = shutil.which("adb")
+        if adb is None:
+            logger.warning("adb not in PATH — cannot use pidof fallback")
+            return None
         try:
-            keywords = [p for p in package.split(".") if len(p) > 3]
-            if not keywords:
-                return "no usable keywords from package name"
-
-            try:
-                apps = list(self._device.enumerate_applications())
-                running_apps = []
-                for app in apps:
-                    pid = getattr(app, "pid", 0)
-                    if pid <= 0:
-                        continue
-                    ident_lower = app.identifier.lower()
-                    if any(kw.lower() in ident_lower for kw in keywords):
-                        running_apps.append(
-                            f"{app.identifier}(pid {pid}, label={app.name!r})"
-                        )
-                if running_apps:
-                    return "matching applications: " + ", ".join(
-                        running_apps[:6],
-                    )
-            except Exception as e:  # noqa: BLE001
-                logger.warning(
-                    "enumerate_applications failed in _diag: %s", e,
+            result = subprocess.run(
+                [adb, "shell", "pidof", package],
+                capture_output=True,
+                text=True,
+                timeout=self.ADB_PIDOF_TIMEOUT_SECONDS,
+            )
+            if result.returncode != 0:
+                logger.debug(
+                    "adb pidof %s returned rc=%d, stderr=%r",
+                    package, result.returncode, result.stderr.strip(),
                 )
+                return None
+            pids_str = result.stdout.strip()
+            if not pids_str:
+                return None
+            # pidof may return multiple PIDs for multi-process apps,
+            # space-separated. The first one is typically the main UI
+            # process which is what we want for Java hooks.
+            first = pids_str.split()[0]
+            if first.isdigit():
+                return int(first)
+        except subprocess.TimeoutExpired:
+            logger.warning("adb pidof %s timed out", package)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("adb pidof %s failed: %s", package, e)
+        return None
 
+    def _log_similar_processes(self, package: str) -> None:
+        """Log apps/processes resembling the package name for diagnostics."""
+        keywords = [p for p in package.split(".") if len(p) > 3]
+        if not keywords:
+            return
+        similar: list[str] = []
+        try:
+            for app in self._device.enumerate_applications():
+                pid = getattr(app, "pid", 0)
+                if pid <= 0:
+                    continue
+                ident_lower = app.identifier.lower()
+                if any(kw.lower() in ident_lower for kw in keywords):
+                    similar.append(
+                        f"app: {app.identifier} "
+                        f"(pid {pid}, label={app.name!r})"
+                    )
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            for proc in self._device.enumerate_processes():
+                lower = proc.name.lower()
+                if any(kw.lower() in lower for kw in keywords):
+                    similar.append(f"proc: {proc.name} (pid {proc.pid})")
+        except Exception:  # noqa: BLE001
+            pass
+        if similar:
+            logger.warning(
+                "Frida _find_pid: '%s' not found via any method. "
+                "Similar entries: %s",
+                package, "; ".join(similar[:8]),
+            )
+
+    def _diag_processes(self, package: str) -> str:
+        """Return a short string describing what's running, for error messages.
+
+        Scans applications, processes, and (as a final fallback) the adb
+        process list so the error message contains useful info regardless
+        of which enumeration mechanism is currently working.
+        """
+        keywords = [p for p in package.split(".") if len(p) > 3]
+        if not keywords:
+            return "no usable keywords from package name"
+
+        # First: matching applications (identifier-based — most reliable)
+        try:
+            apps = list(self._device.enumerate_applications())
+            running_apps = []
+            for app in apps:
+                pid = getattr(app, "pid", 0)
+                if pid <= 0:
+                    continue
+                ident_lower = app.identifier.lower()
+                if any(kw.lower() in ident_lower for kw in keywords):
+                    running_apps.append(
+                        f"{app.identifier}(pid {pid}, label={app.name!r})"
+                    )
+            if running_apps:
+                return "matching applications: " + ", ".join(
+                    running_apps[:6],
+                )
+        except Exception as e:  # noqa: BLE001
+            logger.debug("enumerate_applications failed in _diag: %s", e)
+
+        # Second: matching processes (name-based)
+        try:
             procs = list(self._device.enumerate_processes())
             similar = []
             for proc in procs:
@@ -433,13 +482,26 @@ class FridaRunner:
                     similar.append(f"{proc.name}(pid {proc.pid})")
             if similar:
                 return "matching processes: " + ", ".join(similar[:6])
-
-            return (
-                f"no application or process matching: "
-                f"{' or '.join(keywords)}"
-            )
         except Exception as e:  # noqa: BLE001
-            return f"could not enumerate processes/apps: {e}"
+            logger.debug("enumerate_processes failed in _diag: %s", e)
+
+        # Third: adb pidof as final probe
+        try:
+            adb_pid = self._pid_via_adb(package)
+            if adb_pid is not None:
+                return (
+                    f"adb sees {package} at pid {adb_pid} "
+                    f"but Frida cannot enumerate it (likely YAMA ptrace "
+                    f"restriction — try `setenforce 0` and `echo 0 > "
+                    f"/proc/sys/kernel/yama/ptrace_scope`)"
+                )
+        except Exception:  # noqa: BLE001
+            pass
+
+        return (
+            f"no application or process matching: "
+            f"{' or '.join(keywords)} found via Frida or adb"
+        )
 
     def _on_message(self, message: dict, data: Any) -> None:
         """Callback invoked by Frida for every message from the script."""
@@ -488,14 +550,8 @@ class FridaRunner:
 # ---------- Pre-built hook scripts ----------
 #
 # Each script is wrapped in an IIFE with a Java-availability poll
-# (typeof guard + setInterval) before calling Java.perform. This makes
-# the hooks resilient to:
-#   - Slow Java bridge init in some target processes
-#   - Minor client/server version skews where the agent loads the
-#     bridge slightly late
-#   - Future Frida 17+ setups with frida-java-bridge bundled in
-# The typeof guard is required because referencing an undeclared
-# global throws in strict-mode contexts.
+# before calling Java.perform. The typeof guard is required because
+# referencing an undeclared global throws in strict-mode contexts.
 
 CIPHER_GETINSTANCE_HOOK = r"""
 /*
@@ -578,16 +634,6 @@ CIPHER_GETINSTANCE_HOOK = r"""
 CERT_PINNING_BYPASS_HOOK = r"""
 /*
  * SENTINEL N_005 -- Certificate Pinning Bypass (Frida)
- *
- * For each pinning library:
- *   - ClassNotFoundException -> library not in app, silently skip
- *   - Hook installs -> tls.bypass on every check call (= bug finding)
- *   - Hook setup throws after class load -> tls.bypass_failed
- *     (= pinning survived our generic bypass, INFO observation)
- *
- * WebView limitation: hooks only the BASE WebViewClient class. Apps
- * that subclass WebViewClient and override onReceivedSslError require
- * Java.choose or class-load instrumentation — deferred.
  */
 (function() {
     function setupPinningHooks() {
@@ -606,7 +652,6 @@ CERT_PINNING_BYPASS_HOOK = r"""
             }
         }
 
-        // ---- OkHttp CertificatePinner ----
         tryHook('okhttp.CertificatePinner', function() {
             var Pinner = Java.use('okhttp3.CertificatePinner');
             Pinner.check.overload(
@@ -631,7 +676,6 @@ CERT_PINNING_BYPASS_HOOK = r"""
             }
         });
 
-        // ---- X509TrustManagerExtensions ----
         tryHook('X509TrustManager', function() {
             var TMExt = Java.use('android.net.http.X509TrustManagerExtensions');
             TMExt.checkServerTrusted.overload(
@@ -647,7 +691,6 @@ CERT_PINNING_BYPASS_HOOK = r"""
             };
         });
 
-        // ---- WebViewClient ----
         tryHook('WebViewClient.onReceivedSslError', function() {
             var WVC = Java.use('android.webkit.WebViewClient');
             WVC.onReceivedSslError.implementation = function(view, handler, error) {
@@ -661,7 +704,6 @@ CERT_PINNING_BYPASS_HOOK = r"""
             };
         });
 
-        // ---- TrustKit ----
         tryHook('TrustKit', function() {
             var TK = Java.use(
                 'com.datatheorem.android.trustkit.pinning.OkHostnameVerifier'
@@ -677,7 +719,6 @@ CERT_PINNING_BYPASS_HOOK = r"""
             };
         });
 
-        // ---- Conscrypt Platform ----
         tryHook('Conscrypt.Platform', function() {
             var Plat = Java.use('org.conscrypt.Platform');
             Plat.checkServerTrusted.overload(
@@ -693,7 +734,6 @@ CERT_PINNING_BYPASS_HOOK = r"""
             };
         });
 
-        // ---- OkHostnameVerifier ----
         tryHook('HostnameVerifier', function() {
             var OKHV = Java.use('okhttp3.internal.tls.OkHostnameVerifier');
             OKHV.verify.overload(
@@ -739,5 +779,4 @@ CERT_PINNING_BYPASS_HOOK = r"""
 """
 
 
-# Aggregate of all hook scripts injected during Phase 4.5.
 ALL_RUNTIME_HOOKS = CIPHER_GETINSTANCE_HOOK + "\n\n" + CERT_PINNING_BYPASS_HOOK
