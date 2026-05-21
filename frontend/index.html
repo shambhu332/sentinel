@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SENTINEL · multi-agent Android security scanner</title>
+  <meta name="description" content="SENTINEL is a 20-agent open-source Android security scanner combining static analysis, runtime instrumentation, and LLM-powered triage." />
+  <meta name="theme-color" content="#070A12" />
+  <meta property="og:title" content="SENTINEL · multi-agent Android security scanner" />
+  <meta property="og:description" content="Decompile, hook, and analyse any APK in under three minutes." />
+  <meta property="og:image" content="./assets/og-image.svg" />
+  <meta property="og:type" content="website" />
+
+  <link rel="icon" type="image/svg+xml" href="./assets/favicon.svg" />
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+  <!-- CSS -->
+  <link rel="stylesheet" href="./css/base.css" />
+  <link rel="stylesheet" href="./css/components.css" />
+  <link rel="stylesheet" href="./css/landing.css" />
+
+  <!-- Vendor (Lucide only here — landing doesn't need Chart.js/jsPDF) -->
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#hero">Skip to content</a>
+
+  <!-- ============ NAVBAR ============ -->
+  <nav class="landing-nav" aria-label="Primary">
+    <div class="container">
+      <a class="nav-brand" href="./index.html">
+        <img src="./assets/logo.svg" alt="" width="28" height="28"/>
+        <span>SENTINEL</span>
+      </a>
+      <div class="nav-links">
+        <a class="nav-link" href="#how">How it works</a>
+        <a class="nav-link" href="#agents">Agents</a>
+        <a class="nav-link" href="#architecture">Architecture</a>
+        <a class="nav-link" href="./app.html#demo">Demo</a>
+      </div>
+      <div class="nav-actions">
+        <a class="nav-star" href="https://github.com/shambhu332/sentinel" target="_blank" rel="noopener">
+          <i data-lucide="star" style="width:14px;height:14px;"></i> Star on GitHub
+        </a>
+        <a class="btn btn-primary btn-sm" href="./app.html#dashboard">Open dashboard <i data-lucide="arrow-right" style="width:14px;height:14px;"></i></a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ============ HERO ============ -->
+  <section class="hero" id="hero">
+    <div class="hero-orbs" aria-hidden="true">
+      <span class="orb orb-1"></span>
+      <span class="orb orb-2"></span>
+      <span class="orb orb-3"></span>
+    </div>
+    <div class="container hero-inner reveal">
+      <span class="eyebrow">OPEN SOURCE · MULTI-AGENT · ANDROID SECURITY</span>
+      <h1 class="hero-title">Find Android vulnerabilities <span class="gradient-text">before they ship.</span></h1>
+      <p class="hero-sub">SENTINEL is a 20-agent security scanner that combines static analysis, runtime instrumentation, and LLM-powered triage. Decompile, hook, and analyse any APK in under three minutes.</p>
+      <div class="hero-ctas">
+        <a class="btn btn-primary btn-lg" href="./app.html#dashboard">Open the dashboard <i data-lucide="arrow-right"></i></a>
+        <a class="btn btn-secondary btn-lg" href="https://github.com/shambhu332/sentinel" target="_blank" rel="noopener">
+          <i data-lucide="github"></i> View on GitHub
+        </a>
+      </div>
+
+      <div class="terminal hero-terminal reveal reveal-delay-2">
+        <div class="terminal-header">
+          <span class="terminal-dot red"></span>
+          <span class="terminal-dot yellow"></span>
+          <span class="terminal-dot green"></span>
+          <span class="terminal-title">~/sentinel · zsh</span>
+        </div>
+        <div class="terminal-body" id="hero-terminal-body"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ STATS ============ -->
+  <section class="section-sm">
+    <div class="container reveal">
+      <div class="stats-row">
+        <div class="stat"><span class="stat-num" data-count="20">0</span><span class="stat-label">Agents</span></div>
+        <div class="stat"><span class="stat-num" data-count="5">0</span><span class="stat-label">Phases</span></div>
+        <div class="stat"><span class="stat-num" data-count="3">0</span><span class="stat-label">LLM providers</span></div>
+        <div class="stat"><span class="stat-num" data-count="230">0</span><span class="stat-label">Unit tests</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ HOW IT WORKS ============ -->
+  <section class="section" id="how">
+    <div class="container">
+      <header class="section-head reveal">
+        <h2>A 5-phase pipeline, every step instrumented.</h2>
+        <p>Each phase is crash-proof and produces structured output the next phase can consume. Failures in one tool never block the others.</p>
+      </header>
+      <div class="phase-timeline reveal reveal-delay-1">
+        <article class="phase-card">
+          <span class="phase-num">0</span>
+          <div class="phase-name">Ingestion</div>
+          <p class="phase-desc">SHA-256, workspace setup, manifest extraction.</p>
+          <div class="phase-tools"><span class="chip chip-cat">apkutil</span><span class="chip chip-cat">hashlib</span></div>
+        </article>
+        <article class="phase-card">
+          <span class="phase-num">1</span>
+          <div class="phase-name">Parallel Recon</div>
+          <p class="phase-desc">JADX, Androguard, apktool, manifest — all async.</p>
+          <div class="phase-tools"><span class="chip chip-cat">JADX</span><span class="chip chip-cat">Androguard</span><span class="chip chip-cat">apktool</span></div>
+        </article>
+        <article class="phase-card">
+          <span class="phase-num">2</span>
+          <div class="phase-name">20 Analysis Agents</div>
+          <p class="phase-desc">14 SAST + 2 meta agents fan out concurrently.</p>
+          <div class="phase-tools"><span class="chip chip-cat">BaseAgent</span><span class="chip chip-cat">AgentRegistry</span></div>
+        </article>
+        <article class="phase-card">
+          <span class="phase-num">3</span>
+          <div class="phase-name">LLM Triage</div>
+          <p class="phase-desc">Groq → Cerebras → Ollama with auto fallback.</p>
+          <div class="phase-tools"><span class="chip chip-cat">ProviderRouter</span><span class="chip chip-cat">Triage</span></div>
+        </article>
+        <article class="phase-card">
+          <span class="phase-num">4</span>
+          <div class="phase-name">DAST + Frida</div>
+          <p class="phase-desc">mitmproxy capture and runtime hooks on live device.</p>
+          <div class="phase-tools"><span class="chip chip-cat">mitmproxy</span><span class="chip chip-cat">Frida 16</span></div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ AGENTS ============ -->
+  <section class="section" id="agents">
+    <div class="container">
+      <header class="section-head reveal">
+        <h2>20 specialised agents, one consistent contract.</h2>
+        <p>Every agent inherits from <code>BaseAgent</code>, declares its severity range, and emits findings with structured evidence.</p>
+        <div class="tabs-pill mt-6" id="agent-tabs">
+          <button class="tab is-active" data-filter="all">All</button>
+          <button class="tab" data-filter="sast">SAST</button>
+          <button class="tab" data-filter="dast">DAST</button>
+          <button class="tab" data-filter="meta">Meta</button>
+        </div>
+      </header>
+      <div class="agent-grid reveal" id="landing-agent-grid"></div>
+      <div class="text-center mt-8">
+        <a class="btn btn-secondary" href="./app.html#agents">Browse full catalog <i data-lucide="arrow-right"></i></a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ LLM ROUTER ============ -->
+  <section class="section">
+    <div class="container">
+      <div class="llm-router reveal">
+        <div>
+          <span class="eyebrow">LLM ROUTER</span>
+          <h2 class="mt-3">Three providers, one rotating triager.</h2>
+          <p class="mt-3">SENTINEL's <code>FreeProviderRouter</code> walks Groq → Cerebras → Ollama with exponential backoff. When all hosted endpoints are exhausted, it falls through to a local Ollama install. The same router pins to Ollama only when <code>--private</code> is set.</p>
+          <ul class="scope-list mt-4">
+            <li>Per-provider rate-limit tracking</li>
+            <li>Privacy mode: zero network triage</li>
+            <li>Provider history logged for every scan</li>
+          </ul>
+        </div>
+        <svg viewBox="0 0 600 280" aria-hidden="true">
+          <defs>
+            <linearGradient id="ll-line" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#7C3AED"/><stop offset="100%" stop-color="#22D3EE"/></linearGradient>
+            <marker id="ll-arrow" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#22D3EE"/></marker>
+          </defs>
+          <g font-family="JetBrains Mono" font-size="13" fill="#E6EAF2">
+            <rect x="20" y="30"  width="140" height="48" rx="10" fill="#141B2E" stroke="#2A3454"/><text x="90" y="58" text-anchor="middle">Groq</text>
+            <rect x="20" y="116" width="140" height="48" rx="10" fill="#141B2E" stroke="#EF4444">
+              <animate attributeName="stroke" values="#EF4444;#2A3454;#EF4444" dur="3s" repeatCount="indefinite"/>
+            </rect>
+            <text x="90" y="144" text-anchor="middle">Cerebras</text>
+            <rect x="20" y="202" width="140" height="48" rx="10" fill="#141B2E" stroke="#2A3454"/><text x="90" y="230" text-anchor="middle">Ollama</text>
+            <rect x="400" y="116" width="180" height="48" rx="10" fill="#1B2340" stroke="#22D3EE"/><text x="490" y="144" text-anchor="middle" fill="#22D3EE">Triager</text>
+          </g>
+          <g stroke="url(#ll-line)" stroke-width="2" fill="none" marker-end="url(#ll-arrow)">
+            <path d="M160 54  C 260 54, 320 100, 400 140"/>
+            <path d="M160 140 C 260 140, 320 140, 400 140"/>
+            <path d="M160 226 C 260 226, 320 180, 400 140"/>
+          </g>
+        </svg>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ DYNAMIC ANALYSIS ============ -->
+  <section class="section dast-section">
+    <div class="container">
+      <header class="section-head reveal">
+        <h2>Runtime evidence, not just guesses.</h2>
+        <p>Static analysis is the start. Dynamic capture and Frida hooks turn flagged surfaces into confirmed bugs.</p>
+        <div class="tabs-pill mt-6" id="dast-tabs">
+          <button class="tab is-active" data-dast="traffic">Traffic capture</button>
+          <button class="tab" data-dast="hooks">Runtime hooks</button>
+        </div>
+      </header>
+
+      <div class="dast-panel reveal" data-dast-panel="traffic">
+        <div class="flow-diagram">
+          <div class="flow-node">
+            <i data-lucide="smartphone"></i>
+            <div class="mt-2"><strong>Device</strong></div>
+            <div class="text-xs text-mute">com.example.banking</div>
+          </div>
+          <span class="flow-arrow">→</span>
+          <div class="flow-node">
+            <i data-lucide="shield"></i>
+            <div class="mt-2"><strong>mitmproxy</strong></div>
+            <div class="text-xs text-mute">10.0.0.42:8080</div>
+          </div>
+          <span class="flow-arrow">→</span>
+          <div class="flow-node">
+            <i data-lucide="laptop"></i>
+            <div class="mt-2"><strong>SENTINEL</strong></div>
+            <div class="text-xs text-mute">N_003 · N_004</div>
+          </div>
+        </div>
+        <hr/>
+        <div class="grid-2 mt-4">
+          <div class="terminal">
+            <div class="terminal-header"><span class="terminal-dot red"></span><span class="terminal-dot yellow"></span><span class="terminal-dot green"></span><span class="terminal-title">capture · request</span></div>
+            <div class="terminal-body"><span class="terminal-cmd">POST</span> http://logs.x.com/track<br>email=user@x.com&jwt=…</div>
+          </div>
+          <div class="terminal">
+            <div class="terminal-header"><span class="terminal-dot red"></span><span class="terminal-dot yellow"></span><span class="terminal-dot green"></span><span class="terminal-title">verdict</span></div>
+            <div class="terminal-body"><span class="ok">[N_004] DataInTransit · Critical</span><br>cleartext PII (email + jwt)</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="dast-panel hidden reveal" data-dast-panel="hooks">
+        <div class="grid-2">
+          <div>
+            <strong>Process tree (post-attach)</strong>
+            <ul class="frida-tree mt-3">
+              <li>frida-server (pid 9012)</li>
+              <li>└─ com.example.banking (pid 12288)</li>
+              <li>    └─ ALL_RUNTIME_HOOKS injected</li>
+              <li>        ├─ <span class="ok">OkHttp.CertificatePinner</span> · bypass_success</li>
+              <li>        ├─ <span class="ok">X509TrustManagerExtensions</span> · bypass_success</li>
+              <li>        ├─ <span class="ok">WebViewClient.onReceivedSslError</span> · absent</li>
+              <li>        ├─ <span class="miss">TrustKit</span> · survived</li>
+              <li>        ├─ <span class="ok">Conscrypt</span> · observed</li>
+              <li>        └─ <span class="ok">OkHostnameVerifier</span> · survived</li>
+            </ul>
+          </div>
+          <div class="terminal">
+            <div class="terminal-header"><span class="terminal-dot red"></span><span class="terminal-dot yellow"></span><span class="terminal-dot green"></span><span class="terminal-title">frida · event</span></div>
+            <div class="terminal-body"><span class="terminal-cmd">N_005</span> OkHttp.CertificatePinner.check<br>→ bypass_success<br>caller=banking.api.RestClient</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SCOPE PARSER ============ -->
+  <section class="section">
+    <div class="container">
+      <div class="grid-2 reveal" style="align-items: center;">
+        <div>
+          <span class="eyebrow">SCOPE</span>
+          <h2 class="mt-3">Bug bounty native.</h2>
+          <p class="mt-3">Paste a HackerOne / Bugcrowd URL, drop in a JSON scope file, or write inline rules. SENTINEL filters findings by in-scope packages, domains, reward tiers, and forbidden techniques before they ever reach your report.</p>
+          <pre class="mt-4"><code>poetry run sentinel scope parse --url \
+  hackerone.com/programs/example-bank</code></pre>
+        </div>
+        <article class="scope-card">
+          <div class="row-between">
+            <strong>HackerOne · example-bank</strong>
+            <span class="chip chip-status-active">parsed</span>
+          </div>
+          <hr/>
+          <h6 class="mb-2">In-scope packages</h6>
+          <ul class="scope-list">
+            <li>com.example.banking</li>
+            <li>com.example.banking.lite</li>
+          </ul>
+          <h6 class="mt-4 mb-2">Reward tiers</h6>
+          <div class="row gap-2 row-wrap">
+            <span class="chip chip-sev-low">low · $150</span>
+            <span class="chip chip-sev-medium">med · $500</span>
+            <span class="chip chip-sev-high">high · $1,500</span>
+            <span class="chip chip-sev-critical">crit · $5,000</span>
+          </div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ ARCHITECTURE ============ -->
+  <section class="section" id="architecture">
+    <div class="container">
+      <header class="section-head reveal">
+        <h2>One diagram, every component.</h2>
+        <p>Every box in the pipeline is wrapped in a <code>ToolResult</code>. A failure in one tool never blocks the rest.</p>
+      </header>
+      <div class="card reveal" style="overflow:hidden;">
+        <svg viewBox="0 0 1100 240" style="width:100%; height:240px;">
+          <defs>
+            <linearGradient id="arc-grad" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#7C3AED"/><stop offset="50%" stop-color="#22D3EE"/><stop offset="100%" stop-color="#34D399"/></linearGradient>
+            <marker id="arc-arrow" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#22D3EE"/></marker>
+          </defs>
+          <g font-family="Inter" font-size="12" fill="#E6EAF2">
+            <g transform="translate(20, 90)">
+              <rect width="130" height="60" rx="12" fill="#141B2E" stroke="#2A3454"><title>Ingestion</title></rect>
+              <text x="65" y="35" text-anchor="middle">Ingestion</text>
+            </g>
+            <g transform="translate(172, 90)">
+              <rect width="130" height="60" rx="12" fill="#141B2E" stroke="#2A3454"><title>Recon</title></rect>
+              <text x="65" y="35" text-anchor="middle">Recon</text>
+            </g>
+            <g transform="translate(324, 90)">
+              <rect width="130" height="60" rx="12" fill="#141B2E" stroke="#2A3454"><title>20 Agents</title></rect>
+              <text x="65" y="35" text-anchor="middle">20 Agents</text>
+            </g>
+            <g transform="translate(476, 90)">
+              <rect width="130" height="60" rx="12" fill="#141B2E" stroke="#2A3454"><title>Triage</title></rect>
+              <text x="65" y="35" text-anchor="middle">Triage</text>
+            </g>
+            <g transform="translate(628, 90)">
+              <rect width="130" height="60" rx="12" fill="#141B2E" stroke="#2A3454"><title>DAST</title></rect>
+              <text x="65" y="35" text-anchor="middle">DAST</text>
+            </g>
+            <g transform="translate(780, 90)">
+              <rect width="130" height="60" rx="12" fill="#141B2E" stroke="#2A3454"><title>Frida</title></rect>
+              <text x="65" y="35" text-anchor="middle">Frida</text>
+            </g>
+            <g transform="translate(932, 90)">
+              <rect width="130" height="60" rx="12" fill="#141B2E" stroke="#2A3454"><title>JSON output</title></rect>
+              <text x="65" y="35" text-anchor="middle">JSON output</text>
+            </g>
+          </g>
+          <g stroke="url(#arc-grad)" stroke-width="2" fill="none" marker-end="url(#arc-arrow)">
+            <line x1="152" y1="120" x2="170" y2="120"/>
+            <line x1="304" y1="120" x2="322" y2="120"/>
+            <line x1="456" y1="120" x2="474" y2="120"/>
+            <line x1="608" y1="120" x2="626" y2="120"/>
+            <line x1="760" y1="120" x2="778" y2="120"/>
+            <line x1="912" y1="120" x2="930" y2="120"/>
+          </g>
+        </svg>
+      </div>
+      <div class="text-center mt-6">
+        <a class="btn btn-secondary" href="./app.html#architecture">Read the architecture <i data-lucide="arrow-right"></i></a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ TECH STACK ============ -->
+  <section class="section-sm">
+    <div class="container">
+      <ul class="techstack reveal">
+        <li><i data-lucide="terminal"></i> Python</li>
+        <li><i data-lucide="package"></i> Poetry</li>
+        <li><i data-lucide="server"></i> FastAPI</li>
+        <li><i data-lucide="terminal-square"></i> Click</li>
+        <li><i data-lucide="sparkles"></i> Rich</li>
+        <li><i data-lucide="shield"></i> mitmproxy</li>
+        <li><i data-lucide="bug"></i> Frida</li>
+        <li><i data-lucide="box"></i> Androguard</li>
+        <li><i data-lucide="file-code-2"></i> JADX</li>
+        <li><i data-lucide="database"></i> ChromaDB</li>
+        <li><i data-lucide="check-circle-2"></i> Pydantic</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ============ CTA ============ -->
+  <section class="section">
+    <div class="container">
+      <div class="cta-panel reveal">
+        <span class="eyebrow">START</span>
+        <h2 class="mt-3">Start scanning in two commands.</h2>
+        <code class="cta-code">poetry install &amp;&amp; poetry run sentinel scan path/to/app.apk --dynamic --frida</code>
+        <div class="cta-buttons">
+          <a class="btn btn-primary" href="./app.html#dashboard">Open dashboard <i data-lucide="arrow-right"></i></a>
+          <a class="btn btn-secondary" href="./app.html#architecture">Read the architecture</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ FOOTER ============ -->
+  <footer class="landing-footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div class="footer-col">
+          <div class="nav-brand mb-4">
+            <img src="./assets/logo.svg" alt="" width="24" height="24"/>
+            <span>SENTINEL</span>
+          </div>
+          <p class="text-dim text-sm" style="max-width: 320px;">Open-source, multi-agent Android security scanner. Built for security researchers, capstone projects, and bug bounty hunters who want runtime evidence — not just static guesses.</p>
+        </div>
+        <div class="footer-col">
+          <h6>Product</h6>
+          <ul>
+            <li><a href="./app.html#dashboard">Dashboard</a></li>
+            <li><a href="./app.html#agents">Agents</a></li>
+            <li><a href="./app.html#demo">Demo</a></li>
+            <li><a href="./app.html#reports">Reports</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h6>Resources</h6>
+          <ul>
+            <li><a href="./app.html#architecture">Architecture</a></li>
+            <li><a href="https://github.com/shambhu332/sentinel" target="_blank" rel="noopener">GitHub</a></li>
+            <li><a href="https://github.com/shambhu332/sentinel/issues" target="_blank" rel="noopener">Issues</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h6>Built by Nehal</h6>
+          <ul>
+            <li>Kathmandu, Nepal</li>
+            <li><a href="https://github.com/shambhu332" target="_blank" rel="noopener">@shambhu332</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <span>MIT licensed · © 2026 SENTINEL contributors</span>
+        <div class="footer-social">
+          <a href="https://github.com/shambhu332/sentinel" target="_blank" rel="noopener" aria-label="GitHub"><i data-lucide="github"></i></a>
+          <a href="https://x.com" target="_blank" rel="noopener" aria-label="Twitter"><i data-lucide="twitter"></i></a>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <script type="module" src="./js/grid-bg.js"></script>
+  <script type="module" src="./js/landing.js"></script>
+</body>
+</html>
