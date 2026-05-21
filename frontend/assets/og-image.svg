@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" fill="none">
+  <defs>
+    <linearGradient id="og-grad" x1="0" y1="0" x2="1200" y2="630" gradientUnits="userSpaceOnUse">
+      <stop offset="0%"   stop-color="#7C3AED"/>
+      <stop offset="55%"  stop-color="#22D3EE"/>
+      <stop offset="100%" stop-color="#34D399"/>
+    </linearGradient>
+    <radialGradient id="og-glow-1" cx="200" cy="160" r="320" gradientUnits="userSpaceOnUse">
+      <stop offset="0%"   stop-color="#7C3AED" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#7C3AED" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="og-glow-2" cx="1000" cy="120" r="320" gradientUnits="userSpaceOnUse">
+      <stop offset="0%"   stop-color="#22D3EE" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="#22D3EE" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="og-dots" width="40" height="40" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1" fill="#9CA8C0" fill-opacity="0.10"/>
+    </pattern>
+  </defs>
+
+  <rect width="1200" height="630" fill="#070A12"/>
+  <rect width="1200" height="630" fill="url(#og-dots)"/>
+  <rect width="1200" height="630" fill="url(#og-glow-1)"/>
+  <rect width="1200" height="630" fill="url(#og-glow-2)"/>
+
+  <!-- Shield logo -->
+  <g transform="translate(96 200)">
+    <path d="M50 0 L100 16 V52 C100 78 78 100 50 110 C22 100 0 78 0 52 V16 L50 0 Z"
+          stroke="url(#og-grad)" stroke-width="3" stroke-linejoin="round" fill="rgba(124,58,237,0.08)"/>
+    <path d="M30 56 L46 70 L72 38"
+          stroke="url(#og-grad)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <!-- Wordmark -->
+  <text x="232" y="290" font-family="Inter, system-ui, sans-serif" font-size="56" font-weight="700"
+        fill="#E6EAF2" letter-spacing="-1">SENTINEL</text>
+
+  <!-- Tagline -->
+  <text x="96" y="400" font-family="Inter, system-ui, sans-serif" font-size="60" font-weight="700"
+        fill="url(#og-grad)" letter-spacing="-2">Find Android vulnerabilities</text>
+  <text x="96" y="472" font-family="Inter, system-ui, sans-serif" font-size="60" font-weight="700"
+        fill="#E6EAF2" letter-spacing="-2">before they ship.</text>
+
+  <!-- Footer pill -->
+  <g transform="translate(96 540)">
+    <rect width="380" height="40" rx="20" fill="#141B2E" stroke="#2A3454"/>
+    <text x="20" y="26" font-family="'JetBrains Mono', monospace" font-size="14" fill="#9CA8C0">
+      20 agents · 5 phases · Open source
+    </text>
+  </g>
+</svg>
