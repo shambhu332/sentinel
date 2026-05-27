@@ -1,0 +1,14 @@
+rules:
+  - id: crypto-md5
+    languages: [java]
+    severity: WARNING
+    message: >-
+      MD5 has practical collision attacks since 2008. If used for security
+      (passwords, signatures, integrity), replace with SHA-256 or SHA-3.
+    pattern: MessageDigest.getInstance("MD5")
+    metadata:
+      sentinel_vuln_class: WEAK_CRYPTO
+      sentinel_severity: MEDIUM
+      sentinel_confidence: "0.80"
+      owasp_masvs: MSTG-CRYPTO-4
+      cwe: CWE-327

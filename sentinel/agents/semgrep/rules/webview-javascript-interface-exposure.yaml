@@ -1,0 +1,14 @@
+rules:
+  - id: webview-javascript-interface-exposure
+    languages: [java]
+    severity: ERROR
+    message: >-
+      addJavascriptInterface exposes Java methods to JavaScript — exploitable
+      if the WebView loads any untrusted content (deep link, ad, redirect).
+    pattern: $WEBVIEW.addJavascriptInterface(...)
+    metadata:
+      sentinel_vuln_class: WEBVIEW_JS_INTERFACE
+      sentinel_severity: HIGH
+      sentinel_confidence: "0.75"
+      owasp_masvs: MSTG-PLATFORM-7
+      cwe: CWE-749

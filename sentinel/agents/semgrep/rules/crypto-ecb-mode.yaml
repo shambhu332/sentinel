@@ -1,0 +1,20 @@
+rules:
+  - id: crypto-ecb-mode
+    languages: [java]
+    severity: ERROR
+    message: >-
+      AES in ECB mode (or default "AES" which Android resolves to ECB) leaks
+      structure of plaintext — identical input blocks produce identical
+      ciphertext blocks. Use AES/GCM/NoPadding.
+    patterns:
+      - pattern-either:
+          - pattern: Cipher.getInstance("AES")
+          - pattern: Cipher.getInstance("AES/ECB/...")
+          - pattern: Cipher.getInstance("DESede/ECB/...")
+          - pattern: Cipher.getInstance("Blowfish/ECB/...")
+    metadata:
+      sentinel_vuln_class: WEAK_CRYPTO
+      sentinel_severity: HIGH
+      sentinel_confidence: "0.85"
+      owasp_masvs: MSTG-CRYPTO-3
+      cwe: CWE-327

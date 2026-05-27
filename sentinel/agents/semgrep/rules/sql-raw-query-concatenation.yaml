@@ -1,0 +1,20 @@
+rules:
+  - id: sql-raw-query-concatenation
+    languages: [java]
+    severity: ERROR
+    message: >-
+      String-concatenated SQL allows injection. Use parameterised queries
+      (rawQuery(sql, selectionArgs)) or query() with bind args.
+    patterns:
+      - pattern-either:
+          - pattern: $DB.rawQuery("..." + $X, ...)
+          - pattern: $DB.rawQuery($X + "...", ...)
+          - pattern: $DB.execSQL("..." + $X)
+          - pattern: $DB.execSQL($X + "...")
+          - pattern: $DB.execSQL("..." + $X + "...")
+    metadata:
+      sentinel_vuln_class: SQL_INJECTION
+      sentinel_severity: HIGH
+      sentinel_confidence: "0.85"
+      owasp_masvs: MSTG-CODE-8
+      cwe: CWE-89

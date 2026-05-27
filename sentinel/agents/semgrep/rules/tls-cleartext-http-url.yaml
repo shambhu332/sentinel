@@ -1,0 +1,15 @@
+rules:
+  - id: tls-cleartext-http-url
+    languages: [java]
+    severity: WARNING
+    message: >-
+      Hardcoded http:// URL in source — payload sent over cleartext is visible
+      to any on-path attacker. Use https:// or pin via NetworkSecurityConfig.
+    patterns:
+      - pattern-regex: '"http://(?!localhost|127\.0\.0\.1|10\.0\.2\.2)[^"\s]+"'
+    metadata:
+      sentinel_vuln_class: CLEARTEXT_TRAFFIC
+      sentinel_severity: MEDIUM
+      sentinel_confidence: "0.65"
+      owasp_masvs: MSTG-NETWORK-1
+      cwe: CWE-319

@@ -1,11 +1,67 @@
 """API smoke tests — confirm every endpoint returns correct shape."""
+from pathlib import Path
+
+import pytest
 from fastapi.testclient import TestClient
 
 from sentinel.api.app import create_app
+from sentinel.api.scan_runner import ScanJob
 
 
 def _client() -> TestClient:
     return TestClient(create_app())
+
+
+# ---------- Scan-endpoint helpers ----------
+
+# A minimal byte payload that looks enough like an APK (ZIP magic) for the
+# upload pipeline to accept it. The actual orchestrator never runs because
+# launch_scan is stubbed in the scans_api fixture below.
+_FAKE_APK_BYTES = b"PK\x03\x04SENTINEL_TEST_FIXTURE\x00\x00"
+
+
+def _post_apk(client: TestClient, name: str = "test.apk"):
+    """POST a tiny fake APK to /scans and return the Response."""
+    return client.post(
+        "/scans",
+        files={
+            "apk": (
+                name, _FAKE_APK_BYTES, "application/vnd.android.package-archive",
+            ),
+        },
+    )
+
+
+@pytest.fixture
+def scans_api(monkeypatch, tmp_path):
+    """Wire the /scans endpoints to a no-op launch_scan + fresh registry.
+
+    The real launch_scan kicks off the full orchestrator in a background
+    task. For API-shape tests we only care that POST registers a job and
+    returns a session_id, GET surfaces it, DELETE removes it. The stub
+    creates a ScanJob, registers it, and skips the orchestrator task.
+    """
+    # Fresh registry per test so test_list_scans only sees what this test
+    # created.
+    from sentinel.api import scan_runner
+    monkeypatch.setattr(scan_runner, "_registry", None)
+
+    async def _stub_launch(apk_path: Path, apk_filename: str, options):
+        from sentinel.core.scan_context import generate_session_id
+        job = ScanJob(
+            session_id=generate_session_id(),
+            apk_path=apk_path,
+            apk_filename=apk_filename,
+            options=options,
+        )
+        await scan_runner.get_registry().add(job)
+        # No background task — keeps tests fast and deterministic.
+        return job
+
+    monkeypatch.setattr(
+        "sentinel.api.routes.scans.launch_scan", _stub_launch,
+    )
+    yield _client()
 
 
 # ---------- Meta endpoints ----------
@@ -76,28 +132,27 @@ def test_get_agent_not_found():
 
 # ---------- Scans endpoints ----------
 
-def test_create_scan_returns_session_id():
-    r = _client().post("/scans", json={"apk_path": "/tmp/fake.apk"})
+def test_create_scan_returns_session_id(scans_api):
+    r = _post_apk(scans_api, "fake.apk")
     assert r.status_code == 202
     body = r.json()
     assert "session_id" in body
     assert body["status"] == "queued"
+    assert body["apk_filename"] == "fake.apk"
+    assert body["apk_size_bytes"] == len(_FAKE_APK_BYTES)
 
 
-def test_list_scans_contains_created():
-    c = _client()
-    create = c.post("/scans", json={"apk_path": "/tmp/a.apk"})
-    sid = create.json()["session_id"]
-    list_resp = c.get("/scans")
+def test_list_scans_contains_created(scans_api):
+    sid = _post_apk(scans_api, "a.apk").json()["session_id"]
+    list_resp = scans_api.get("/scans")
     assert list_resp.status_code == 200
     ids = [s["session_id"] for s in list_resp.json()]
     assert sid in ids
 
 
-def test_get_scan_by_id():
-    c = _client()
-    sid = c.post("/scans", json={"apk_path": "/tmp/b.apk"}).json()["session_id"]
-    r = c.get(f"/scans/{sid}")
+def test_get_scan_by_id(scans_api):
+    sid = _post_apk(scans_api, "b.apk").json()["session_id"]
+    r = scans_api.get(f"/scans/{sid}")
     assert r.status_code == 200
     assert r.json()["session_id"] == sid
 
@@ -107,16 +162,26 @@ def test_get_scan_not_found():
     assert r.status_code == 404
 
 
-def test_cancel_scan():
-    c = _client()
-    sid = c.post("/scans", json={"apk_path": "/tmp/c.apk"}).json()["session_id"]
-    cancel = c.delete(f"/scans/{sid}")
+def test_cancel_scan(scans_api):
+    sid = _post_apk(scans_api, "c.apk").json()["session_id"]
+    cancel = scans_api.delete(f"/scans/{sid}")
     assert cancel.status_code == 204
 
 
 def test_create_scan_rejects_missing_apk_path():
+    # The /scans endpoint now expects a multipart `apk` file field, so
+    # an empty body triggers FastAPI's 422 validation error.
     r = _client().post("/scans", json={})
-    assert r.status_code == 422  # Pydantic validation error
+    assert r.status_code == 422
+
+
+def test_create_scan_rejects_unsupported_extension(scans_api):
+    r = scans_api.post(
+        "/scans",
+        files={"apk": ("payload.zip", _FAKE_APK_BYTES, "application/zip")},
+    )
+    assert r.status_code == 400
+    assert "unsupported extension" in r.json()["detail"]
 
 
 # ---------- Scope endpoints ----------

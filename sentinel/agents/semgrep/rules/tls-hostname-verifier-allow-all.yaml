@@ -1,0 +1,23 @@
+rules:
+  - id: tls-hostname-verifier-allow-all
+    languages: [java]
+    severity: ERROR
+    message: >-
+      HostnameVerifier that always returns true (or ALLOW_ALL_HOSTNAME_VERIFIER)
+      defeats TLS — any valid cert for any host is accepted.
+    patterns:
+      - pattern-either:
+          - pattern: $X.setHostnameVerifier(SSLSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER)
+          - pattern: $X.setDefaultHostnameVerifier(SSLSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER)
+          - pattern: |
+              new HostnameVerifier() {
+                  public boolean verify(String $H, SSLSession $S) {
+                      return true;
+                  }
+              }
+    metadata:
+      sentinel_vuln_class: TLS_HOSTNAME_VERIFICATION_DISABLED
+      sentinel_severity: CRITICAL
+      sentinel_confidence: "0.95"
+      owasp_masvs: MSTG-NETWORK-3
+      cwe: CWE-297

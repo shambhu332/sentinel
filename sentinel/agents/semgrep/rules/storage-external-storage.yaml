@@ -1,0 +1,17 @@
+rules:
+  - id: storage-external-storage
+    languages: [java]
+    severity: INFO
+    message: >-
+      Files written to external storage are readable by other apps with the
+      same permission. Avoid for anything sensitive.
+    patterns:
+      - pattern-either:
+          - pattern: Environment.getExternalStorageDirectory()
+          - pattern: Environment.getExternalStoragePublicDirectory(...)
+    metadata:
+      sentinel_vuln_class: EXTERNAL_STORAGE_USAGE
+      sentinel_severity: LOW
+      sentinel_confidence: "0.50"
+      owasp_masvs: MSTG-STORAGE-2
+      cwe: CWE-922

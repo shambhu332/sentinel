@@ -1,0 +1,17 @@
+rules:
+  - id: crypto-sha1
+    languages: [java]
+    severity: INFO
+    message: >-
+      SHA-1 is deprecated by NIST since 2011 for digital signatures and has
+      practical collisions (SHAttered, 2017). Replace with SHA-256 or SHA-3.
+    patterns:
+      - pattern-either:
+          - pattern: MessageDigest.getInstance("SHA-1")
+          - pattern: MessageDigest.getInstance("SHA1")
+    metadata:
+      sentinel_vuln_class: WEAK_CRYPTO
+      sentinel_severity: LOW
+      sentinel_confidence: "0.75"
+      owasp_masvs: MSTG-CRYPTO-4
+      cwe: CWE-328

@@ -1,0 +1,15 @@
+rules:
+  - id: webview-allow-file-access
+    languages: [java]
+    severity: WARNING
+    message: >-
+      setAllowFileAccess(true) lets the WebView load file:// URLs, enabling
+      same-origin reads of local app files if JS is enabled and the page can
+      be influenced by attackers.
+    pattern: $SETTINGS.setAllowFileAccess(true)
+    metadata:
+      sentinel_vuln_class: WEBVIEW_FILE_ACCESS
+      sentinel_severity: MEDIUM
+      sentinel_confidence: "0.70"
+      owasp_masvs: MSTG-PLATFORM-6
+      cwe: CWE-200

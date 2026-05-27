@@ -1,0 +1,14 @@
+rules:
+  - id: webview-javascript-enabled
+    languages: [java]
+    severity: INFO
+    message: >-
+      setJavaScriptEnabled(true) is often legitimate, but combined with file
+      access or addJavascriptInterface it widens the WebView attack surface.
+    pattern: $SETTINGS.setJavaScriptEnabled(true)
+    metadata:
+      sentinel_vuln_class: WEBVIEW_JS_ENABLED
+      sentinel_severity: LOW
+      sentinel_confidence: "0.40"
+      owasp_masvs: MSTG-PLATFORM-6
+      cwe: CWE-79

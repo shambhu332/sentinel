@@ -1,0 +1,20 @@
+rules:
+  - id: crypto-insecure-random
+    languages: [java]
+    severity: WARNING
+    message: >-
+      java.util.Random is a non-cryptographic PRNG and its output is
+      predictable. For security-sensitive values (tokens, IVs, salts) use
+      java.security.SecureRandom.
+    patterns:
+      - pattern-either:
+          - pattern: new java.util.Random()
+          - pattern: new java.util.Random($SEED)
+          - pattern: new Random()
+          - pattern: new Random($SEED)
+    metadata:
+      sentinel_vuln_class: INSECURE_RANDOM
+      sentinel_severity: MEDIUM
+      sentinel_confidence: "0.60"
+      owasp_masvs: MSTG-CRYPTO-6
+      cwe: CWE-330

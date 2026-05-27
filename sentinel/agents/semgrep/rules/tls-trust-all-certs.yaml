@@ -1,0 +1,20 @@
+rules:
+  - id: tls-trust-all-certs
+    languages: [java]
+    severity: ERROR
+    message: >-
+      X509TrustManager with empty checkServerTrusted accepts every certificate
+      — TLS server authentication is completely bypassed.
+    pattern: |
+      new X509TrustManager() {
+          ...
+          public void checkServerTrusted(X509Certificate[] $C, String $T) {
+          }
+          ...
+      }
+    metadata:
+      sentinel_vuln_class: TLS_TRUST_ALL_CERTS
+      sentinel_severity: CRITICAL
+      sentinel_confidence: "0.95"
+      owasp_masvs: MSTG-NETWORK-3
+      cwe: CWE-295

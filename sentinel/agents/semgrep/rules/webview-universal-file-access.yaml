@@ -1,0 +1,14 @@
+rules:
+  - id: webview-universal-file-access
+    languages: [java]
+    severity: ERROR
+    message: >-
+      setAllowUniversalAccessFromFileURLs(true) breaks the same-origin policy
+      for file:// pages, letting locally loaded HTML read arbitrary origins.
+    pattern: $SETTINGS.setAllowUniversalAccessFromFileURLs(true)
+    metadata:
+      sentinel_vuln_class: WEBVIEW_UNIVERSAL_ACCESS
+      sentinel_severity: HIGH
+      sentinel_confidence: "0.85"
+      owasp_masvs: MSTG-PLATFORM-6
+      cwe: CWE-200

@@ -1,0 +1,21 @@
+rules:
+  - id: storage-mode-world-writeable
+    languages: [java]
+    severity: ERROR
+    message: >-
+      MODE_WORLD_WRITEABLE lets any installed app overwrite this file/preference,
+      enabling local data tampering. Deprecated since API 17.
+    patterns:
+      - pattern-either:
+          - pattern: $X.openFileOutput($N, Context.MODE_WORLD_WRITEABLE)
+          - pattern: $X.openFileOutput($N, MODE_WORLD_WRITEABLE)
+          - pattern: $X.getSharedPreferences($N, Context.MODE_WORLD_WRITEABLE)
+          - pattern: $X.getSharedPreferences($N, MODE_WORLD_WRITEABLE)
+          - pattern: $X.getDir($N, Context.MODE_WORLD_WRITEABLE)
+          - pattern: $X.openOrCreateDatabase($N, MODE_WORLD_WRITEABLE, ...)
+    metadata:
+      sentinel_vuln_class: INSECURE_STORAGE
+      sentinel_severity: HIGH
+      sentinel_confidence: "0.90"
+      owasp_masvs: MSTG-STORAGE-2
+      cwe: CWE-732

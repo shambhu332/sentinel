@@ -1,0 +1,19 @@
+rules:
+  - id: command-exec-concatenation
+    languages: [java]
+    severity: ERROR
+    message: >-
+      Runtime.exec called with concatenated input is a command injection
+      primitive. Pass an argv array and validate inputs.
+    patterns:
+      - pattern-either:
+          - pattern: Runtime.getRuntime().exec("..." + $X)
+          - pattern: Runtime.getRuntime().exec($X + "...")
+          - pattern: Runtime.getRuntime().exec("..." + $X + "...")
+          - pattern: new ProcessBuilder("..." + $X)
+    metadata:
+      sentinel_vuln_class: COMMAND_INJECTION
+      sentinel_severity: CRITICAL
+      sentinel_confidence: "0.90"
+      owasp_masvs: MSTG-CODE-8
+      cwe: CWE-78

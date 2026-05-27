@@ -109,6 +109,12 @@ def serve(host: str, port: int, reload: bool) -> None:
 @click.option("--frida-duration", type=int, default=20,
               help="Seconds to run Frida hooks during Phase 4 (default: 20). "
                    "Runs AFTER mitmproxy capture.")
+@click.option("--frida-spawn", is_flag=True,
+              help="Start the target app under Frida control instead of "
+                   "attaching to a running instance. Use for apps that "
+                   "detect Frida at startup and crash, or that you want "
+                   "instrumented before any of their own code runs. "
+                   "Implies --frida.")
 @click.option("--no-proxy", is_flag=True,
               help="Skip mitmproxy and device proxy configuration during "
                    "Phase 4. Useful for apps with anti-MITM detection that "
@@ -131,6 +137,7 @@ def scan(
     dynamic_port: int,
     frida: bool,
     frida_duration: int,
+    frida_spawn: bool,
     no_proxy: bool,
 ) -> None:
     """Run a security scan against an APK file."""
@@ -150,6 +157,7 @@ def scan(
         dynamic_port=dynamic_port,
         frida=frida,
         frida_duration=frida_duration,
+        frida_spawn=frida_spawn,
         no_proxy=no_proxy,
     ))
 
@@ -170,6 +178,7 @@ async def _run_scan(
     dynamic_port: int,
     frida: bool,
     frida_duration: int,
+    frida_spawn: bool,
     no_proxy: bool,
 ) -> None:
     """Async implementation of the scan command."""
@@ -192,6 +201,7 @@ async def _run_scan(
     from sentinel.agents.network import CleartextTrafficAgent
     from sentinel.agents.platform import ContentProviderIDORAgent
     from sentinel.agents.random_gen import InsecureRandomAgent
+    from sentinel.agents.semgrep import SemgrepAgent
     from sentinel.agents.shared_prefs import InsecureSharedPrefsAgent
     from sentinel.agents.special import PipelineSmokeTestAgent
     from sentinel.agents.webview import InsecureWebViewAgent
@@ -211,6 +221,9 @@ async def _run_scan(
         console.print("[bold yellow]Privacy mode:[/] local LLM only")
     if no_triage:
         console.print("[bold yellow]Triage disabled:[/] all findings unfiltered")
+    # --frida-spawn implies --frida
+    if frida_spawn and not frida:
+        frida = True
     if frida and not dynamic:
         console.print(
             "[bold red]--frida requires --dynamic. Frida hooks attach to the "
@@ -306,6 +319,7 @@ async def _run_scan(
             CleartextTrafficAgent,            # N_002
             DeepLinkHijackAgent,              # P_001
             ContentProviderIDORAgent,         # P_004
+            SemgrepAgent,                     # SG_001 (AST pattern SAST)
         ]
         if dynamic:
             agent_list.extend([
@@ -326,6 +340,7 @@ async def _run_scan(
             dynamic_port=dynamic_port,
             frida_enabled=frida,
             frida_duration_seconds=frida_duration,
+            frida_spawn=frida_spawn,
             proxy_enabled=not no_proxy,
         )
 

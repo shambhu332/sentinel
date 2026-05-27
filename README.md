@@ -168,6 +168,7 @@ of truth — see `sentinel/api/routes/agents.py`. A condensed view:
 | `VER_*`     | Verification        | 1     | Re-run tooling, kill hallucinations                      |
 | `HON_*`     | Honeypot            | 1     | Inject fake bugs to calibrate confidence                 |
 | `TEST_*`    | Pipeline smoke test | 1     | Always emits a synthetic Info finding                    |
+| `SG_*`      | Semgrep AST SAST    | 1     | SG_001 — 18 YAML rules: WebView, crypto, TLS, storage, SQLi, command injection (see `docs/SEMGREP.md`) |
 
 > The directories `agents/auth/`, `agents/crypto/`, `agents/network/` …
 > currently hold only `__init__.py` placeholders. Each sprint fills one
@@ -700,3 +701,9 @@ code as **All Rights Reserved** until then).
 > Always read the program's rules of engagement, honour `forbidden_techniques`,
 > and stay within `in_scope_packages`. The authors of SENTINEL accept no
 > liability for any use of this software.
+
+
+### Contact
+- stw00070@softwarica.edu.np
+-  Teams: stw0070
+Albert Maharjan

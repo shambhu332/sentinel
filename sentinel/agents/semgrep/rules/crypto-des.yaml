@@ -1,0 +1,19 @@
+rules:
+  - id: crypto-des
+    languages: [java]
+    severity: ERROR
+    message: >-
+      DES is brute-forceable in hours on modern hardware. Replace with AES-256
+      in GCM mode.
+    patterns:
+      - pattern-either:
+          - pattern: Cipher.getInstance("DES")
+          - pattern: Cipher.getInstance("DES/...")
+          - pattern: SecretKeyFactory.getInstance("DES")
+          - pattern: KeyGenerator.getInstance("DES")
+    metadata:
+      sentinel_vuln_class: WEAK_CRYPTO
+      sentinel_severity: HIGH
+      sentinel_confidence: "0.90"
+      owasp_masvs: MSTG-CRYPTO-4
+      cwe: CWE-327

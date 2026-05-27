@@ -1,0 +1,23 @@
+rules:
+  - id: pending-intent-mutable
+    languages: [java]
+    severity: WARNING
+    message: >-
+      PendingIntent without FLAG_IMMUTABLE is exploitable on Android 12+
+      (apps can fill in extras to redirect the intent). Add
+      PendingIntent.FLAG_IMMUTABLE to the flags argument.
+    patterns:
+      - pattern-either:
+          - pattern: PendingIntent.getActivity($CTX, $REQ, $INT, 0)
+          - pattern: PendingIntent.getBroadcast($CTX, $REQ, $INT, 0)
+          - pattern: PendingIntent.getService($CTX, $REQ, $INT, 0)
+          - pattern: PendingIntent.getActivity($CTX, $REQ, $INT, PendingIntent.FLAG_UPDATE_CURRENT)
+          - pattern: PendingIntent.getBroadcast($CTX, $REQ, $INT, PendingIntent.FLAG_UPDATE_CURRENT)
+          - pattern: PendingIntent.getService($CTX, $REQ, $INT, PendingIntent.FLAG_UPDATE_CURRENT)
+          - pattern: PendingIntent.getActivity($CTX, $REQ, $INT, PendingIntent.FLAG_CANCEL_CURRENT)
+    metadata:
+      sentinel_vuln_class: PENDING_INTENT_MUTABLE
+      sentinel_severity: MEDIUM
+      sentinel_confidence: "0.70"
+      owasp_masvs: MSTG-PLATFORM-11
+      cwe: CWE-927
