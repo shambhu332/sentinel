@@ -45,11 +45,20 @@ import shutil
 import subprocess
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Optional
 
 from sentinel.tools.result import ToolResult
 
 logger = logging.getLogger(__name__)
+
+
+# Path to the compiled Frida agent (frida_agent/dist/_agent.js).
+# Resolved at import time; sentinel/tools/frida_runner.py -> repo root
+# is parents[2].
+_AGENT_PATH = (
+    Path(__file__).resolve().parents[2] / "frida_agent" / "dist" / "_agent.js"
+)
 
 
 @dataclass
@@ -104,6 +113,7 @@ class FridaRunner:
         self._events_lock = asyncio.Lock()
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._start_time: float = 0
+        self._spawned: bool = False
         self._frida_unavailable_reason: Optional[str] = None
         try:
             import frida  # noqa: F401
@@ -112,8 +122,20 @@ class FridaRunner:
                 f"frida python library not installed: {e}"
             )
 
-    async def attach(self, package: str) -> ToolResult[dict]:
-        """Attach to the named package on the USB device."""
+    async def attach(
+        self,
+        package: str,
+        spawn: bool = False,
+    ) -> ToolResult[dict]:
+        """Attach to or spawn the named package on the USB device.
+
+        When spawn=True, force-stops the target via `adb shell am
+        force-stop` and starts it under Frida control (paused). The
+        caller MUST call resume() after inject_script() returns to let
+        the app actually start. Use spawn mode for apps with anti-Frida
+        detection at startup; use the default attach mode for
+        already-running apps you want to introspect without disrupting.
+        """
         if self._frida_unavailable_reason:
             return ToolResult.fail(self._frida_unavailable_reason)
 
@@ -121,6 +143,7 @@ class FridaRunner:
         self._events = []
         self._script_errors = []
         self._start_time = time.monotonic()
+        self._spawned = False
         self._loop = asyncio.get_event_loop()
 
         try:
@@ -133,6 +156,9 @@ class FridaRunner:
                 "Frida device: %s (%s)",
                 self._device.name, self._device.type,
             )
+
+            if spawn:
+                return await self._spawn_and_attach(package)
 
             pid: Optional[int] = None
             for attempt in range(1, 6):
@@ -235,6 +261,77 @@ class FridaRunner:
                 e, duration=time.monotonic() - self._start_time,
             )
 
+    async def _spawn_and_attach(self, package: str) -> ToolResult[dict]:
+        """Force-stop the target, then spawn it paused and attach.
+
+        The spawned PID stays paused until resume() is called by the
+        caller — typically right after inject_script() loads the hooks.
+        """
+        import frida
+
+        adb = shutil.which("adb")
+        if adb is not None:
+            try:
+                subprocess.run(
+                    [adb, "shell", "am", "force-stop", package],
+                    capture_output=True,
+                    timeout=5,
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    "Frida spawn: am force-stop %s failed: %s "
+                    "(continuing anyway)", package, e,
+                )
+
+        try:
+            pid = await self._loop.run_in_executor(
+                None, self._device.spawn, [package],
+            )
+            self._target_pid = pid
+            self._spawned = True
+            self._session = await self._loop.run_in_executor(
+                None, self._device.attach, pid,
+            )
+            logger.info(
+                "Frida spawn: %s started paused at PID %d",
+                package, pid,
+            )
+            return ToolResult.ok({
+                "package": package,
+                "pid": pid,
+                "device": self._device.name,
+                "mode": "spawn",
+            })
+        except frida.NotSupportedError as e:
+            return ToolResult.fail(
+                f"Frida spawn of '{package}' not supported on this "
+                f"device: {e}. Many vendor-customised kernels disallow "
+                f"spawn-from-Frida — fall back to attach mode and "
+                f"launch the app manually before scanning.",
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.exception("Frida spawn failed")
+            return ToolResult.from_exception(e)
+
+    async def resume(self) -> ToolResult[str]:
+        """Resume a spawned process. No-op after a regular attach()."""
+        if not self._spawned:
+            return ToolResult.ok("not spawned, nothing to resume")
+        if self._device is None or self._target_pid <= 0:
+            return ToolResult.fail("no active spawned session to resume")
+        try:
+            await self._loop.run_in_executor(
+                None, self._device.resume, self._target_pid,
+            )
+            logger.info(
+                "Frida: resumed spawned PID %d (%s)",
+                self._target_pid, self._target_package,
+            )
+            return ToolResult.ok("resumed")
+        except Exception as e:  # noqa: BLE001
+            logger.exception("Frida resume failed")
+            return ToolResult.from_exception(e)
+
     async def inject_script(self, script_source: str) -> ToolResult[str]:
         """Compile and load a Frida JS hook script."""
         if self._session is None:
@@ -294,6 +391,7 @@ class FridaRunner:
         self._script = None
         self._session = None
         self._device = None
+        self._spawned = False
 
         return ToolResult.ok(capture, duration=duration)
 
@@ -547,83 +645,53 @@ class FridaRunner:
             logger.warning("Failed to append Frida event: %s", e)
 
 
-# ---------- Pre-built hook scripts ----------
+# ---------- Compiled Frida agent loader ----------
 #
-# Each script is wrapped in an IIFE with a Java-availability poll
-# before calling Java.perform. The typeof guard is required because
-# referencing an undeclared global throws in strict-mode contexts.
+# The actual hook code now lives in frida_agent/src/*.ts and is
+# compiled to frida_agent/dist/_agent.js via frida-compile. That
+# artifact is checked into the repo so users without Node.js can
+# still run SENTINEL — Python never invokes Node.js at runtime.
+#
+# When dist/_agent.js is missing (e.g. during development before the
+# first build), we fall back to a tiny crypto-only inline script and
+# log a warning so the developer knows pinning hooks are disabled
+# until they rebuild.
 
-CIPHER_GETINSTANCE_HOOK = r"""
-/*
- * SENTINEL Frida hook -- javax.crypto.Cipher.getInstance (A_003)
+_FALLBACK_INLINE_HOOK = r"""
+/* Minimal fallback when frida_agent/dist/_agent.js is missing.
+ * Only Cipher.getInstance(String) is hooked — enough to satisfy
+ * A_003's crypto observation but no pinning bypass coverage.
  */
 (function() {
-    function setupCryptoHooks() {
+    function setup() {
         try {
             var Cipher = Java.use('javax.crypto.Cipher');
-
-            Cipher.getInstance.overload('java.lang.String').implementation = function(t) {
-                send({kind: 'crypto.cipher', algorithm: t, overload: 'string'});
-                return this.getInstance(t);
-            };
-
-            Cipher.getInstance.overload(
-                'java.lang.String', 'java.lang.String'
-            ).implementation = function(t, p) {
-                send({kind: 'crypto.cipher', algorithm: t, provider: p,
-                      overload: 'string_string'});
-                return this.getInstance(t, p);
-            };
-
-            Cipher.getInstance.overload(
-                'java.lang.String', 'java.security.Provider'
-            ).implementation = function(t, p) {
-                send({kind: 'crypto.cipher', algorithm: t,
-                      provider: p ? p.getName() : 'null',
-                      overload: 'string_provider'});
-                return this.getInstance(t, p);
-            };
-
-            var MessageDigest = Java.use('java.security.MessageDigest');
-            MessageDigest.getInstance.overload('java.lang.String').implementation = function(a) {
-                send({kind: 'crypto.digest', algorithm: a});
-                return this.getInstance(a);
-            };
-
-            try {
-                var KeyGenerator = Java.use('javax.crypto.KeyGenerator');
-                KeyGenerator.getInstance.overload('java.lang.String').implementation = function(a) {
-                    send({kind: 'crypto.keygen', algorithm: a});
-                    return this.getInstance(a);
+            Cipher.getInstance.overload('java.lang.String').implementation =
+                function(t) {
+                    send({kind: 'crypto.cipher', algorithm: t,
+                          overload: 'string'});
+                    return this.getInstance(t);
                 };
-            } catch(e) {
-                // Some apps shrink this class out, ignore
-            }
-
-            send({kind: 'crypto.hooks_installed', count: 4});
+            send({kind: 'crypto.hooks_installed',
+                  count: 1, fallback: true});
         } catch(err) {
-            send({kind: 'error', message: 'crypto hooks: ' + err.toString()});
+            send({kind: 'error',
+                  message: 'fallback: ' + err.toString()});
         }
     }
-
     if (typeof Java !== 'undefined' && Java.available) {
-        Java.perform(setupCryptoHooks);
+        Java.perform(setup);
     } else {
         var attempts = 0;
         var poll = setInterval(function() {
             attempts++;
             if (typeof Java !== 'undefined' && Java.available) {
                 clearInterval(poll);
-                Java.perform(setupCryptoHooks);
+                Java.perform(setup);
             } else if (attempts >= 30) {
                 clearInterval(poll);
-                send({
-                    kind: 'error',
-                    message: 'crypto: Java bridge unavailable after 3s. '
-                           + 'Frida 17 ships without Java by default — '
-                           + 'either downgrade to Frida 16 or bundle '
-                           + 'frida-java-bridge via frida-compile.'
-                });
+                send({kind: 'error',
+                      message: 'fallback: Java unavailable after 3s'});
             }
         }, 100);
     }
@@ -631,152 +699,26 @@ CIPHER_GETINSTANCE_HOOK = r"""
 """
 
 
-CERT_PINNING_BYPASS_HOOK = r"""
-/*
- * SENTINEL N_005 -- Certificate Pinning Bypass (Frida)
- */
-(function() {
-    function setupPinningHooks() {
-        var installed = [];
+def load_runtime_hooks() -> str:
+    """Return the contents of the compiled Frida agent.
 
-        function tryHook(label, fn) {
-            try {
-                fn();
-                installed.push(label);
-            } catch(e) {
-                var msg = e.toString();
-                if (msg.indexOf("ClassNotFoundException") !== -1) {
-                    return;
-                }
-                send({kind: 'tls.bypass_failed', library: label, error: msg});
-            }
-        }
-
-        tryHook('okhttp.CertificatePinner', function() {
-            var Pinner = Java.use('okhttp3.CertificatePinner');
-            Pinner.check.overload(
-                'java.lang.String', 'java.util.List'
-            ).implementation = function(hostname, certs) {
-                send({kind: 'tls.bypass',
-                      library: 'okhttp.CertificatePinner',
-                      method: 'check(String, List)',
-                      host: hostname});
-            };
-            try {
-                Pinner['check$okhttp'].overload(
-                    'java.lang.String', 'kotlin.jvm.functions.Function0'
-                ).implementation = function(hostname, fn) {
-                    send({kind: 'tls.bypass',
-                          library: 'okhttp.CertificatePinner',
-                          method: 'check$okhttp',
-                          host: hostname});
-                };
-            } catch(e) {
-                // older OkHttp without this overload
-            }
-        });
-
-        tryHook('X509TrustManager', function() {
-            var TMExt = Java.use('android.net.http.X509TrustManagerExtensions');
-            TMExt.checkServerTrusted.overload(
-                '[Ljava.security.cert.X509Certificate;',
-                'java.lang.String',
-                'java.lang.String'
-            ).implementation = function(chain, authType, host) {
-                send({kind: 'tls.bypass',
-                      library: 'X509TrustManager',
-                      method: 'X509TrustManagerExtensions.checkServerTrusted',
-                      host: host});
-                return Java.use('java.util.Collections').emptyList();
-            };
-        });
-
-        tryHook('WebViewClient.onReceivedSslError', function() {
-            var WVC = Java.use('android.webkit.WebViewClient');
-            WVC.onReceivedSslError.implementation = function(view, handler, error) {
-                var url = '';
-                try { url = error ? error.getUrl() : ''; } catch(e) {}
-                send({kind: 'tls.bypass',
-                      library: 'WebViewClient.onReceivedSslError',
-                      method: 'onReceivedSslError',
-                      host: url});
-                handler.proceed();
-            };
-        });
-
-        tryHook('TrustKit', function() {
-            var TK = Java.use(
-                'com.datatheorem.android.trustkit.pinning.OkHostnameVerifier'
-            );
-            TK.verify.overload(
-                'java.lang.String', 'javax.net.ssl.SSLSession'
-            ).implementation = function(hostname, session) {
-                send({kind: 'tls.bypass',
-                      library: 'TrustKit',
-                      method: 'OkHostnameVerifier.verify',
-                      host: hostname});
-                return true;
-            };
-        });
-
-        tryHook('Conscrypt.Platform', function() {
-            var Plat = Java.use('org.conscrypt.Platform');
-            Plat.checkServerTrusted.overload(
-                'javax.net.ssl.X509TrustManager',
-                '[Ljava.security.cert.X509Certificate;',
-                'java.lang.String',
-                'javax.net.ssl.SSLSession'
-            ).implementation = function(tm, chain, authType, session) {
-                send({kind: 'tls.bypass',
-                      library: 'Conscrypt.Platform',
-                      method: 'checkServerTrusted',
-                      host: ''});
-            };
-        });
-
-        tryHook('HostnameVerifier', function() {
-            var OKHV = Java.use('okhttp3.internal.tls.OkHostnameVerifier');
-            OKHV.verify.overload(
-                'java.lang.String', 'javax.net.ssl.SSLSession'
-            ).implementation = function(hostname, session) {
-                send({kind: 'tls.bypass',
-                      library: 'HostnameVerifier',
-                      method: 'OkHostnameVerifier.verify',
-                      host: hostname});
-                return true;
-            };
-        });
-
-        send({
-            kind: 'tls.hooks_installed',
-            libraries: installed,
-            count: installed.length
-        });
-    }
-
-    if (typeof Java !== 'undefined' && Java.available) {
-        Java.perform(setupPinningHooks);
-    } else {
-        var attempts = 0;
-        var poll = setInterval(function() {
-            attempts++;
-            if (typeof Java !== 'undefined' && Java.available) {
-                clearInterval(poll);
-                Java.perform(setupPinningHooks);
-            } else if (attempts >= 30) {
-                clearInterval(poll);
-                send({
-                    kind: 'error',
-                    message: 'pinning: Java bridge unavailable after 3s. '
-                           + 'Frida 17 ships without Java by default — '
-                           + 'either downgrade to Frida 16 or bundle '
-                           + 'frida-java-bridge via frida-compile.'
-                });
-            }
-        }, 100);
-    }
-})();
-"""
+    Reads frida_agent/dist/_agent.js if present. Falls back to a
+    minimal crypto-only inline script (with a logged warning) when
+    the file is missing — keeps SENTINEL functional during
+    development before the agent has been built.
+    """
+    if _AGENT_PATH.exists():
+        return _AGENT_PATH.read_text(encoding="utf-8")
+    logger.warning(
+        "Compiled Frida agent not found at %s — using fallback "
+        "inline hook (crypto-only, no pinning). Build the agent with: "
+        "cd frida_agent && npm install && npm run build",
+        _AGENT_PATH,
+    )
+    return _FALLBACK_INLINE_HOOK
 
 
-ALL_RUNTIME_HOOKS = CIPHER_GETINSTANCE_HOOK + "\n\n" + CERT_PINNING_BYPASS_HOOK
+# Public alias preserved for the orchestrator and any external callers
+# that imported the constant directly. Resolved at import time so the
+# warning, if any, fires once per process rather than per scan.
+ALL_RUNTIME_HOOKS = load_runtime_hooks()

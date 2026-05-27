@@ -101,6 +101,7 @@ class Orchestrator:
         dynamic_port: int = 8082,
         frida_enabled: bool = False,
         frida_duration_seconds: int = 20,
+        frida_spawn: bool = False,
         proxy_enabled: bool = True,
     ) -> None:
         self._context = context
@@ -112,6 +113,7 @@ class Orchestrator:
         self._dynamic_port = dynamic_port
         self._frida_enabled = frida_enabled
         self._frida_duration_seconds = frida_duration_seconds
+        self._frida_spawn = frida_spawn
         self._proxy_enabled = proxy_enabled
 
     async def run(self) -> ScanResult:
@@ -603,7 +605,7 @@ class Orchestrator:
             )
 
         frida = FridaRunner()
-        attach_result = await frida.attach(package)
+        attach_result = await frida.attach(package, spawn=self._frida_spawn)
         if not attach_result.success:
             scan_result.warnings.append(
                 f"Phase 4.5 Frida attach failed: {attach_result.error}",
@@ -618,6 +620,16 @@ class Orchestrator:
             )
             await frida.detach()
             return
+
+        # In spawn mode the target was started paused so the hook
+        # script could load before any app code ran; release it now.
+        if self._frida_spawn:
+            resume_result = await frida.resume()
+            if not resume_result.success:
+                scan_result.warnings.append(
+                    f"Phase 4.5 Frida resume failed: "
+                    f"{resume_result.error}",
+                )
 
         logger.info(
             "Frida hooks active. Interact with the app for %ds.",

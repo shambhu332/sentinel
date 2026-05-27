@@ -1,0 +1,20 @@
+{
+  "name": "sentinel-frida-agent",
+  "version": "0.2.0",
+  "private": true,
+  "description": "SENTINEL Frida agent — bundled hook script for runtime instrumentation",
+  "main": "dist/_agent.js",
+  "scripts": {
+    "build": "frida-compile src/agent.ts -o dist/_agent.js -c",
+    "watch": "frida-compile src/agent.ts -o dist/_agent.js -w",
+    "clean": "rm -f dist/_agent.js"
+  },
+  "devDependencies": {
+    "@types/frida-gum": "^18.0.0",
+    "frida-compile": "^16.4.0",
+    "typescript": "^5.4.0"
+  },
+  "dependencies": {
+    "frida-java-bridge": "^7.0.13"
+  }
+}

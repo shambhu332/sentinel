@@ -41,13 +41,40 @@ logger = logging.getLogger(__name__)
 # hooks = MEDIUM (still concerning, less evidence the developer treated
 # pinning as their primary defense layer).
 _LIBRARY_SEVERITY: dict[str, str] = {
-    "okhttp.CertificatePinner":         "high",
-    "X509TrustManager":                 "high",
-    "WebViewClient.onReceivedSslError": "high",
-    "TrustKit":                         "high",
-    "Conscrypt.Platform":               "medium",
-    "HostnameVerifier":                 "medium",
+    "okhttp.CertificatePinner":              "high",
+    "okhttp.OkHttpClient$Builder":           "high",
+    "okhttp.OkHostnameVerifier":             "medium",
+    "okhttp.Interceptor":                    "medium",
+    "X509TrustManager":                      "high",
+    "X509TrustManagerExtensions":            "high",
+    "WebViewClient.base":                    "high",
+    "WebViewClient.onReceivedSslError":      "high",
+    "TrustKit":                              "high",
+    "Conscrypt.Platform":                    "medium",
+    "HostnameVerifier":                      "medium",
+    "Volley.HurlStack":                      "medium",
+    "Cronet.Builder":                        "medium",
+    "Apache.AbstractVerifier":               "medium",
+    "NetworkSecurityConfig":                 "high",
+    "Picasso.OkHttp3Downloader":             "medium",
+    "CertPathValidator":                     "medium",
 }
+
+
+def _severity_for(library: str) -> str:
+    """Look up the severity weight for an event's library label.
+
+    Subclass labels (``WebViewClient.subclass:com.foo.Bar``) and native
+    labels (``libssl.so.SSL_CTX_set_verify``) carry the same weight as
+    their family root. Anything unknown defaults to medium.
+    """
+    if library.startswith("WebViewClient.subclass:"):
+        return "high"
+    if library.startswith("X509TrustManager:"):
+        return "high"
+    if library.startswith(("libssl.", "libboringssl.", "libcrypto.")):
+        return "high"
+    return _LIBRARY_SEVERITY.get(library, "medium")
 
 
 class CertPinningBypassAgent(BaseAgent):
@@ -82,6 +109,7 @@ class CertPinningBypassAgent(BaseAgent):
         bypassed: dict[str, list[dict[str, Any]]] = defaultdict(list)
         survived: dict[str, list[dict[str, Any]]] = defaultdict(list)
         hooks_installed: list[str] = []
+        hooks_summary: dict[str, Any] = {}
 
         for event in tls_events:
             payload = event.payload or {}
@@ -104,13 +132,46 @@ class CertPinningBypassAgent(BaseAgent):
                 installed = payload.get("libraries", [])
                 if isinstance(installed, list):
                     hooks_installed = [str(x) for x in installed]
+            elif event.kind == "tls.hooks_summary":
+                # Richer envelope from the new agent: attempted /
+                # succeeded / failed lists plus subclass + native
+                # counters.
+                hooks_summary = {
+                    "attempted": list(payload.get("attempted", []) or []),
+                    "succeeded": list(payload.get("succeeded", []) or []),
+                    "failed":    list(payload.get("failed", []) or []),
+                    "subclass_hooks_added":
+                        int(payload.get("subclass_hooks_added", 0) or 0),
+                    "native_hooks_added":
+                        int(payload.get("native_hooks_added", 0) or 0),
+                }
+                # Treat the summary's succeeded list as authoritative
+                # for hooks_installed; only overwrite if non-empty so
+                # legacy captures still surface the older list.
+                if hooks_summary["succeeded"]:
+                    hooks_installed = [
+                        str(x) for x in hooks_summary["succeeded"]
+                    ]
 
         findings: list[Finding] = []
 
         if bypassed:
-            findings.append(self._make_bypass_finding(bypassed, hooks_installed))
+            findings.append(self._make_bypass_finding(
+                bypassed, hooks_installed, hooks_summary,
+            ))
         if survived:
-            findings.append(self._make_survived_finding(survived, hooks_installed))
+            findings.append(self._make_survived_finding(
+                survived, hooks_installed, hooks_summary,
+            ))
+
+        # If the agent attempted hooks but nothing fired and nothing
+        # survived, emit an INFO observation so users see exactly which
+        # libraries were probed (the "Certificate Pinning Resistance"
+        # framing from the spec).
+        if not bypassed and not survived and hooks_summary.get("attempted"):
+            findings.append(
+                self._make_no_pinning_observed_finding(hooks_summary),
+            )
 
         return findings
 
@@ -120,10 +181,11 @@ class CertPinningBypassAgent(BaseAgent):
         self,
         bypassed: dict[str, list[dict[str, Any]]],
         hooks_installed: list[str],
+        hooks_summary: dict[str, Any],
     ) -> Finding:
         """Build the HIGH/MEDIUM severity bypass (= bug) finding."""
         # Highest-tier library wins
-        weights = {_LIBRARY_SEVERITY.get(lib, "medium") for lib in bypassed}
+        weights = {_severity_for(lib) for lib in bypassed}
         severity = Severity.HIGH if "high" in weights else Severity.MEDIUM
 
         total_events = sum(len(events) for events in bypassed.values())
@@ -162,6 +224,12 @@ class CertPinningBypassAgent(BaseAgent):
                 ][:15],
                 "hosts_observed": sorted(hosts)[:20],
                 "hooks_installed": hooks_installed,
+                "hooks_attempted": hooks_summary.get("attempted", []),
+                "hooks_failed": hooks_summary.get("failed", []),
+                "subclass_hooks_added":
+                    hooks_summary.get("subclass_hooks_added", 0),
+                "native_hooks_added":
+                    hooks_summary.get("native_hooks_added", 0),
                 "vector": (
                     "Frida injected a runtime hook replacing each major "
                     "pinning library's check method with a no-op. The "
@@ -169,7 +237,7 @@ class CertPinningBypassAgent(BaseAgent):
                     "would have failed pinning validation. Steps to "
                     "reproduce: 1) Install zygiskfrida on a rooted device, "
                     "2) Launch the target app, 3) Inject SENTINEL's "
-                    "CERT_PINNING_BYPASS_HOOK script via Frida, "
+                    "compiled Frida agent (frida_agent/dist/_agent.js), "
                     "4) Route the device through a mitmproxy with a "
                     "self-signed CA, 5) Observe traffic flowing through "
                     "the proxy that pinning would normally have rejected."
@@ -182,6 +250,7 @@ class CertPinningBypassAgent(BaseAgent):
         self,
         survived: dict[str, list[dict[str, Any]]],
         hooks_installed: list[str],
+        hooks_summary: dict[str, Any],
     ) -> Finding:
         """Build the INFO 'pinning survived bypass' positive observation."""
         libraries = sorted(survived.keys())
@@ -215,6 +284,12 @@ class CertPinningBypassAgent(BaseAgent):
                     for ev in events[:2]
                 ][:10],
                 "hooks_installed": hooks_installed,
+                "hooks_attempted": hooks_summary.get("attempted", []),
+                "hooks_failed": hooks_summary.get("failed", []),
+                "subclass_hooks_added":
+                    hooks_summary.get("subclass_hooks_added", 0),
+                "native_hooks_added":
+                    hooks_summary.get("native_hooks_added", 0),
                 "vector": (
                     "SENTINEL attempted to install bypass hooks against "
                     "every major Android pinning library. For the libraries "
@@ -224,6 +299,56 @@ class CertPinningBypassAgent(BaseAgent):
                     "Frida-based attacker would NOT trivially bypass pinning "
                     "in this app. Manual analysis recommended to confirm "
                     "pinning is genuinely robust vs merely opaque."
+                ),
+                "sources": ["frida"],
+            },
+        )
+
+    def _make_no_pinning_observed_finding(
+        self,
+        hooks_summary: dict[str, Any],
+    ) -> Finding:
+        """Build the INFO finding when no pinning libraries were present.
+
+        Distinct from _make_survived_finding: there, hooks installed
+        but the bypass setup itself failed. Here, every probed class
+        was absent (ClassNotFoundException) so we observed nothing,
+        bypassed nothing, and have no evidence either way.
+        """
+        attempted = hooks_summary.get("attempted", []) or []
+        return self._make_finding(
+            vuln_class="Certificate Pinning Resistance",
+            severity=Severity.INFO,
+            confidence=0.6,
+            recommendation=(
+                "No pinning libraries were detected at runtime. Either "
+                "the app does not pin certificates (typical for many "
+                "consumer apps that rely solely on system trust anchors) "
+                "or it uses a non-standard mechanism (custom "
+                "TrustManager subclass, native-only pinning, or "
+                "obfuscated framework code) that SENTINEL's generic "
+                "Frida probes did not match. Consider manual review."
+            ),
+            evidence={
+                "title": (
+                    f"No pinning libraries observed at runtime "
+                    f"({len(attempted)} probed)"
+                ),
+                "package": (self._context.manifest or {}).get("package", "?"),
+                "hooks_attempted": attempted,
+                "hooks_succeeded": hooks_summary.get("succeeded", []),
+                "hooks_failed": hooks_summary.get("failed", []),
+                "subclass_hooks_added":
+                    hooks_summary.get("subclass_hooks_added", 0),
+                "native_hooks_added":
+                    hooks_summary.get("native_hooks_added", 0),
+                "vector": (
+                    "SENTINEL's compiled Frida agent attempted to install "
+                    "bypass hooks against every major Android pinning "
+                    "library, plus native libssl probes. Every probed "
+                    "class returned ClassNotFoundException and no native "
+                    "symbol was instrumented, meaning the app either "
+                    "does not pin or pins in a non-standard way."
                 ),
                 "sources": ["frida"],
             },

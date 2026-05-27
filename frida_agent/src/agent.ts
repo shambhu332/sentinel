@@ -1,0 +1,58 @@
+/*
+ * SENTINEL Frida agent entry point.
+ *
+ * Order of operations:
+ *   1. Native hooks fire first — they don't need the Java bridge and
+ *      have to be installed before the app's native code starts
+ *      issuing TLS handshakes
+ *   2. Wait for Java bridge availability (poll, 100ms tick, 3s ceiling)
+ *   3. Install crypto + pinning hooks inside Java.perform
+ *   4. Emit one tls.hooks_summary event so the Python side sees what
+ *      ran, what worked, and what failed
+ */
+import { waitForJava } from "./lib/java_ready.js";
+import { sendError } from "./lib/send.js";
+import { HookResult, installCryptoHooks } from "./hooks/crypto.js";
+import { installOkHttpHooks } from "./hooks/pinning_okhttp.js";
+import { installSystemHooks } from "./hooks/pinning_system.js";
+import { installLibraryHooks } from "./hooks/pinning_libraries.js";
+import { installWebViewHooks } from "./hooks/pinning_webview.js";
+import { installNativeHooks } from "./hooks/pinning_native.js";
+import { emitHooksSummary } from "./hooks/diagnostics.js";
+
+// Native hooks first — independent of Java bridge readiness.
+let nativeHooks = 0;
+try {
+    nativeHooks = installNativeHooks();
+} catch (e) {
+    sendError(`native setup: ${String(e)}`);
+}
+
+waitForJava("sentinel-agent", () => {
+    const result: HookResult = { attempted: [], succeeded: [], failed: [] };
+    let subclassesHooked = 0;
+
+    try { installCryptoHooks(result); }
+    catch (e) { sendError(`crypto: ${String(e)}`); }
+
+    try { installOkHttpHooks(result); }
+    catch (e) { sendError(`okhttp: ${String(e)}`); }
+
+    try { installSystemHooks(result); }
+    catch (e) { sendError(`system: ${String(e)}`); }
+
+    try { installLibraryHooks(result); }
+    catch (e) { sendError(`libraries: ${String(e)}`); }
+
+    try {
+        const wv = installWebViewHooks();
+        subclassesHooked = wv.subclassesHooked;
+        result.attempted.push(wv.libraryLabel);
+        result.succeeded.push(wv.libraryLabel);
+    } catch (e) {
+        sendError(`webview: ${String(e)}`);
+    }
+
+    try { emitHooksSummary(result, subclassesHooked, nativeHooks); }
+    catch (e) { sendError(`summary: ${String(e)}`); }
+});

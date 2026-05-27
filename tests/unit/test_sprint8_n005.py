@@ -269,3 +269,131 @@ async def test_n005_evidence_caps_samples_at_15(ctx, memory):
     findings = await agent.run()
     assert len(findings) == 1
     assert len(findings[0].evidence["sample_bypasses"]) <= 15
+
+
+# ---------- Sprint 9: enriched envelope, WebView subclasses, native, fallback ----------
+
+
+@pytest.mark.asyncio
+async def test_n005_webview_subclass_bypass_high(ctx, memory):
+    """tls.bypass with a WebViewClient.subclass:* label -> HIGH severity."""
+    ctx.sources["frida"] = _make_capture([
+        _make_tls_event(
+            "tls.bypass",
+            library="WebViewClient.subclass:com.example.app.MyWebClient",
+            method="onReceivedSslError",
+            host="https://example.com/login",
+        ),
+    ])
+    agent = CertPinningBypassAgent(context=ctx, memory=memory)
+    findings = await agent.run()
+    assert len(findings) == 1
+    finding = findings[0]
+    assert finding.severity == Severity.HIGH
+    assert finding.vuln_class == "Certificate Pinning Bypass"
+    assert any(
+        "WebViewClient.subclass:com.example.app.MyWebClient" in lib
+        for lib in finding.evidence["bypassed_libraries"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_n005_native_libssl_bypass_high(ctx, memory):
+    """Native libssl.SSL_CTX_set_verify bypass -> HIGH severity."""
+    ctx.sources["frida"] = _make_capture([
+        _make_tls_event(
+            "tls.bypass",
+            library="libssl.SSL_CTX_set_verify",
+            method="native_intercept",
+            extra={"original_mode": 1},
+        ),
+    ])
+    agent = CertPinningBypassAgent(context=ctx, memory=memory)
+    findings = await agent.run()
+    assert len(findings) == 1
+    assert findings[0].severity == Severity.HIGH
+    assert "libssl.SSL_CTX_set_verify" in findings[0].evidence["bypassed_libraries"]
+
+
+@pytest.mark.asyncio
+async def test_n005_hooks_summary_enriches_evidence(ctx, memory):
+    """tls.hooks_summary -> attempted/failed/subclass/native counters in evidence."""
+    summary_event = FridaHookEvent(
+        kind="tls.hooks_summary",
+        payload={
+            "kind": "tls.hooks_summary",
+            "attempted": [
+                "okhttp.CertificatePinner", "TrustKit", "Cronet.Builder",
+            ],
+            "succeeded": ["okhttp.CertificatePinner", "TrustKit"],
+            "failed": [
+                {"library": "Cronet.Builder", "reason": "overload mismatch"},
+            ],
+            "subclass_hooks_added": 3,
+            "native_hooks_added": 2,
+        },
+        timestamp=0.0,
+    )
+    ctx.sources["frida"] = _make_capture([
+        summary_event,
+        _make_tls_event("tls.bypass", library="okhttp.CertificatePinner"),
+    ])
+    agent = CertPinningBypassAgent(context=ctx, memory=memory)
+    findings = await agent.run()
+    assert len(findings) == 1
+    ev = findings[0].evidence
+    assert ev["hooks_attempted"] == [
+        "okhttp.CertificatePinner", "TrustKit", "Cronet.Builder",
+    ]
+    assert ev["hooks_installed"] == ["okhttp.CertificatePinner", "TrustKit"]
+    assert ev["subclass_hooks_added"] == 3
+    assert ev["native_hooks_added"] == 2
+    assert ev["hooks_failed"][0]["library"] == "Cronet.Builder"
+
+
+@pytest.mark.asyncio
+async def test_n005_fallback_only_no_finding(ctx, memory):
+    """Fallback hook (crypto.hooks_installed, fallback=True) and no TLS events -> no findings."""
+    ctx.sources["frida"] = _make_capture([
+        FridaHookEvent(
+            kind="crypto.hooks_installed",
+            payload={
+                "kind": "crypto.hooks_installed",
+                "count": 1,
+                "fallback": True,
+            },
+            timestamp=0.0,
+        ),
+    ])
+    agent = CertPinningBypassAgent(context=ctx, memory=memory)
+    findings = await agent.run()
+    assert findings == []
+
+
+@pytest.mark.asyncio
+async def test_n005_no_pinning_observed_info_when_summary_only(ctx, memory):
+    """hooks_summary with attempted libs but no bypass/survived events -> INFO observation."""
+    ctx.sources["frida"] = _make_capture([
+        FridaHookEvent(
+            kind="tls.hooks_summary",
+            payload={
+                "kind": "tls.hooks_summary",
+                "attempted": [
+                    "okhttp.CertificatePinner", "TrustKit",
+                    "Conscrypt.Platform", "WebViewClient.all",
+                ],
+                "succeeded": ["WebViewClient.all"],
+                "failed": [],
+                "subclass_hooks_added": 0,
+                "native_hooks_added": 0,
+            },
+            timestamp=0.0,
+        ),
+    ])
+    agent = CertPinningBypassAgent(context=ctx, memory=memory)
+    findings = await agent.run()
+    assert len(findings) == 1
+    finding = findings[0]
+    assert finding.severity == Severity.INFO
+    assert finding.vuln_class == "Certificate Pinning Resistance"
+    assert "okhttp.CertificatePinner" in finding.evidence["hooks_attempted"]
