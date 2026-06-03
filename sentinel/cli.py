@@ -204,7 +204,10 @@ async def _run_scan(
     from sentinel.agents.semgrep import SemgrepAgent
     from sentinel.agents.shared_prefs import InsecureSharedPrefsAgent
     from sentinel.agents.special import PipelineSmokeTestAgent
-    from sentinel.agents.webview import InsecureWebViewAgent
+    from sentinel.agents.webview import (
+        InsecureWebViewAgent,
+        JavaScriptInterfaceBridgeAgent,
+    )
     from sentinel.core.finding import BountyScope
     from sentinel.core.orchestrator import Orchestrator
     from sentinel.core.scan_context import ScanContext, generate_session_id
@@ -312,6 +315,7 @@ async def _run_scan(
             InsecureBackupAgent,              # C_001
             WorldReadableStorageAgent,        # C_002
             InsecureWebViewAgent,             # C_004
+            JavaScriptInterfaceBridgeAgent,   # C_008 (JS bridge audit, AST)
             InsecureSharedPrefsAgent,         # C_006
             WeakCryptoAgent,                  # C_007
             FirebaseMisconfigAgent,           # F_001
