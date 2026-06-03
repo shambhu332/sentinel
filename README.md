@@ -169,6 +169,7 @@ of truth — see `sentinel/api/routes/agents.py`. A condensed view:
 | `HON_*`     | Honeypot            | 1     | Inject fake bugs to calibrate confidence                 |
 | `TEST_*`    | Pipeline smoke test | 1     | Always emits a synthetic Info finding                    |
 | `SG_*`      | Semgrep AST SAST    | 1     | SG_001 — 18 YAML rules: WebView, crypto, TLS, storage, SQLi, command injection (see `docs/SEMGREP.md`) |
+| `P_*`       | Platform / IPC      | 3     | P_001 deep-link hijack, P_004 content-provider IDOR, P_010 Intent Redirect (CWE-926, tree-sitter AST) |
 
 > The directories `agents/auth/`, `agents/crypto/`, `agents/network/` …
 > currently hold only `__init__.py` placeholders. Each sprint fills one

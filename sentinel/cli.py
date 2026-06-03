@@ -199,7 +199,7 @@ async def _run_scan(
     from sentinel.agents.logging import InsecureLoggingAgent
     from sentinel.agents.meta import ObfuscationDetectorAgent
     from sentinel.agents.network import CleartextTrafficAgent
-    from sentinel.agents.platform import ContentProviderIDORAgent
+    from sentinel.agents.platform import ContentProviderIDORAgent, IntentRedirectAgent
     from sentinel.agents.random_gen import InsecureRandomAgent
     from sentinel.agents.semgrep import SemgrepAgent
     from sentinel.agents.shared_prefs import InsecureSharedPrefsAgent
@@ -319,6 +319,7 @@ async def _run_scan(
             CleartextTrafficAgent,            # N_002
             DeepLinkHijackAgent,              # P_001
             ContentProviderIDORAgent,         # P_004
+            IntentRedirectAgent,              # P_010 (CWE-926 AST)
             SemgrepAgent,                     # SG_001 (AST pattern SAST)
         ]
         if dynamic:
