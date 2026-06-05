@@ -12,6 +12,27 @@ def _client() -> TestClient:
     return TestClient(create_app())
 
 
+def _authed_client() -> TestClient:
+    """Build a TestClient that bypasses JWT auth on /scans endpoints.
+
+    Real auth is verified in tests/unit/test_auth.py — the scan-endpoint
+    tests below only care about the request/response *shape* of the
+    scan API, so we override get_current_active_user with a stub that
+    returns a fake user. This mirrors the standard FastAPI testing
+    pattern via app.dependency_overrides.
+    """
+    from sentinel.auth.jwt_auth import get_current_active_user
+
+    app = create_app()
+
+    async def _stub_user() -> dict:
+        return {"id": "test-user", "email": "test@example.com",
+                "username": "tester", "is_active": True}
+
+    app.dependency_overrides[get_current_active_user] = _stub_user
+    return TestClient(app)
+
+
 # ---------- Scan-endpoint helpers ----------
 
 # A minimal byte payload that looks enough like an APK (ZIP magic) for the
@@ -61,7 +82,7 @@ def scans_api(monkeypatch, tmp_path):
     monkeypatch.setattr(
         "sentinel.api.routes.scans.launch_scan", _stub_launch,
     )
-    yield _client()
+    yield _authed_client()
 
 
 # ---------- Meta endpoints ----------
@@ -158,7 +179,8 @@ def test_get_scan_by_id(scans_api):
 
 
 def test_get_scan_not_found():
-    r = _client().get("/scans/nonexistent123")
+    # Auth required first; we want the 404 for the actual missing record.
+    r = _authed_client().get("/scans/nonexistent123")
     assert r.status_code == 404
 
 
@@ -170,8 +192,9 @@ def test_cancel_scan(scans_api):
 
 def test_create_scan_rejects_missing_apk_path():
     # The /scans endpoint now expects a multipart `apk` file field, so
-    # an empty body triggers FastAPI's 422 validation error.
-    r = _client().post("/scans", json={})
+    # an empty body triggers FastAPI's 422 validation error. Auth dep
+    # is satisfied via the override client so the 422 surfaces.
+    r = _authed_client().post("/scans", json={})
     assert r.status_code == 422
 
 

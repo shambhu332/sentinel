@@ -47,7 +47,7 @@ class Finding(BaseModel):
     confidence: float = Field(..., ge=0.0, le=1.0)
     evidence: dict[str, Any] = Field(default_factory=dict)
     cvss_vector: str | None = Field(default=None, max_length=200)
-    owasp: str | None = Field(default=None, max_length=20)
+    owasp: str | None = Field(default=None, max_length=50)
     masvs: str | None = Field(default=None, max_length=20)
     poc: str | None = None
     recommendation: str = Field(..., min_length=1)

@@ -157,6 +157,20 @@ class FridaRunner:
                 self._device.name, self._device.type,
             )
 
+            # Preflight: client lib major must match server major.
+            # Frida 17 dropped the built-in Java bridge that every hook
+            # in frida_agent/src/ uses. Mismatch = silent zero-event
+            # captures, which makes N_005 falsely report "no pinning
+            # bypassed" on apps that are actually trivially bypassable.
+            version_warning = await self._loop.run_in_executor(
+                None, self._check_version_compatibility,
+            )
+            if version_warning:
+                logger.warning("FRIDA VERSION PREFLIGHT: %s", version_warning)
+                self._script_errors.append(
+                    f"version_preflight: {version_warning}"
+                )
+
             if spawn:
                 return await self._spawn_and_attach(package)
 
@@ -396,6 +410,65 @@ class FridaRunner:
         return ToolResult.ok(capture, duration=duration)
 
     # ---------- Internals ----------
+
+    def _check_version_compatibility(self) -> Optional[str]:
+        """Return a warning string when client and server majors differ.
+
+        Returns None on success (compatible or undeterminable). The
+        check is best-effort: if we cannot read either side's version,
+        we proceed and trust the user. The intent is to catch the
+        common deployment trap where Frida 17 binaries are pushed but
+        the Python lib is pinned to 16.x (or vice versa).
+        """
+        try:
+            import frida
+            client_ver = getattr(frida, "__version__", "") or ""
+            client_major = client_ver.split(".", 1)[0]
+            if not client_major.isdigit():
+                return None
+
+            # Try the modern API first
+            server_ver = ""
+            try:
+                params = self._device.query_system_parameters()
+                if isinstance(params, dict):
+                    for key in ("frida-version", "version", "agent-version"):
+                        v = params.get(key)
+                        if isinstance(v, str) and v:
+                            server_ver = v
+                            break
+            except Exception:  # noqa: BLE001
+                pass
+
+            # Older API surface
+            if not server_ver:
+                v = getattr(self._device, "version", "")
+                if isinstance(v, str):
+                    server_ver = v
+
+            if not server_ver:
+                return None
+
+            server_major = server_ver.split(".", 1)[0]
+            if not server_major.isdigit():
+                return None
+
+            if server_major != client_major:
+                return (
+                    f"frida client lib is {client_ver} but device "
+                    f"frida-server is {server_ver}. Major versions must "
+                    f"match — Frida 17 dropped the built-in Java bridge "
+                    f"that all SENTINEL hooks use. With this mismatch, "
+                    f"Java.use(...) will throw inside the hook script "
+                    f"and N_005 cert-pinning-bypass + A_003 runtime-crypto "
+                    f"will capture zero events (silent false negatives). "
+                    f"Fix: install a frida-server binary matching the "
+                    f"client major ({client_major}.x) or upgrade the "
+                    f"client to match the server."
+                )
+        except Exception:  # noqa: BLE001
+            logger.debug("Frida version preflight could not run", exc_info=True)
+        return None
 
     def _find_pid(self, package: str) -> Optional[int]:
         """Find the running PID for an Android package.

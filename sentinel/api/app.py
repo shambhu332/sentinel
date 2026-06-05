@@ -15,14 +15,18 @@ import logging
 import time
 import uuid
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import AsyncIterator
 
 from fastapi import FastAPI, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
-from sentinel.api.routes import agents, scans, scope
+from sentinel.api.routes import agents, auth, scans, scope
 from sentinel.core.config import get_settings
+
+FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +54,7 @@ def create_app() -> FastAPI:
         version="0.1.0",
         lifespan=lifespan,
         openapi_tags=[
+            {"name": "authentication", "description": "User registration, login, JWT tokens"},
             {"name": "scans", "description": "Scan lifecycle operations"},
             {"name": "agents", "description": "Agent registry and metadata"},
             {"name": "scope", "description": "Bug bounty scope parsing"},
@@ -57,19 +62,14 @@ def create_app() -> FastAPI:
         ],
     )
 
-    # CORS — locked to localhost for now
+    # CORS — accept anything from localhost so the static frontend works
+    # whether it is served from this app, from python -m http.server, or
+    # opened directly off disk (Origin: null).
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[
-            "http://localhost:3000",
-            "http://localhost:5173",
-            "http://localhost:8000",
-            "http://127.0.0.1:3000",
-            "http://127.0.0.1:5173",
-            "http://127.0.0.1:8000",
-        ],
+        allow_origin_regex=r"^(https?://(localhost|127\.0\.0\.1)(:\d+)?|null)$",
         allow_credentials=True,
-        allow_methods=["GET", "POST", "PUT", "DELETE"],
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         allow_headers=["*"],
     )
 
@@ -85,6 +85,10 @@ def create_app() -> FastAPI:
             rid, request.method, request.url.path, response.status_code, duration_ms,
         )
         response.headers["X-Request-ID"] = rid
+        # The frontend has no build hash, so stale browser cache keeps
+        # showing edits-ago content. Force revalidation on every UI asset.
+        if request.url.path.startswith("/ui/"):
+            response.headers["Cache-Control"] = "no-store, max-age=0"
         return response
 
     @app.exception_handler(Exception)
@@ -125,9 +129,28 @@ def create_app() -> FastAPI:
         }
 
     # Attach routers
+    app.include_router(auth.router)
     app.include_router(scans.router)
     app.include_router(agents.router)
     app.include_router(scope.router)
+
+    # Serve the frontend so `sentinel serve` is one-command for the GUI.
+    # Marketing landing at /ui/  ·  app shell at /ui/app.html
+    # API docs stay at /docs.
+    if FRONTEND_DIR.exists():
+        app.mount(
+            "/ui",
+            StaticFiles(directory=FRONTEND_DIR, html=True),
+            name="frontend",
+        )
+
+        @app.get("/app", include_in_schema=False)
+        def serve_app() -> RedirectResponse:
+            return RedirectResponse(url="/ui/app.html")
+
+        @app.get("/landing", include_in_schema=False)
+        def serve_landing() -> RedirectResponse:
+            return RedirectResponse(url="/ui/index.html")
 
     return app
 

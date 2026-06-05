@@ -169,7 +169,29 @@ of truth — see `sentinel/api/routes/agents.py`. A condensed view:
 | `HON_*`     | Honeypot            | 1     | Inject fake bugs to calibrate confidence                 |
 | `TEST_*`    | Pipeline smoke test | 1     | Always emits a synthetic Info finding                    |
 | `SG_*`      | Semgrep AST SAST    | 1     | SG_001 — 18 YAML rules: WebView, crypto, TLS, storage, SQLi, command injection (see `docs/SEMGREP.md`) |
-| `P_*`       | Platform / IPC      | 3     | P_001 deep-link hijack, P_004 content-provider IDOR, P_010 Intent Redirect (CWE-926, tree-sitter AST) |
+| `SCA_*`     | Supply chain        | 1     | SCA_001 — third-party library CVE scanner against the offline OSV.dev Maven snapshot (see `docs/SCA.md`) |
+| `TAINT_*`   | Data-flow taint     | 1     | TAINT_001 — tree-sitter backward-slice tracer with 3-hop IPA, sanitizer awareness, full source→sink traces (see `docs/TAINT.md`) |
+| `RN_*`      | React Native        | 1     | RN_001 — JS bundle auditor with Hermes-magic detection + short-circuit; AsyncStorage/cleartext/secrets/WebView/dangerouslySetInnerHTML (see `docs/CROSSPLATFORM.md`) |
+| `FL_*`      | Flutter (exp.)      | 1     | FL_001 — `libapp.so` string-level audit (cleartext URLs, embedded secrets); always emits a `FLUTTER_ANALYSIS_EXPERIMENTAL` notice. Deep Dart analysis (reFlutter / Doldrums) is future work |
+| `P_*`       | Platform / IPC      | 4     | P_001 deep-link hijack, P_004 content-provider IDOR, P_010 Intent Redirect (CWE-926, tree-sitter AST), IPC_001 exported-component exposure |
+
+#### CLI extras
+
+`sentinel diff --base OLD.apk --head NEW.apk [--fail-on critical,high] [--format markdown|json]`
+runs the full static SAST pipeline against two APK builds, fingerprints
+the findings, and reports new / fixed / unchanged sets. Exits non-zero
+on any new finding at the configured severity — designed as a CI
+regression gate (see `docs/DIFF.md` for the GitHub Actions snippet).
+
+#### Experimental
+
+`sentinel scan ... --generate-patch` runs an extra pass after LLM
+triage: every `VERIFIED` finding gets a unified-diff fix written to
+`output/patches/<finding_id>.diff`. Patches are **AI-suggested,
+human-review-required** — they are written against decompiled code
+and never auto-applied. The disclaimer is pinned on every patch.
+See `docs/REMEDIATION.md` for the prompt design, accuracy
+expectations, and limitations.
 
 > The directories `agents/auth/`, `agents/crypto/`, `agents/network/` …
 > currently hold only `__init__.py` placeholders. Each sprint fills one

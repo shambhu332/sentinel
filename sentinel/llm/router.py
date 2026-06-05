@@ -45,7 +45,7 @@ GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 CEREBRAS_URL = "https://api.cerebras.ai/v1/chat/completions"
 
 DEFAULT_GROQ_MODEL = "llama-3.3-70b-versatile"
-DEFAULT_CEREBRAS_MODEL = "llama3.1-8b"
+DEFAULT_CEREBRAS_MODEL = "llama-3.3-70b"
 DEFAULT_OLLAMA_MODEL = "qwen2.5-coder:7b-instruct-q4_K_M"
 
 # Model overrides via env (optional).
@@ -56,7 +56,7 @@ OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL_NAME", DEFAULT_OLLAMA_MODEL)
 MAX_RETRIES = 2
 RETRY_BACKOFF = [1.0, 3.0]
 TIMEOUT_CLOUD = 60.0
-TIMEOUT_LOCAL = 120.0
+TIMEOUT_LOCAL = 300.0  # Cold-start of a 7B model can exceed 2 min on slow hardware
 
 # Circuit breaker: after this many consecutive failures, the provider is
 # marked dead for CIRCUIT_RESET_SECONDS. Stops us from beating on a dead
@@ -121,6 +121,16 @@ class LLMProvider(ABC):
                 "[%s] circuit breaker tripped — skipping for %ds",
                 self.name, CIRCUIT_RESET_SECONDS,
             )
+
+    def disable_for_session(self, reason: str) -> None:
+        """Permanently disable this provider for the current scan.
+
+        Use for non-transient failures (wrong model name, missing key, etc.)
+        where the standard 120s circuit-breaker reset would just waste calls.
+        """
+        self._circuit_open_until = time.monotonic() + 86_400  # 24h
+        logger.error("[%s] permanently disabled this session: %s",
+                     self.name, reason)
 
 
 class GroqProvider(LLMProvider):
@@ -261,9 +271,9 @@ class CerebrasProvider(LLMProvider):
                         continue
                     return None
                 if resp.status_code == 404:
-                    logger.error(
-                        "Cerebras 404: model '%s' not available. "
-                        "Check CEREBRAS_MODEL or your account access.", self.model,
+                    self.disable_for_session(
+                        f"model '{self.model}' not available on this account "
+                        f"(set CEREBRAS_MODEL in .env to a model you can access)",
                     )
                     return None
                 if resp.status_code >= 500:
@@ -308,6 +318,9 @@ class OllamaProvider(LLMProvider):
             "messages": messages,
             "options": {"temperature": temperature, "num_predict": max_tokens},
             "stream": False,
+            # Keep the model resident for 30 min so the next triage call
+            # skips the multi-second model-load step.
+            "keep_alive": "30m",
         }
         if json_mode:
             payload["format"] = "json"
@@ -326,8 +339,10 @@ class OllamaProvider(LLMProvider):
                 "model": self.model,
                 "provider": self.name,
             }
-        except (httpx.TimeoutException, httpx.ConnectError) as e:
-            logger.warning("Ollama error: %s", e)
+        except Exception as e:
+            msg = str(e) or type(e).__name__
+            logger.warning("Ollama error (%s @ %s, model=%s): %s",
+                           type(e).__name__, host, self.model, msg)
             return None
 
 

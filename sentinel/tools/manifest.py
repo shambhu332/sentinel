@@ -88,10 +88,17 @@ class ManifestParser:
                     or (is_exported is None and has_filter)
                 )
                 if is_public and name:
+                    # Capture android:permission so IPC_001 can flag
+                    # exported components without an explicit guard. An
+                    # empty/missing permission on an exported component
+                    # is the canonical IPC-exposure bug.
+                    permission = elem.get(_ns("permission")) or ""
                     exported.append({
                         "type": component_type,
                         "name": name,
                         "explicitly_exported": is_exported == "true",
+                        "has_intent_filter": has_filter,
+                        "permission": permission,
                     })
         return exported
 

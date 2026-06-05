@@ -36,8 +36,9 @@ from sentinel.triage.prompts import SYSTEM_PROMPT, render_prompt
 logger = logging.getLogger(__name__)
 
 
-# Findings with these agent IDs are skipped — they're informational, not bugs
-_SKIP_AGENTS = {"TEST_001", "META_001"}
+# Triage skips by severity (INFO) — see _is_skippable() below. The
+# previous closed-set agent-ID list silently missed any future
+# INFO-only agent, burning LLM tokens unnecessarily.
 
 # Sleep between LLM calls to stay within free-tier rate limits.
 # Groq's free tier: 30 RPM = 1 call every 2 seconds.
@@ -77,10 +78,6 @@ class LLMTriager:
         first_llm_call = True
 
         for finding in findings:
-            if finding.agent_id in _SKIP_AGENTS:
-                self._attach_result(finding, TriageResult(outcome=TriageOutcome.SKIPPED))
-                continue
-
             if finding.severity == Severity.INFO:
                 self._attach_result(finding, TriageResult(outcome=TriageOutcome.SKIPPED))
                 continue

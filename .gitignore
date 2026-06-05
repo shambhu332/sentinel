@@ -33,3 +33,24 @@ scan-results.json
 reports/
 .env
 .env.local
+
+# Scan outputs left in repo root
+results.json
+full_results.json
+frida_test.json
+*-scan-output.json
+*-findings.json
+
+# Chromadb artifact dir created when ":memory:" is used as a path string
+:memory:/
+
+# Frida server binaries should never be tracked — push them to the
+# device out-of-band and document the version requirement in the README
+frida-server-*-android-*
+frida-server-*-ios-*
+
+# Bundled test APKs (use Git LFS or an external fixtures bucket)
+corpus/*.apk
+corpus/*.aab
+corpus/*.xapk
+corpus/*.ipa

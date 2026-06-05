@@ -30,6 +30,11 @@ frida = "16.5.7"
 python-multipart = "^0.0.29"
 aiofiles = "^25.1.0"
 semgrep = "^1.163.0"
+python-jose = {extras = ["cryptography"], version = "^3.5.0"}
+passlib = {extras = ["bcrypt"], version = "^1.7.4"}
+packaging = "^24.0"
+tree-sitter-java = "^0.23.5"
+unidiff = "^0.7.5"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.3"
@@ -69,6 +74,11 @@ filterwarnings = [
     "ignore::DeprecationWarning:pydantic.*",
     "ignore::PendingDeprecationWarning",
 ]
+markers = [
+    "integration: real-corpus / external-resource tests; opt in with `-m integration`",
+]
+# Deselect integration tests from the default run; opt in with `-m integration`.
+addopts = "-m 'not integration'"
 
 [build-system]
 requires = ["poetry-core"]

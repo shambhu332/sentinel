@@ -87,8 +87,14 @@ def serve(host: str, port: int, reload: bool) -> None:
               help="Directory for SENTINEL's persistent memory")
 @click.option("--workspace", type=click.Path(path_type=Path), default=Path("./workspace"),
               help="Directory for per-scan working files")
-@click.option("--output", type=click.Path(path_type=Path), default=None,
-              help="Optional path to write scan summary as JSON")
+@click.option("--output", "--json-output", "output",
+              type=click.Path(path_type=Path), default=None,
+              help="Optional path to write scan summary as JSON "
+                   "(--json-output is an alias)")
+@click.option("--static-only", "static_only", is_flag=True,
+              help="Explicit static-only mode: refuse --dynamic / --frida. "
+                   "Default mode is already static; this flag fails fast "
+                   "when a caller accidentally combines the two intents.")
 @click.option("--private", is_flag=True,
               help="Force local LLM only — no cloud API calls (forces Ollama)")
 @click.option("--no-triage", is_flag=True,
@@ -121,6 +127,30 @@ def serve(host: str, port: int, reload: bool) -> None:
                    "refuse to run when a proxy is set (Signal, banking apps, "
                    "secure messengers). Frida hooks still fire normally; "
                    "mitmproxy-based agents (N_003/N_004) produce no findings.")
+@click.option("--keep-workspace", is_flag=True,
+              help="Keep the per-scan workspace directory "
+                   "(decompiled sources, mitmproxy capture, frida events) "
+                   "after the scan finishes. Default is to delete it — "
+                   "useful when debugging an agent or re-running triage.")
+@click.option("--profile", "profile_name", type=str, default=None,
+              help="App-category profile (banking, edu, ecommerce, or a path "
+                   "to a custom .json). Reorders the agent roster so the "
+                   "agents most relevant to the category run first; "
+                   "coverage is unchanged.")
+@click.option("--generate-patch", "generate_patch", is_flag=True,
+              help="EXPERIMENTAL: ask the LLM to suggest a unified-diff "
+                   "fix for each VERIFIED finding. Patches are "
+                   "suggestions for human review — they are NEVER "
+                   "auto-applied and are written against decompiled "
+                   "code, so a literal `patch -p1` will not work. "
+                   "See docs/REMEDIATION.md. Requires triage (cannot "
+                   "be combined with --no-triage).")
+@click.option("--patches-dir", "patches_dir",
+              type=click.Path(path_type=Path),
+              default=Path("./output/patches"),
+              help="Directory to write suggested patches into when "
+                   "--generate-patch is set. One .diff file per "
+                   "VERIFIED finding.")
 def scan(
     apk_path: Path,
     scope_url: str | None,
@@ -139,8 +169,24 @@ def scan(
     frida_duration: int,
     frida_spawn: bool,
     no_proxy: bool,
+    keep_workspace: bool,
+    profile_name: str | None,
+    static_only: bool,
+    generate_patch: bool,
+    patches_dir: Path,
 ) -> None:
     """Run a security scan against an APK file."""
+    if static_only and (dynamic or frida or frida_spawn):
+        raise click.UsageError(
+            "--static-only cannot be combined with --dynamic / --frida / "
+            "--frida-spawn",
+        )
+    if generate_patch and no_triage:
+        raise click.UsageError(
+            "--generate-patch requires LLM triage (it only patches "
+            "VERIFIED findings). Drop --no-triage or drop "
+            "--generate-patch.",
+        )
     asyncio.run(_run_scan(
         apk_path=apk_path,
         scope_url=scope_url,
@@ -159,6 +205,10 @@ def scan(
         frida_duration=frida_duration,
         frida_spawn=frida_spawn,
         no_proxy=no_proxy,
+        keep_workspace=keep_workspace,
+        profile_name=profile_name,
+        generate_patch=generate_patch,
+        patches_dir=patches_dir,
     ))
 
 
@@ -180,14 +230,32 @@ async def _run_scan(
     frida_duration: int,
     frida_spawn: bool,
     no_proxy: bool,
+    keep_workspace: bool,
+    profile_name: str | None = None,
+    generate_patch: bool = False,
+    patches_dir: Path = Path("./output/patches"),
 ) -> None:
     """Async implementation of the scan command."""
-    from sentinel.agents.auth import HardcodedSecretsAgent
+    from sentinel.agents.auth import (
+        BiometricBypassAgent,
+        HardcodedSecretsAgent,
+    )
     from sentinel.agents.auth_storage import InsecureAuthStorageAgent
     from sentinel.agents.backup import InsecureBackupAgent
+    from sentinel.agents.business import (
+        IapBypassAgent,
+        RaceConditionAgent,
+        RestIdorAgent,
+    )
     from sentinel.agents.cert_pinning import MissingCertPinningAgent
     from sentinel.agents.cloud import FirebaseMisconfigAgent
-    from sentinel.agents.crypto import WeakCryptoAgent
+    from sentinel.agents.crossplatform import FlutterAgent, ReactNativeAgent
+    from sentinel.agents.crypto import (
+        EcbModeAgent,
+        HardcodedCryptoKeysAgent,
+        KeystoreMisuseAgent,
+        WeakCryptoAgent,
+    )
     from sentinel.agents.data_storage import WorldReadableStorageAgent
     from sentinel.agents.deep_links import DeepLinkHijackAgent
     from sentinel.agents.dynamic import (
@@ -198,16 +266,26 @@ async def _run_scan(
     )
     from sentinel.agents.logging import InsecureLoggingAgent
     from sentinel.agents.meta import ObfuscationDetectorAgent
-    from sentinel.agents.network import CleartextTrafficAgent
-    from sentinel.agents.platform import ContentProviderIDORAgent, IntentRedirectAgent
+    from sentinel.agents.native import NativeLibraryAgent
+    from sentinel.agents.network import (
+        ApiKeyLeakageAgent,
+        CleartextTrafficAgent,
+        GraphqlFuzzerAgent,
+        GraphqlIntrospectionAgent,
+    )
+    from sentinel.agents.platform import (
+        ContentProviderIDORAgent,
+        IntentRedirectAgent,
+        IpcExposureAgent,
+    )
     from sentinel.agents.random_gen import InsecureRandomAgent
+    from sentinel.agents.resilience import AntiTamperAgent
     from sentinel.agents.semgrep import SemgrepAgent
     from sentinel.agents.shared_prefs import InsecureSharedPrefsAgent
     from sentinel.agents.special import PipelineSmokeTestAgent
-    from sentinel.agents.webview import (
-        InsecureWebViewAgent,
-        JavaScriptInterfaceBridgeAgent,
-    )
+    from sentinel.agents.supply_chain import SCAAgent
+    from sentinel.agents.taint import TaintAgent
+    from sentinel.agents.webview import InsecureWebViewAgent
     from sentinel.core.finding import BountyScope
     from sentinel.core.orchestrator import Orchestrator
     from sentinel.core.scan_context import ScanContext, generate_session_id
@@ -311,20 +389,36 @@ async def _run_scan(
             InsecureAuthStorageAgent,         # A_001
             HardcodedSecretsAgent,            # A_004
             InsecureLoggingAgent,             # A_007
+            BiometricBypassAgent,             # A_008
+            RestIdorAgent,                    # B_001
             InsecureRandomAgent,              # B_002
+            RaceConditionAgent,               # B_003
+            IapBypassAgent,                   # B_004
             InsecureBackupAgent,              # C_001
             WorldReadableStorageAgent,        # C_002
             InsecureWebViewAgent,             # C_004
-            JavaScriptInterfaceBridgeAgent,   # C_008 (JS bridge audit, AST)
-            InsecureSharedPrefsAgent,         # C_006
+            HardcodedCryptoKeysAgent,         # C_005
+            EcbModeAgent,                     # C_006
             WeakCryptoAgent,                  # C_007
+            KeystoreMisuseAgent,              # C_011
             FirebaseMisconfigAgent,           # F_001
             MissingCertPinningAgent,          # N_001
             CleartextTrafficAgent,            # N_002
+            ApiKeyLeakageAgent,               # N_006
+            GraphqlIntrospectionAgent,        # N_007
+            GraphqlFuzzerAgent,               # N_011
             DeepLinkHijackAgent,              # P_001
             ContentProviderIDORAgent,         # P_004
             IntentRedirectAgent,              # P_010 (CWE-926 AST)
+            IpcExposureAgent,                 # IPC_001 (Phase B)
+            NativeLibraryAgent,               # NL_001 (Phase B)
+            AntiTamperAgent,                  # RES_001 (Phase B)
+            SCAAgent,                         # SCA_001 (supply chain CVE scanner)
+            TaintAgent,                       # TAINT_001 (data-flow taint analysis)
+            ReactNativeAgent,                 # RN_001 (React Native bundle audit)
+            FlutterAgent,                     # FL_001 (Flutter libapp.so string scan)
             SemgrepAgent,                     # SG_001 (AST pattern SAST)
+            InsecureSharedPrefsAgent,         # STG_006 (renamed from C_006)
         ]
         if dynamic:
             agent_list.extend([
@@ -334,6 +428,24 @@ async def _run_scan(
         if dynamic and frida:
             agent_list.append(RuntimeCryptoAgent)        # A_003 (Sprint 8.2A DAST)
             agent_list.append(CertPinningBypassAgent)    # N_005 (Sprint 8.2B DAST)
+
+        if profile_name:
+            from sentinel.profiles import load_profile
+            try:
+                profile = load_profile(profile_name)
+            except (FileNotFoundError, ValueError) as e:
+                console.print(f"[bold red]Profile error:[/] {e}")
+                return
+            agent_list = profile.reorder(agent_list)
+            missing = profile.missing_from(agent_list)
+            console.print(f"[bold]Profile:[/]   {profile.label} "
+                          f"({len(profile.priority_agents) - len(missing)} "
+                          f"priority agents prioritized)")
+            if missing:
+                console.print(
+                    f"[dim]  Profile lists {len(missing)} agent(s) not in "
+                    f"roster: {', '.join(missing)}[/]",
+                )
 
         orch = Orchestrator(
             context=ctx,
@@ -389,6 +501,18 @@ async def _run_scan(
         else:
             console.print("[dim]No findings produced.[/]")
 
+        if generate_patch and router is not None and result.findings:
+            written = await _generate_and_write_patches(
+                router=router,
+                findings=result.findings,
+                patches_dir=patches_dir,
+            )
+            console.print(
+                f"\n[bold yellow]AI Suggested Patches:[/] "
+                f"{written} written to {patches_dir} "
+                f"(human review required — see docs/REMEDIATION.md)",
+            )
+
         if output:
             _write_json_output(output, ctx, result)
             console.print(f"\n[bold green]Wrote summary to:[/] {output}")
@@ -397,6 +521,56 @@ async def _run_scan(
         if router is not None:
             await router.close()
         await memory.close()
+        try:
+            await orch.cleanup(keep_workspace=keep_workspace)
+        except NameError:
+            # Orchestrator never got constructed — nothing to clean
+            pass
+        except Exception:  # noqa: BLE001
+            logger.exception("Workspace cleanup failed")
+
+
+async def _generate_and_write_patches(
+    router,
+    findings,
+    patches_dir: Path,
+) -> int:
+    """Generate suggested patches for VERIFIED findings and write each
+    to ``patches_dir/<finding_id>.diff``. Returns the number of files
+    written.
+
+    Errors in patch generation are non-fatal — they downgrade to
+    ``patch_status=UNAVAILABLE`` per-finding and we keep going.
+    """
+    from sentinel.llm.remediation import (
+        PATCH_STATUS_SUGGESTED,
+        RemediationGenerator,
+        render_diff_file,
+    )
+
+    gen = RemediationGenerator(router=router)
+    with console.status(
+        "[bold yellow]Generating AI-suggested patches (review required)…[/]",
+        spinner="dots",
+    ):
+        await gen.generate_patches(findings)
+
+    patches_dir.mkdir(parents=True, exist_ok=True)
+    written = 0
+    for f in findings:
+        ev = f.evidence or {}
+        if ev.get("patch_status") != PATCH_STATUS_SUGGESTED:
+            continue
+        body = render_diff_file(f)
+        if body is None:
+            continue
+        target = patches_dir / f"{f.finding_id}.diff"
+        try:
+            target.write_text(body)
+            written += 1
+        except OSError as e:
+            logger.warning("[remediation] cannot write %s: %s", target, e)
+    return written
 
 
 def _print_summary(ctx, result) -> None:
@@ -519,7 +693,11 @@ def _print_findings(findings, show_filtered: bool = False) -> None:
     table.add_column("Class", width=22)
     table.add_column("Triage", width=10)
     table.add_column("Conf.", width=6)
-    table.add_column("Recommendation")
+    # No fixed width on Recommendation — Rich auto-wraps the column to the
+    # remaining terminal width. Previously this cell was clipped to 80
+    # chars in code which dropped the most actionable text of every
+    # finding; the clip is gone.
+    table.add_column("Recommendation", overflow="fold")
 
     severity_colours = {
         "Critical": "bold red",
@@ -549,14 +727,13 @@ def _print_findings(findings, show_filtered: bool = False) -> None:
         else:
             triage_cell = "[dim]—[/]"
 
-        rec = (f.recommendation[:80] + "...") if len(f.recommendation) > 80 else f.recommendation
         table.add_row(
             f"[{colour}]{sev}[/]",
             f.agent_id,
             f.vuln_class[:22],
             triage_cell,
             f"{f.confidence:.2f}",
-            rec,
+            f.recommendation,
         )
 
     console.print(table)
@@ -713,6 +890,232 @@ def status() -> None:
     table.add_row("Log level", settings.log_level)
 
     console.print(table)
+
+
+@main.command()
+@click.option("--base", "base_apk", required=True,
+              type=click.Path(exists=True, dir_okay=False, path_type=Path),
+              help="Baseline APK (the older / known-good build).")
+@click.option("--head", "head_apk", required=True,
+              type=click.Path(exists=True, dir_okay=False, path_type=Path),
+              help="Candidate APK (the newer build under review).")
+@click.option("--fail-on", "fail_on", type=str, default="critical,high",
+              show_default=True,
+              help="Comma-separated severities that should fail the gate. "
+                   "Exit code 1 if any NEW finding matches; 0 otherwise.")
+@click.option("--format", "fmt",
+              type=click.Choice(["json", "markdown"]),
+              default="markdown", show_default=True,
+              help="Output format. JSON for tooling, markdown for PR comments.")
+@click.option("--data-dir", type=click.Path(path_type=Path),
+              default=Path("./data"),
+              help="Directory for SENTINEL's persistent memory.")
+@click.option("--workspace", type=click.Path(path_type=Path),
+              default=Path("./workspace"),
+              help="Directory for per-scan working files.")
+@click.option("--output", "output", type=click.Path(path_type=Path),
+              default=None,
+              help="Optional path to write the rendered diff. "
+                   "Default is stdout.")
+@click.option("--no-baseline", is_flag=True,
+              help="Skip writing to data/baselines.sqlite. The diff is "
+                   "still computed and rendered.")
+@click.option("--baseline-db", type=click.Path(path_type=Path),
+              default=Path("./data/baselines.sqlite"),
+              help="Path to the baseline SQLite store.")
+def diff(
+    base_apk: Path,
+    head_apk: Path,
+    fail_on: str,
+    fmt: str,
+    data_dir: Path,
+    workspace: Path,
+    output: Path | None,
+    no_baseline: bool,
+    baseline_db: Path,
+) -> None:
+    """Diff the static SAST findings of two APK versions.
+
+    Runs the full static pipeline against each APK, fingerprints the
+    findings on stable (agent, vuln_class, normalised path, normalised
+    snippet) tuples, and reports new / fixed / unchanged sets. Designed
+    to be wired into CI as a regression gate — exits non-zero when a
+    new finding of the configured severity appears.
+    """
+    from sentinel.core.diff import (
+        compute_delta,
+        gate_exit_code,
+        parse_severity_list,
+        render_json,
+        render_markdown,
+    )
+
+    try:
+        fail_set = parse_severity_list(fail_on)
+    except ValueError as e:
+        raise click.BadParameter(str(e), param_hint="--fail-on") from None
+
+    console.rule("[bold cyan]SENTINEL Diff[/]")
+    console.print(f"[bold]Base:[/] {base_apk}")
+    console.print(f"[bold]Head:[/] {head_apk}")
+    console.print(f"[bold]Fail-on:[/] {', '.join(s.value for s in fail_set) or '(none)'}")
+    console.print()
+
+    base_findings, base_hash = asyncio.run(
+        _run_static_scan(base_apk, data_dir, workspace, label="base"),
+    )
+    head_findings, head_hash = asyncio.run(
+        _run_static_scan(head_apk, data_dir, workspace, label="head"),
+    )
+
+    summary = compute_delta(base_findings, head_findings)
+
+    if not no_baseline:
+        try:
+            from sentinel.core.baseline_store import BaselineStore
+            with BaselineStore(baseline_db) as store:
+                store.record(base_hash, base_findings)
+                store.record(head_hash, head_findings)
+        except Exception as e:  # noqa: BLE001 — non-fatal
+            console.print(
+                f"[yellow]Baseline persistence skipped:[/] {e}",
+            )
+
+    if fmt == "json":
+        import json
+        payload = render_json(
+            summary, base_label=str(base_apk), head_label=str(head_apk),
+        )
+        rendered = json.dumps(payload, indent=2)
+    else:
+        rendered = render_markdown(
+            summary, base_label=str(base_apk), head_label=str(head_apk),
+        )
+
+    if output:
+        output.write_text(rendered)
+        console.print(f"[bold green]Wrote diff to:[/] {output}")
+    else:
+        click.echo(rendered)
+
+    code = gate_exit_code(summary, fail_set)
+    if code:
+        console.print(
+            f"\n[bold red]Gate FAILED:[/] {len(summary.new)} new finding(s); "
+            f"{sum(1 for f in summary.new if f.severity in fail_set)} match "
+            f"--fail-on severity set.",
+        )
+    else:
+        console.print(
+            "\n[bold green]Gate PASSED:[/] no new findings at the "
+            "configured severity threshold.",
+        )
+    sys.exit(code)
+
+
+async def _run_static_scan(
+    apk_path: Path,
+    data_dir: Path,
+    workspace: Path,
+    label: str,
+) -> tuple[list, str]:
+    """Static-only scan helper used by `sentinel diff`.
+
+    Returns ``(findings, apk_sha256)``. No LLM triage, no dynamic
+    analysis — just the static SAST agents identical to the default
+    static path of `sentinel scan`. The same agent list is built here
+    that ``_run_scan`` uses, so coverage is identical.
+    """
+    from sentinel.agents.auth import (
+        BiometricBypassAgent,
+        HardcodedSecretsAgent,
+    )
+    from sentinel.agents.auth_storage import InsecureAuthStorageAgent
+    from sentinel.agents.backup import InsecureBackupAgent
+    from sentinel.agents.business import (
+        IapBypassAgent,
+        RaceConditionAgent,
+        RestIdorAgent,
+    )
+    from sentinel.agents.cert_pinning import MissingCertPinningAgent
+    from sentinel.agents.cloud import FirebaseMisconfigAgent
+    from sentinel.agents.crossplatform import FlutterAgent, ReactNativeAgent
+    from sentinel.agents.crypto import (
+        EcbModeAgent,
+        HardcodedCryptoKeysAgent,
+        KeystoreMisuseAgent,
+        WeakCryptoAgent,
+    )
+    from sentinel.agents.data_storage import WorldReadableStorageAgent
+    from sentinel.agents.deep_links import DeepLinkHijackAgent
+    from sentinel.agents.logging import InsecureLoggingAgent
+    from sentinel.agents.meta import ObfuscationDetectorAgent
+    from sentinel.agents.native import NativeLibraryAgent
+    from sentinel.agents.network import (
+        ApiKeyLeakageAgent,
+        CleartextTrafficAgent,
+        GraphqlFuzzerAgent,
+        GraphqlIntrospectionAgent,
+    )
+    from sentinel.agents.platform import (
+        ContentProviderIDORAgent,
+        IntentRedirectAgent,
+        IpcExposureAgent,
+    )
+    from sentinel.agents.random_gen import InsecureRandomAgent
+    from sentinel.agents.resilience import AntiTamperAgent
+    from sentinel.agents.semgrep import SemgrepAgent
+    from sentinel.agents.shared_prefs import InsecureSharedPrefsAgent
+    from sentinel.agents.supply_chain import SCAAgent
+    from sentinel.agents.taint import TaintAgent
+    from sentinel.agents.webview import InsecureWebViewAgent
+    from sentinel.core.finding import BountyScope
+    from sentinel.core.orchestrator import Orchestrator
+    from sentinel.core.scan_context import ScanContext, generate_session_id
+    from sentinel.memory import LightweightMemory
+
+    console.print(f"[dim]Running static scan on {label}: {apk_path}[/]")
+
+    memory = LightweightMemory(data_dir=data_dir)
+    await memory.connect()
+
+    ctx = ScanContext(
+        session_id=generate_session_id(),
+        apk_path=apk_path,
+        workspace=workspace,
+        scope=BountyScope(),
+    )
+
+    agent_list: list = [
+        ObfuscationDetectorAgent,
+        InsecureAuthStorageAgent, HardcodedSecretsAgent, InsecureLoggingAgent,
+        BiometricBypassAgent, RestIdorAgent, InsecureRandomAgent,
+        RaceConditionAgent, IapBypassAgent, InsecureBackupAgent,
+        WorldReadableStorageAgent, InsecureWebViewAgent,
+        HardcodedCryptoKeysAgent, EcbModeAgent, WeakCryptoAgent,
+        KeystoreMisuseAgent, FirebaseMisconfigAgent, MissingCertPinningAgent,
+        CleartextTrafficAgent, ApiKeyLeakageAgent, GraphqlIntrospectionAgent,
+        GraphqlFuzzerAgent, DeepLinkHijackAgent, ContentProviderIDORAgent,
+        IntentRedirectAgent, IpcExposureAgent, NativeLibraryAgent, AntiTamperAgent,
+        SCAAgent, TaintAgent, ReactNativeAgent, FlutterAgent,
+        SemgrepAgent, InsecureSharedPrefsAgent,
+    ]
+
+    orch = Orchestrator(
+        context=ctx, memory=memory, agents=agent_list,
+        triager=None, dynamic_enabled=False, proxy_enabled=False,
+        frida_enabled=False,
+    )
+    try:
+        result = await orch.run()
+    finally:
+        try:
+            await orch.cleanup(keep_workspace=False)
+        except Exception:  # noqa: BLE001
+            logger.exception("Workspace cleanup failed for %s scan", label)
+        await memory.close()
+
+    return result.findings, ctx.apk_sha256 or ""
 
 
 if __name__ == "__main__":

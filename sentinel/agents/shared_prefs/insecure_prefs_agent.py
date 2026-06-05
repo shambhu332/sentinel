@@ -1,4 +1,8 @@
-"""C_006 — Insecure SharedPreferences Agent.
+"""STG_006 — Insecure SharedPreferences Agent.
+
+(Renamed from C_006 to resolve a duplicate AGENT_ID collision with
+c006_ecb_mode.EcbModeAgent. ECB keeps C_006; SharedPrefs moves to
+STG_006 under the new STG_* storage prefix.)
 
 Detects Android applications that store sensitive data in plain
 SharedPreferences instead of using EncryptedSharedPreferences (Jetpack
@@ -83,16 +87,16 @@ _MAX_HITS_PER_FINDING = 20
 
 
 class InsecureSharedPrefsAgent(BaseAgent):
-    """C_006: detects sensitive data in unencrypted SharedPreferences."""
+    """STG_006: detects sensitive data in unencrypted SharedPreferences."""
 
-    AGENT_ID = "C_006"
+    AGENT_ID = "STG_006"
     VULN_CLASS = "Insecure SharedPreferences"
     PHASE = "static"
 
     async def is_applicable(self) -> bool:
         ctx = self._context
         if ctx.decompiled_dir is None or not ctx.decompiled_dir.exists():
-            logger.info("[C_006] No decompiled source — skipping")
+            logger.info("[STG_006] No decompiled source — skipping")
             return False
         return True
 
@@ -107,7 +111,7 @@ class InsecureSharedPrefsAgent(BaseAgent):
                 continue
             files_scanned += 1
             if files_scanned > _MAX_FILES_TO_SCAN:
-                logger.warning("[C_006] Stopped scanning after %d files",
+                logger.warning("[STG_006] Stopped scanning after %d files",
                                _MAX_FILES_TO_SCAN)
                 break
             try:
@@ -143,7 +147,7 @@ class InsecureSharedPrefsAgent(BaseAgent):
                         break
 
         if not hits_by_category:
-            logger.info("[C_006] No sensitive SharedPreferences usage detected")
+            logger.info("[STG_006] No sensitive SharedPreferences usage detected")
             return []
 
         package = (ctx.manifest or {}).get("package", "?")

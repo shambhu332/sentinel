@@ -63,6 +63,66 @@ _SHORT_NAME_RATIO_THRESHOLD = 0.4
 
 _MAX_FILES_TO_SCAN = 3000
 
+# Framework markers (Java-source side). NL_001 covers the native side;
+# this catches hybrid stacks even when apktool failed and no .so files
+# are available. Each value is a substring matched against the decompiled
+# path — case-sensitive, slash-separated.
+_FRAMEWORK_PATH_MARKERS: dict[str, list[str]] = {
+    "Flutter": ["io/flutter/", "io.flutter."],
+    "React Native": ["com/facebook/react/", "com.facebook.react."],
+    "Xamarin/.NET": ["mono/android/", "mono.android."],
+    "Cordova/Ionic": ["org/apache/cordova/", "org.apache.cordova."],
+    "Capacitor": ["com/getcapacitor/", "com.getcapacitor."],
+    "Unity": ["com/unity3d/", "com.unity3d."],
+    "Kotlin Multiplatform": ["kotlin/native/", "co/touchlab/"],
+    "NativeScript": ["org/nativescript/", "com.tns."],
+}
+
+# Asset/resource paths that strongly indicate a framework when present.
+_FRAMEWORK_ASSET_MARKERS: dict[str, list[str]] = {
+    "Flutter": ["flutter_assets"],
+    "React Native": ["index.android.bundle"],
+    "Cordova/Ionic": ["assets/www"],
+    "Unity": ["bin/Data/Managed", "assets/bin/Data"],
+    "Xamarin/.NET": ["assemblies"],
+}
+
+# How much of the app's Java logic typically lives outside the .class
+# tree per framework — used to calibrate the user's expectations.
+_FRAMEWORK_SAST_COVERAGE: dict[str, str] = {
+    "Flutter": (
+        "~5–15%. Almost all logic compiles into libapp.so as Dart "
+        "snapshots. Use Doldrums / reFlutter to extract Dart source."
+    ),
+    "React Native": (
+        "~15–30%. Most logic lives in assets/index.android.bundle as "
+        "Hermes bytecode or minified JS. Use hermes-dec or "
+        "react-native-decompiler."
+    ),
+    "Xamarin/.NET": (
+        "~5–15%. C# logic lives in assemblies/*.dll. Use ILSpy or "
+        "dotPeek for proper decompilation."
+    ),
+    "Cordova/Ionic": (
+        "~15–25%. Web layer (assets/www/) hosts the logic. Audit the "
+        "JS/HTML as a web app and the bridge API as the IPC surface."
+    ),
+    "Capacitor": (
+        "~15–25%. Same Cordova story: web layer plus Capacitor plugins."
+    ),
+    "Unity": (
+        "~5–10%. Game logic compiles via IL2CPP into libil2cpp.so. "
+        "Use il2cpp_dumper to recover types."
+    ),
+    "NativeScript": (
+        "~30–40%. JS layer accessible but JS-to-Android bridge is "
+        "where most security-relevant work happens."
+    ),
+    "Kotlin Multiplatform": (
+        "~70–80%. Shared module decompiles as normal Kotlin/Java."
+    ),
+}
+
 
 class ObfuscationDetectorAgent(BaseAgent):
     """META_001: detects what obfuscator was used on the APK."""
@@ -128,8 +188,10 @@ class ObfuscationDetectorAgent(BaseAgent):
             total_classes=len(class_names),
         )
 
-        # Always emit an informational finding describing what we saw
-        return [self._make_finding(
+        # Step 6: detect hybrid frameworks (Flutter, RN, Xamarin, etc.)
+        frameworks = self._detect_frameworks(java_files)
+
+        findings: list[Finding] = [self._make_finding(
             vuln_class=self.VULN_CLASS,
             severity=Severity.INFO,
             confidence=0.85,
@@ -142,10 +204,78 @@ class ObfuscationDetectorAgent(BaseAgent):
                 "short_class_count": len(short_names),
                 "short_class_ratio": round(short_ratio, 3),
                 "expected_detection_rate": detection_estimate,
-                "package": (ctx.manifest or {}).get("package", "?"),
                 "summary": severity_label,
             },
         )]
+
+        # Emit a separate framework-detection finding when a hybrid
+        # stack is present. Keeping it separate from the obfuscation
+        # finding makes the dashboard cleaner and lets dedup work
+        # cleanly with NL_001 (which detects the same frameworks
+        # from native libs).
+        if frameworks:
+            framework_names = sorted(frameworks)
+            coverage_lines = []
+            for fw in framework_names:
+                est = _FRAMEWORK_SAST_COVERAGE.get(fw, "unknown")
+                coverage_lines.append(f"- {fw}: SAST coverage {est}")
+            findings.append(self._make_finding(
+                vuln_class="Application Framework Detected",
+                severity=Severity.INFO,
+                confidence=0.90,
+                recommendation=(
+                    "Hybrid framework detected. Java-only SAST will miss "
+                    "the bulk of application logic. Per-framework SAST "
+                    "coverage estimate:\n"
+                    + "\n".join(coverage_lines)
+                    + "\n\nUse framework-specific tools to recover the "
+                    "real logic before declaring the app clean. NL_001 "
+                    "will independently audit any native libraries for "
+                    "hardcoded secrets / URLs."
+                ),
+                evidence={
+                    "title": (
+                        "Hybrid framework(s): "
+                        + ", ".join(framework_names)
+                    ),
+                    "frameworks": framework_names,
+                    "evidence_paths": {
+                        fw: sorted(paths)[:5]
+                        for fw, paths in frameworks.items()
+                    },
+                },
+            ))
+
+        return findings
+
+    def _detect_frameworks(
+        self, java_files: list[str],
+    ) -> dict[str, set[str]]:
+        """Return a {framework: {evidence_paths}} mapping."""
+        found: dict[str, set[str]] = {}
+
+        # Path-based: scan our java_files list once
+        for f in java_files:
+            for fw, markers in _FRAMEWORK_PATH_MARKERS.items():
+                if any(m in f for m in markers):
+                    found.setdefault(fw, set()).add(f)
+
+        # Asset-based: peek at the apktool resources tree if available
+        res = self._context.resources_dir
+        if res and res.exists():
+            try:
+                # Use rglob with limit to avoid huge enumerations
+                for asset in res.rglob("*"):
+                    rel = str(asset.relative_to(res))
+                    for fw, markers in _FRAMEWORK_ASSET_MARKERS.items():
+                        if any(m in rel for m in markers):
+                            found.setdefault(fw, set()).add(rel)
+                    if sum(len(v) for v in found.values()) > 500:
+                        break
+            except OSError:
+                pass
+
+        return found
 
     @staticmethod
     def _classify(

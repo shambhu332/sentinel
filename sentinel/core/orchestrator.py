@@ -42,6 +42,7 @@ from typing import Any
 
 from sentinel.agents.base import BaseAgent
 from sentinel.agents.special import PipelineSmokeTestAgent
+from sentinel.core.dedup import dedupe
 from sentinel.core.finding import Finding
 from sentinel.core.scan_context import ScanContext
 from sentinel.memory.interface import MemoryInterface
@@ -107,6 +108,7 @@ class Orchestrator:
         self._context = context
         self._memory = memory
         self._agents = agents if agents is not None else [PipelineSmokeTestAgent]
+        self._assert_unique_agent_ids(self._agents)
         self._triager = triager
         self._dynamic_enabled = dynamic_enabled
         self._dynamic_duration_seconds = dynamic_duration_seconds
@@ -115,6 +117,28 @@ class Orchestrator:
         self._frida_duration_seconds = frida_duration_seconds
         self._frida_spawn = frida_spawn
         self._proxy_enabled = proxy_enabled
+
+    @staticmethod
+    def _assert_unique_agent_ids(agents: list[type[BaseAgent]]) -> None:
+        """Refuse to construct an Orchestrator with duplicate AGENT_IDs.
+
+        Duplicate IDs cause Finding.finding_id collisions (which are
+        sha256(agent_id|vuln_class|evidence)) and overwrite each other in
+        memory storage. Catching this at construction time turns a silent
+        data-loss bug into a loud startup failure.
+        """
+        seen: dict[str, str] = {}
+        for cls in agents:
+            aid = getattr(cls, "AGENT_ID", "")
+            if not aid:
+                continue
+            if aid in seen:
+                raise OrchestratorError(
+                    f"Duplicate AGENT_ID {aid!r}: "
+                    f"{seen[aid]} and {cls.__name__} both declare it. "
+                    f"Rename one before registering."
+                )
+            seen[aid] = cls.__name__
 
     async def run(self) -> ScanResult:
         """Execute the full scan."""
@@ -159,6 +183,20 @@ class Orchestrator:
             start = asyncio.get_event_loop().time()
             findings = await self._phase2_agents()
             result.phase_timings["phase2"] = asyncio.get_event_loop().time() - start
+
+            # Phase 2.5: dedup overlapping Semgrep / bespoke findings.
+            # Pure post-processor — no LLM, no I/O. Highest-severity
+            # finding per (canonical_class, file) cluster wins; losers
+            # collapse into the survivor's evidence['_deduped_from'].
+            pre_dedup = len(findings)
+            findings = dedupe(findings)
+            post_dedup = len(findings)
+            if pre_dedup != post_dedup:
+                logger.info(
+                    "[%s] Dedup: %d findings -> %d (%d merged)",
+                    self._context.session_id, pre_dedup, post_dedup,
+                    pre_dedup - post_dedup,
+                )
             result.findings = findings
 
             # Phase 3: LLM triage (optional)
@@ -175,6 +213,22 @@ class Orchestrator:
                         {"phase": 3, "error": str(e)[:500]},
                     )
                 result.phase_timings["phase3"] = asyncio.get_event_loop().time() - start
+
+            # Phase 7: Correlation (Sprint 9)
+            if len(result.findings) >= 2:
+                start = asyncio.get_event_loop().time()
+                try:
+                    chain_findings = await self._phase7_correlation()
+                    result.findings.extend(chain_findings)
+                except Exception as e:  # noqa: BLE001
+                    logger.exception("[%s] Phase 7 correlation failed",
+                                     self._context.session_id)
+                    result.warnings.append(f"Phase 7 correlation failed: {str(e)[:200]}")
+                    await self._memory.publish_event(
+                        self._context.session_id, "phase.failed",
+                        {"phase": 7, "error": str(e)[:500]},
+                    )
+                result.phase_timings["phase7"] = asyncio.get_event_loop().time() - start
 
             result.status = "completed"
 
@@ -664,21 +718,46 @@ class Orchestrator:
     # ---------- Phase 2: Agents ----------
 
     async def _phase2_agents(self) -> list[Finding]:
-        """Run the registered agents."""
-        logger.info("[%s] Phase 2: Agents", self._context.session_id)
+        """Run the registered agents in parallel.
+
+        Each BaseAgent reads ScanContext (frozen at this point) and writes
+        through self._memory which serializes its own access. Agents do
+        not communicate with each other, so concurrent execution is safe
+        and turns a 20-agent serial walk over a 91MB APK from ~100s into
+        ~10–15s (limited by the slowest agent's regex pass).
+
+        return_exceptions=True keeps a single buggy agent from poisoning
+        the gather; per-agent errors are already swallowed inside
+        BaseAgent.run() but the gather-level catch is belt-and-braces.
+        """
+        logger.info("[%s] Phase 2: Agents (parallel, n=%d)",
+                    self._context.session_id, len(self._agents))
         await self._memory.publish_event(
             self._context.session_id, "phase.started",
             {"phase": 2, "agent_count": len(self._agents)},
         )
 
-        all_findings: list[Finding] = []
-        for agent_cls in self._agents:
+        async def _run_one(agent_cls: type[BaseAgent]) -> list[Finding]:
             try:
                 agent = agent_cls(context=self._context, memory=self._memory)
-                findings = await agent.run()
-                all_findings.extend(findings)
+                return await agent.run()
             except Exception:  # noqa: BLE001
-                logger.exception("Agent %s failed", agent_cls.__name__)
+                logger.exception("Agent %s crashed at construction",
+                                 agent_cls.__name__)
+                return []
+
+        results = await asyncio.gather(
+            *(_run_one(cls) for cls in self._agents),
+            return_exceptions=True,
+        )
+
+        all_findings: list[Finding] = []
+        for cls, res in zip(self._agents, results, strict=True):
+            if isinstance(res, BaseException):
+                logger.exception("Agent %s gather-level failure",
+                                 cls.__name__, exc_info=res)
+                continue
+            all_findings.extend(res)
 
         await self._memory.publish_event(
             self._context.session_id, "phase.completed",
@@ -723,6 +802,27 @@ class Orchestrator:
             },
         )
         return triaged
+
+    # ---------- Phase 7: Correlation (Sprint 9) ----------
+
+    async def _phase7_correlation(self) -> list[Finding]:
+        """Run exploit chain detection on all findings."""
+        from sentinel.agents.correlation import ExploitChainAgent
+
+        logger.info("[%s] Phase 7: Exploit chain detection", self._context.session_id)
+        await self._memory.publish_event(
+            self._context.session_id, "phase.started",
+            {"phase": 7},
+        )
+
+        agent = ExploitChainAgent(context=self._context, memory=self._memory)
+        chain_findings = await agent.run()
+
+        await self._memory.publish_event(
+            self._context.session_id, "phase.completed",
+            {"phase": 7, "chains_detected": len(chain_findings)},
+        )
+        return chain_findings
 
     # ---------- Helpers ----------
 

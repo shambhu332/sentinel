@@ -156,7 +156,23 @@ class BaseAgent(ABC):
         return True
 
     def _make_finding(self, **kwargs: Any) -> Finding:
-        """Build a Finding with session_id and agent_id auto-filled."""
+        """Build a Finding with session_id, agent_id, and evidence['package']
+        auto-filled.
+
+        Auto-populating evidence['package'] closes a scope-bypass: the
+        _within_scope() check only honors out-of-scope packages when the
+        finding's evidence carries a 'package' key. Agents that forget to
+        set it previously emitted findings for excluded targets.
+        """
         kwargs.setdefault("session_id", self._context.session_id)
         kwargs.setdefault("agent_id", self.AGENT_ID)
+
+        manifest_package = (self._context.manifest or {}).get("package")
+        if manifest_package:
+            evidence = kwargs.get("evidence")
+            if evidence is None:
+                kwargs["evidence"] = {"package": manifest_package}
+            elif isinstance(evidence, dict) and "package" not in evidence:
+                evidence["package"] = manifest_package
+
         return Finding(**kwargs)
