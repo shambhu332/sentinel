@@ -54,3 +54,8 @@ corpus/*.apk
 corpus/*.aab
 corpus/*.xapk
 corpus/*.ipa
+
+# Local-only assistant / tooling state
+.claude/
+.antigravitycli/
+graphify-out/
