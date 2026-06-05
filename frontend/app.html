@@ -3,42 +3,27 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SENTINEL · App</title>
-  <meta name="description" content="SENTINEL — open-source multi-agent Android security scanner." />
-  <meta name="theme-color" content="#070A12" />
+  <title>SENTINEL — Dashboard</title>
+  <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
 
-  <link rel="icon" type="image/svg+xml" href="./assets/favicon.svg" />
-
-  <!-- Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
 
-  <!-- CSS -->
-  <link rel="stylesheet" href="./css/base.css" />
-  <link rel="stylesheet" href="./css/components.css" />
-  <link rel="stylesheet" href="./css/app.css" />
-
-  <!-- Vendor scripts (CDN) -->
-  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js" defer></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js" defer></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer></script>
+  <link rel="stylesheet" href="css/theme.css" />
+  <link rel="stylesheet" href="css/base.css" />
+  <link rel="stylesheet" href="css/components.css" />
+  <link rel="stylesheet" href="css/app.css" />
 </head>
 <body>
-  <a class="skip-link" href="#view-container">Skip to content</a>
+  <div class="app-shell" id="app-shell">
+    <aside class="sidebar" id="sidebar"></aside>
+    <header class="topbar" id="topbar"></header>
+    <main class="main" id="main-view"></main>
+  </div>
 
-  <div id="sidebar-slot"></div>
-  <div id="topbar-slot"></div>
-
-  <main class="app-main" id="view-container" tabindex="-1">
-    <!-- View module mounts here -->
-    <div class="empty">
-      <i data-lucide="loader-2"></i>
-      <h3>Loading…</h3>
-    </div>
-  </main>
-
-  <script type="module" src="./js/grid-bg.js"></script>
-  <script type="module" src="./js/main-app.js"></script>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script type="module" src="js/app-shell.js"></script>
 </body>
 </html>

@@ -1,83 +1,123 @@
-/**
- * findings-table.js — reusable findings table widget.
- * Renders an array of findings with severity + triage chips, agent id,
- * file/evidence preview, and a kebab actions menu.
- */
+// Findings table with expandable detail rows
+import { el, refreshIcons, escape } from '../utils.js';
+import { sevBadge, triageBadge } from './severity-badge.js';
+import { codeBlock } from './code-block.js';
+import { getAgentById } from '../data/agents.js';
 
-import { severityChip } from './severity-chip.js';
-import { triageChip } from './triage-chip.js';
-import { getAgent } from '../data/agents.js';
+export function renderFindingsTable(container, findings) {
+  container.innerHTML = '';
 
-const SEV_ORDER = { Critical: 0, High: 1, Medium: 2, Low: 3, Info: 4 };
-
-function evidencePreview(ev) {
-  if (!ev) return '';
-  if (ev.kind === 'frida') {
-    return `<code class="mono">${escape(ev.fridaEvent || '')}</code>`;
-  }
-  if (ev.kind === 'request') {
-    return `<code class="mono">${escape(ev.request || '')}</code>`;
-  }
-  return `<code class="mono">${escape(ev.file || '')}</code>`;
-}
-
-function escape(s) {
-  return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-}
-
-/**
- * Render the findings table into an existing container.
- * @param {HTMLElement} container
- * @param {Array} findings
- * @param {object} [opts]
- * @param {boolean} [opts.compact=false]
- */
-export function renderFindingsTable(container, findings, opts = {}) {
-  const sorted = [...findings].sort((a, b) => (SEV_ORDER[a.severity] ?? 9) - (SEV_ORDER[b.severity] ?? 9));
-  if (!sorted.length) {
-    container.innerHTML = `
-      <div class="empty">
-        <i data-lucide="search-x"></i>
-        <h3>No findings in this view</h3>
-        <p>Try widening the filter or re-running the scan.</p>
-      </div>`;
-    if (window.lucide?.createIcons) window.lucide.createIcons({ nameAttr: 'data-lucide' });
+  if (!findings || findings.length === 0) {
+    container.appendChild(el('div', { class: 'empty-state' },
+      el('i', { 'data-lucide': 'shield-check' }),
+      el('h3', {}, 'No findings'),
+      el('p', {}, 'This scan turned up no findings or is still in progress.'),
+    ));
+    refreshIcons();
     return;
   }
 
-  const rows = sorted.map((f) => {
-    const agent = getAgent(f.agentId);
-    return `
-      <tr data-finding-id="${f.id}">
-        <td>${severityChip(f.severity)}</td>
-        <td>${triageChip(f.triage)}</td>
-        <td>
-          <div class="mono" style="font-size:12px; color: var(--accent-2);">${f.agentId}</div>
-          <div class="text-dim text-xs">${agent?.name || ''}</div>
-        </td>
-        <td>
-          <div style="font-weight:500;">${escape(f.vulnClass)}</div>
-          <div class="text-xs text-mute mt-1" style="margin-top:4px;">${evidencePreview(f.evidence)}</div>
-        </td>
-        <td class="text-dim text-xs">${(f.confidence * 100).toFixed(0)}%</td>
-      </tr>
-    `;
-  }).join('');
+  // sort: critical first
+  const sevOrder = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+  const sorted = [...findings].sort((a, b) =>
+    (sevOrder[a.severity] - sevOrder[b.severity]) || (b.confidence - a.confidence));
 
-  container.innerHTML = `
-    <div class="table-wrap">
-      <table class="table">
-        <thead>
-          <tr>
-            <th>Severity</th>
-            <th>Triage</th>
-            <th>Agent</th>
-            <th>Finding</th>
-            <th>Conf.</th>
-          </tr>
-        </thead>
-        <tbody>${rows}</tbody>
-      </table>
-    </div>
-  `;
+  const wrap = el('div', { class: 'table-wrap' });
+  const table = el('table', { class: 'table' });
+  table.appendChild(el('thead', {}, el('tr', {},
+    el('th', { style: 'width:40px' }),
+    el('th', {}, 'Severity'),
+    el('th', {}, 'Agent'),
+    el('th', {}, 'Vulnerability'),
+    el('th', {}, 'Triage'),
+    el('th', {}, 'Confidence'),
+    el('th', {}, 'Evidence'),
+  )));
+  const tbody = el('tbody');
+
+  sorted.forEach((finding) => {
+    const agent = getAgentById(finding.agentId);
+
+    const row = el('tr', { class: 'finding-row clickable', 'data-fid': finding.id },
+      el('td', {}, el('i', { 'data-lucide': 'chevron-right', class: 'chev' })),
+      el('td', {}, sevBadge(finding.severity)),
+      el('td', {}, el('span', { class: 'mono', style: 'color: var(--accent-primary); font-size: 12px;' }, finding.agentId)),
+      el('td', {}, finding.vulnClass),
+      el('td', {}, triageBadge(finding.triage)),
+      el('td', {}, el('span', { class: 'mono text-muted', style: 'font-size: 12px;' },
+        (finding.confidence * 100).toFixed(0) + '%')),
+      el('td', {}, el('span', { class: 'mono text-muted', style: 'font-size: 11px;' },
+        truncate(finding.evidence?.file || '', 40))),
+    );
+
+    // Expansion row
+    const expansion = el('tr', { class: 'finding-expansion hidden' });
+    const detailCell = el('td', { colspan: 7, style: 'padding: 0;' });
+    detailCell.appendChild(buildFindingDetail(finding, agent));
+    expansion.appendChild(detailCell);
+
+    row.addEventListener('click', () => {
+      const isOpen = !expansion.classList.contains('hidden');
+      // close all open
+      tbody.querySelectorAll('.finding-expansion').forEach(e => e.classList.add('hidden'));
+      tbody.querySelectorAll('.finding-row').forEach(r => r.classList.remove('expanded'));
+      tbody.querySelectorAll('.finding-row .chev').forEach(c => c.style.transform = '');
+      if (!isOpen) {
+        expansion.classList.remove('hidden');
+        row.classList.add('expanded');
+        const chev = row.querySelector('.chev');
+        if (chev) chev.style.transform = 'rotate(90deg)';
+      }
+    });
+
+    tbody.appendChild(row);
+    tbody.appendChild(expansion);
+  });
+
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+  container.appendChild(wrap);
+
+  refreshIcons();
+}
+
+function buildFindingDetail(finding, agent) {
+  const detail = el('div', { class: 'finding-detail' });
+
+  // Left column — code evidence
+  const left = el('div', { class: 'finding-section' },
+    el('h4', {}, 'Evidence'),
+    el('p', { class: 'mono text-muted', style: 'font-size: 12px; margin-bottom: 8px;' },
+      `${finding.evidence?.file || '—'}:${finding.evidence?.line || '?'}`),
+    codeBlock(finding.evidence?.snippet || '// (no snippet)', { showLineNumbers: false }),
+  );
+
+  // Right column — context
+  const right = el('div', { style: 'display: flex; flex-direction: column; gap: 16px;' });
+
+  if (agent) {
+    right.appendChild(el('div', { class: 'finding-section' },
+      el('h4', {}, 'Agent'),
+      el('p', {}, `${agent.id} — ${agent.name}`),
+      el('p', { class: 'text-muted', style: 'font-size: 12px;' }, agent.description),
+    ));
+  }
+
+  right.appendChild(el('div', { class: 'finding-section rationale' },
+    el('h4', {}, 'LLM Triage Rationale'),
+    el('p', {}, finding.llmRationale || '—'),
+  ));
+
+  right.appendChild(el('div', { class: 'finding-section recommendation' },
+    el('h4', {}, 'Recommendation'),
+    el('p', {}, finding.recommendation || '—'),
+  ));
+
+  detail.append(left, right);
+  return detail;
+}
+
+function truncate(s, n) {
+  if (!s) return '';
+  return s.length > n ? '…' + s.slice(-n + 1) : s;
 }

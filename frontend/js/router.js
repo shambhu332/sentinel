@@ -1,83 +1,60 @@
-/**
- * router.js — hash-based router for app.html.
- *
- * Routes (window.location.hash):
- *   #dashboard
- *   #projects, #projects/[id]
- *   #history,  #history/[scanId]
- *   #reports
- *   #agents
- *   #architecture
- *   #workspaces, #workspaces/[id]
- *   #settings
- *   #demo
- */
+// Hash-based router
+import { setActiveSidebarLink } from './components/sidebar.js';
+import { setBreadcrumb } from './components/topbar.js';
 
-import { renderDashboard }    from './views/dashboard.js';
-import { renderProjects, renderProjectDetail }   from './views/projects.js';
-import { renderHistory }      from './views/history.js';
-import { renderReports }      from './views/reports.js';
-import { renderAgents }       from './views/agents.js';
-import { renderArchitecture } from './views/architecture.js';
-import { renderWorkspaces, renderWorkspaceDetail } from './views/workspaces.js';
-import { renderSettings }     from './views/settings.js';
-import { renderDemo }         from './views/demo.js';
+const routes = new Map();
 
-import { setActiveNav } from './components/sidebar.js';
-import { setTopbarView } from './components/topbar.js';
+export function registerRoute(name, handler) {
+  routes.set(name, handler);
+}
 
-const ROUTES = {
-  dashboard:    renderDashboard,
-  projects:     renderProjects,
-  history:      renderHistory,
-  reports:      renderReports,
-  agents:       renderAgents,
-  architecture: renderArchitecture,
-  workspaces:   renderWorkspaces,
-  settings:     renderSettings,
-  demo:         renderDemo,
-};
-
-const SUB_ROUTES = {
-  projects:   renderProjectDetail,
-  workspaces: renderWorkspaceDetail,
-  history:    renderHistory,   /* history handles a scanId itself */
-};
+export function navigate(hash) {
+  location.hash = hash;
+}
 
 function parseHash() {
-  const raw = window.location.hash.replace(/^#/, '') || 'dashboard';
-  const [view, ...rest] = raw.split('/');
-  return { view, params: rest };
+  const raw = location.hash.replace(/^#/, '') || 'dashboard';
+  const [path, ...rest] = raw.split('/');
+  return { name: path || 'dashboard', params: rest };
 }
 
-function mount(viewFn, params) {
-  const target = document.getElementById('view-container');
-  if (!target) return;
-  target.innerHTML = '';
-  /* Restart the view-in animation by re-flow */
-  void target.offsetWidth;
-  try {
-    viewFn(target, params);
-  } catch (err) {
-    console.error('[router] view crashed:', err);
-    target.innerHTML = `<div class="empty"><h3>Something broke</h3><p>${err.message}</p></div>`;
-  }
-  /* Re-init Lucide whenever a new view mounts */
-  if (window.lucide?.createIcons) window.lucide.createIcons({ nameAttr: 'data-lucide' });
-  /* Scroll to top */
-  window.scrollTo({ top: 0, behavior: 'instant' in window ? 'instant' : 'auto' });
-}
+function dispatch() {
+  const { name, params } = parseHash();
+  const handler = routes.get(name);
+  const main = document.getElementById('main-view');
+  if (!main) return;
 
-export function startRouter() {
-  const route = () => {
-    const { view, params } = parseHash();
-    const root = view in ROUTES ? ROUTES[view] : ROUTES.dashboard;
-    const sub  = SUB_ROUTES[view];
-    setActiveNav(view in ROUTES ? view : 'dashboard');
-    setTopbarView(view);
-    if (sub && params.length) mount(sub, params);
-    else                       mount(root, params);
+  setActiveSidebarLink(name);
+
+  // breadcrumb default
+  const labels = {
+    dashboard: 'Dashboard',
+    scans: 'Scans',
+    agents: 'Agents',
+    projects: 'Projects',
+    reports: 'Reports',
+    history: 'History',
+    settings: 'Settings',
+    docs: 'Docs',
   };
-  window.addEventListener('hashchange', route);
-  route();
+  const crumbs = [{ label: labels[name] || name }];
+  if (params.length > 0 && name === 'scans') {
+    crumbs[0] = { label: 'Scans', href: '#scans' };
+    crumbs.push({ label: params[0] });
+  }
+  setBreadcrumb(crumbs);
+
+  if (!handler) {
+    main.innerHTML = `<div class="card"><h2>Not found</h2><p>Route <code class="inline">${name}</code> is not registered.</p></div>`;
+    return;
+  }
+
+  main.innerHTML = '';
+  handler(main, params);
+  window.scrollTo({ top: 0 });
+}
+
+export function initRouter() {
+  window.addEventListener('hashchange', dispatch);
+  dispatch();
 }

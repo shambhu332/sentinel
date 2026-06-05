@@ -1,70 +1,54 @@
-/**
- * topbar.js — sticky topbar with breadcrumb, search, notifications,
- * help, and the "+ New scan" CTA that opens the New Scan modal.
- */
+// Topbar component — breadcrumb, search, notifications, user menu
+import { el, refreshIcons } from '../utils.js';
 
-import { toggleSidebarDrawer } from './sidebar.js';
-import { openNewScanModal } from './scan-runner.js';
+export function renderTopbar(container) {
+  container.innerHTML = '';
 
-const VIEW_LABELS = {
-  dashboard:    'Dashboard',
-  projects:     'Projects',
-  history:      'Scan history',
-  reports:      'Reports',
-  agents:       'Agents',
-  architecture: 'Architecture',
-  workspaces:   'Workspaces',
-  settings:     'Settings',
-  demo:         'Demo',
-};
+  const toggle = el('button', { class: 'topbar-toggle', id: 'sidebar-toggle', 'aria-label': 'Toggle sidebar' },
+    el('i', { 'data-lucide': 'menu' }),
+  );
 
-export function renderTopbar(mount) {
-  mount.innerHTML = `
-    <header class="topbar" id="topbar">
-      <button class="btn-icon" id="drawer-toggle" aria-label="Open menu" style="display:none;">
-        <i data-lucide="menu"></i>
-      </button>
+  const breadcrumb = el('nav', { class: 'breadcrumb', id: 'breadcrumb' },
+    el('a', { href: '#dashboard' }, 'SENTINEL'),
+    el('span', { class: 'crumb-divider' }, '/'),
+    el('span', { class: 'crumb-current' }, 'Dashboard'),
+  );
 
-      <div class="topbar-breadcrumb">
-        <i data-lucide="chevron-right" style="width:14px;height:14px;color: var(--text-mute);"></i>
-        <strong id="topbar-view-label">Dashboard</strong>
-      </div>
+  const spacer = el('div', { class: 'topbar-spacer' });
 
-      <div class="topbar-search input-search" style="min-width:220px;">
-        <i data-lucide="search"></i>
-        <input class="input" id="topbar-search" placeholder="Search scans, projects, findings…" />
-      </div>
+  const search = el('div', { class: 'search-input topbar-search' },
+    el('i', { 'data-lucide': 'search' }),
+    el('input', { type: 'text', placeholder: 'Search scans, findings, agents…' }),
+  );
 
-      <div class="topbar-actions">
-        <button class="btn-icon topbar-badge" data-count="3" aria-label="Notifications">
-          <i data-lucide="bell"></i>
-        </button>
-        <button class="btn-icon" aria-label="Help">
-          <i data-lucide="help-circle"></i>
-        </button>
-        <button class="btn btn-primary btn-sm" id="new-scan-btn">
-          <i data-lucide="plus"></i> New scan
-        </button>
-      </div>
-    </header>
-  `;
+  const actions = el('div', { class: 'topbar-actions' },
+    el('button', { class: 'topbar-action', 'data-tip': 'Notifications' },
+      el('i', { 'data-lucide': 'bell' }),
+      el('span', { class: 'notif-dot' }),
+    ),
+    el('button', { class: 'topbar-action', 'data-tip': 'New Scan', id: 'topbar-new-scan' },
+      el('i', { 'data-lucide': 'plus-circle' }),
+    ),
+    el('button', { class: 'topbar-action', 'data-tip': 'Help' },
+      el('i', { 'data-lucide': 'help-circle' }),
+    ),
+  );
 
-  if (window.lucide?.createIcons) window.lucide.createIcons({ nameAttr: 'data-lucide' });
-
-  /* Mobile drawer toggle visibility */
-  const drawer = mount.querySelector('#drawer-toggle');
-  const updateDrawerVis = () => {
-    drawer.style.display = window.matchMedia('(max-width: 768px)').matches ? 'inline-flex' : 'none';
-  };
-  updateDrawerVis();
-  window.addEventListener('resize', updateDrawerVis);
-  drawer.addEventListener('click', toggleSidebarDrawer);
-
-  mount.querySelector('#new-scan-btn').addEventListener('click', () => openNewScanModal());
+  container.append(toggle, breadcrumb, spacer, search, actions);
+  refreshIcons();
 }
 
-/** Update the breadcrumb label when the route changes. */
-export function setTopbarView(viewName) {
-  const el = document.getElementById('topbar-view-label');
-  if (el) el.textContent = VIEW_LABELS[viewName] || viewName;
+export function setBreadcrumb(crumbs) {
+  const bc = document.getElementById('breadcrumb');
+  if (!bc) return;
+  bc.innerHTML = '';
+  bc.appendChild(el('a', { href: '#dashboard' }, 'SENTINEL'));
+  crumbs.forEach((c, i) => {
+    bc.appendChild(el('span', { class: 'crumb-divider' }, '/'));
+    if (i === crumbs.length - 1) {
+      bc.appendChild(el('span', { class: 'crumb-current' }, c.label));
+    } else {
+      bc.appendChild(el('a', { href: c.href || '#' }, c.label));
+    }
+  });
 }

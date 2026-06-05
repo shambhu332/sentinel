@@ -1,113 +1,92 @@
-/**
- * sidebar.js — renders the app shell sidebar and handles nav state.
- *
- * Exports:
- *   renderSidebar(mountEl, { currentWorkspaceId, onWorkspaceSwitch })
- *   setActiveNav(viewName)
- */
+// Sidebar component — navigation + collapse + mobile drawer
+import { el, refreshIcons } from '../utils.js';
 
-import { WORKSPACES } from '../data/workspaces.js';
-
-const NAV = [
-  { view: 'dashboard',    label: 'Dashboard',     icon: 'layout-dashboard' },
-  { view: 'projects',     label: 'Projects',      icon: 'folder-kanban' },
-  { view: 'history',      label: 'Scan history',  icon: 'history' },
-  { view: 'reports',      label: 'Reports',       icon: 'file-text' },
-  { view: 'agents',       label: 'Agents',        icon: 'bot' },
-  { view: 'architecture', label: 'Architecture',  icon: 'network' },
-  { view: 'workspaces',   label: 'Workspaces',    icon: 'users' },
-  { view: 'settings',     label: 'Settings',      icon: 'settings' },
+const NAV_GROUPS = [
+  {
+    title: 'Workspace',
+    items: [
+      { id: 'dashboard', label: 'Dashboard', icon: 'layout-dashboard', href: '#dashboard' },
+      { id: 'scans',     label: 'Scans',     icon: 'shield-check',     href: '#scans', badge: '40' },
+      { id: 'agents',    label: 'Agents',    icon: 'cpu',              href: '#agents', badge: '20' },
+    ],
+  },
+  {
+    title: 'Analyze',
+    items: [
+      { id: 'projects',  label: 'Projects',  icon: 'folder',           href: '#projects' },
+      { id: 'reports',   label: 'Reports',   icon: 'file-text',        href: '#reports' },
+      { id: 'history',   label: 'History',   icon: 'history',          href: '#history' },
+    ],
+  },
+  {
+    title: 'Configure',
+    items: [
+      { id: 'settings',  label: 'Settings',  icon: 'settings',         href: '#settings' },
+      { id: 'docs',      label: 'Docs',      icon: 'book-open',        href: '#docs' },
+    ],
+  },
 ];
 
-export function renderSidebar(mount, { currentWorkspaceId = 'ws_personal', onWorkspaceSwitch } = {}) {
-  const ws = WORKSPACES.find((w) => w.id === currentWorkspaceId) || WORKSPACES[0];
+export function renderSidebar(container, activeId = 'dashboard') {
+  container.innerHTML = '';
 
-  mount.innerHTML = `
-    <aside class="sidebar" id="sidebar">
-      <div class="sidebar-header">
-        <a class="sidebar-logo" href="./index.html" aria-label="SENTINEL home">
-          <img src="./assets/logo.svg" alt="" width="24" height="24"/>
-          <span class="sidebar-label">SENTINEL</span>
-        </a>
-      </div>
+  const logo = el('a', { class: 'sidebar-logo', href: '#dashboard' },
+    el('span', { html: `
+      <svg width="28" height="28" viewBox="0 0 32 32" fill="none">
+        <defs>
+          <linearGradient id="lg1" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#00D4FF"/>
+            <stop offset="100%" stop-color="#0099FF"/>
+          </linearGradient>
+        </defs>
+        <path d="M16 2 L28 7 V17 C28 23 22.5 28 16 30 C9.5 28 4 23 4 17 V7 Z"
+              fill="url(#lg1)" stroke="#00F0FF" stroke-width="1" opacity="0.95"/>
+        <path d="M16 9 L12 14 L16 19 L20 14 Z M16 19 L12 24 L16 24 L20 24 Z" fill="#0A0E27"/>
+      </svg>` }),
+    el('span', { class: 'logo-text' }, 'SENTINEL'),
+  );
+  container.appendChild(logo);
 
-      <button class="workspace-switcher" id="workspace-switcher" aria-haspopup="listbox">
-        <span class="row-sm">
-          <i data-lucide="layers" style="width:14px;height:14px;"></i>
-          <span class="workspace-name sidebar-label">${ws.name}</span>
-        </span>
-        <i data-lucide="chevrons-up-down" style="width:14px;height:14px;color: var(--text-mute);"></i>
-      </button>
-      <div class="dropdown" id="workspace-dropdown" style="position:relative;">
-        <div class="dropdown-menu" style="left:12px; right:12px; top:0; position:absolute;">
-          ${WORKSPACES.map((w) => `
-            <button class="dropdown-item" data-ws="${w.id}">
-              <i data-lucide="${w.id === currentWorkspaceId ? 'check' : 'circle'}" style="width:14px;height:14px;"></i>
-              <span>${w.name}</span>
-              <span class="text-xs text-mute" style="margin-left:auto;">${w.members.length} member${w.members.length>1?'s':''}</span>
-            </button>
-          `).join('')}
-        </div>
-      </div>
+  for (const group of NAV_GROUPS) {
+    const section = el('div', { class: 'sidebar-section' });
+    section.appendChild(el('div', { class: 'sidebar-section-title' }, group.title));
+    const nav = el('nav', { class: 'sidebar-nav' });
+    for (const item of group.items) {
+      const link = el('a', {
+        class: `sidebar-link ${item.id === activeId ? 'active' : ''}`,
+        href: item.href,
+        'data-route': item.id,
+      },
+        el('i', { 'data-lucide': item.icon }),
+        el('span', { class: 'link-text' }, item.label),
+        item.badge ? el('span', { class: 'link-badge' }, item.badge) : null,
+      );
+      nav.appendChild(link);
+    }
+    section.appendChild(nav);
+    container.appendChild(section);
+  }
 
-      <nav class="sidebar-nav" aria-label="Primary">
-        ${NAV.map((n) => `
-          <a class="nav-item" href="#${n.view}" data-view="${n.view}">
-            <i data-lucide="${n.icon}"></i>
-            <span class="sidebar-label">${n.label}</span>
-          </a>
-        `).join('')}
-      </nav>
+  // Footer with workspace badge (no personal details)
+  const footer = el('div', { class: 'sidebar-footer' });
+  const user = el('div', { class: 'sidebar-user' },
+    el('div', { class: 'avatar' },
+      el('i', { 'data-lucide': 'user' }),
+    ),
+    el('div', { class: 'user-info' },
+      el('div', { class: 'user-name' }, 'Local Workspace'),
+      el('div', { class: 'user-email' }, 'Self-hosted'),
+    ),
+    el('i', { 'data-lucide': 'chevron-up' }),
+  );
+  footer.appendChild(user);
+  container.appendChild(footer);
 
-      <div class="sidebar-footer">
-        <div class="user-card">
-          <span class="avatar" aria-hidden="true">NK</span>
-          <div class="sidebar-label user-card-meta" style="flex:1; min-width:0;">
-            <div style="font-weight:600; font-size: var(--fs-sm);">Nehal</div>
-            <div class="text-xs text-mute">${ws.name}</div>
-          </div>
-        </div>
-        <button class="btn btn-ghost btn-sm btn-block sidebar-label">
-          <i data-lucide="log-out"></i> Sign out
-        </button>
-      </div>
-    </aside>
-  `;
-
-  if (window.lucide?.createIcons) window.lucide.createIcons({ nameAttr: 'data-lucide' });
-
-  /* Workspace dropdown toggle */
-  const wsBtn  = mount.querySelector('#workspace-switcher');
-  const wsDrop = mount.querySelector('#workspace-dropdown');
-  wsBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    wsDrop.classList.toggle('is-open');
-  });
-  document.addEventListener('click', () => wsDrop.classList.remove('is-open'));
-  wsDrop.querySelectorAll('[data-ws]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const id = btn.dataset.ws;
-      wsDrop.classList.remove('is-open');
-      onWorkspaceSwitch?.(id);
-    });
-  });
+  refreshIcons();
 }
 
-/** Highlight the active nav row by view name. */
-export function setActiveNav(viewName) {
-  const root = document.getElementById('sidebar');
-  if (!root) return;
-  root.querySelectorAll('.nav-item').forEach((el) => {
-    el.classList.toggle('is-active', el.dataset.view === viewName);
+export function setActiveSidebarLink(routeId) {
+  document.querySelectorAll('.sidebar-link').forEach(el => {
+    el.classList.toggle('active', el.dataset.route === routeId);
   });
-}
-
-/** Toggle the collapsed/mini state (icon-only). */
-export function toggleSidebarMini() {
-  document.getElementById('sidebar')?.classList.toggle('is-mini');
-}
-
-/** Toggle the mobile drawer state. */
-export function toggleSidebarDrawer() {
-  document.getElementById('sidebar')?.classList.toggle('is-drawer-open');
 }
