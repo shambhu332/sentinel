@@ -275,6 +275,7 @@ async def _run_scan(
     )
     from sentinel.agents.platform import (
         ContentProviderIDORAgent,
+        DeepLinkHijackAgent,
         IntentRedirectAgent,
         IpcExposureAgent,
     )
@@ -1059,6 +1060,7 @@ async def _run_static_scan(
     )
     from sentinel.agents.platform import (
         ContentProviderIDORAgent,
+        DeepLinkHijackAgent,
         IntentRedirectAgent,
         IpcExposureAgent,
     )

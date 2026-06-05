@@ -115,6 +115,10 @@ class ManifestParser:
             for intent_filter in activity:
                 if intent_filter.tag != "intent-filter":
                     continue
+                # autoVerify lives on the <intent-filter> element itself;
+                # required for Android App Links (https schemes) to be
+                # cryptographically bound to the app.
+                auto_verify = intent_filter.get(_ns("autoVerify")) == "true"
                 actions = [
                     child.get(_ns("name"))
                     for child in intent_filter if child.tag == "action"
@@ -133,6 +137,8 @@ class ManifestParser:
                         "actions": ",".join(a for a in actions if a),
                         "categories": ",".join(c for c in categories if c),
                         "data": str(data_elements),
+                        "data_elements": data_elements,
+                        "auto_verify": auto_verify,
                     })
         return deep_links
 
