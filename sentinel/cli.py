@@ -249,7 +249,7 @@ async def _run_scan(
         RestIdorAgent,
     )
     from sentinel.agents.cert_pinning import MissingCertPinningAgent
-    from sentinel.agents.cloud import FirebaseMisconfigAgent
+    from sentinel.agents.cloud import FcmTokenDisclosureAgent, FirebaseMisconfigAgent
     from sentinel.agents.crossplatform import FlutterAgent, ReactNativeAgent
     from sentinel.agents.crypto import (
         AesGcmNonceReuseAgent,
@@ -418,6 +418,7 @@ async def _run_scan(
             KeystoreMisuseAgent,              # C_011
             AesGcmNonceReuseAgent,            # C_012 (AES-GCM nonce reuse)
             FirebaseMisconfigAgent,           # F_001
+            FcmTokenDisclosureAgent,          # F_002 (FCM token logcat / HTTP)
             MissingCertPinningAgent,          # N_001
             CleartextTrafficAgent,            # N_002
             ApiKeyLeakageAgent,               # N_006
@@ -1063,7 +1064,7 @@ async def _run_static_scan(
         RestIdorAgent,
     )
     from sentinel.agents.cert_pinning import MissingCertPinningAgent
-    from sentinel.agents.cloud import FirebaseMisconfigAgent
+    from sentinel.agents.cloud import FcmTokenDisclosureAgent, FirebaseMisconfigAgent
     from sentinel.agents.crossplatform import FlutterAgent, ReactNativeAgent
     from sentinel.agents.crypto import (
         AesGcmNonceReuseAgent,
@@ -1130,7 +1131,7 @@ async def _run_static_scan(
         WorldReadableStorageAgent, InsecureWebViewAgent,
         HardcodedCryptoKeysAgent, EcbModeAgent, WeakCryptoAgent,
         SQLCipherKeyDerivationAgent, KeystoreMisuseAgent, AesGcmNonceReuseAgent,
-        FirebaseMisconfigAgent, MissingCertPinningAgent,
+        FirebaseMisconfigAgent, FcmTokenDisclosureAgent, MissingCertPinningAgent,
         CleartextTrafficAgent, ApiKeyLeakageAgent, GraphqlIntrospectionAgent,
         InsecureTrustManagerAgent, WebViewDebugFlagAgent,
         OkHttpLoggingAgent, GraphqlFuzzerAgent,
