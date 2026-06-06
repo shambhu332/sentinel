@@ -290,6 +290,7 @@ async def _run_scan(
         IpcExposureAgent,
         MutablePendingIntentAgent,
         ReceiverChainHijackAgent,
+        UnprotectedBroadcastAgent,
     )
     from sentinel.agents.random_gen import InsecureRandomAgent
     from sentinel.agents.resilience import AntiTamperAgent
@@ -439,6 +440,7 @@ async def _run_scan(
             GraphqlFuzzerAgent,               # N_011
             DeepLinkHijackAgent,              # P_001
             ExcessivePermissionsAgent,        # P_005 (manifest sensitive-perm audit)
+            UnprotectedBroadcastAgent,        # P_006 (sendBroadcast without permission)
             ContentProviderIDORAgent,         # P_004
             IntentRedirectAgent,              # P_010 (CWE-926 AST)
             ReceiverChainHijackAgent,         # P_011 (exported-receiver chain hijack)
@@ -1111,6 +1113,7 @@ async def _run_static_scan(
         IpcExposureAgent,
         MutablePendingIntentAgent,
         ReceiverChainHijackAgent,
+        UnprotectedBroadcastAgent,
     )
     from sentinel.agents.random_gen import InsecureRandomAgent
     from sentinel.agents.resilience import AntiTamperAgent
@@ -1158,7 +1161,8 @@ async def _run_static_scan(
         OkHttpLoggingAgent, GraphqlFuzzerAgent,
         DeepLinkHijackAgent, ContentProviderIDORAgent,
         IntentRedirectAgent, ReceiverChainHijackAgent,
-        MutablePendingIntentAgent, ExcessivePermissionsAgent, IpcExposureAgent,
+        MutablePendingIntentAgent, ExcessivePermissionsAgent,
+        UnprotectedBroadcastAgent, IpcExposureAgent,
         NativeLibraryAgent, LoadLibraryTaintAgent, AntiTamperAgent,
         SCAAgent, TaintAgent, ReactNativeAgent, FlutterAgent,
         SemgrepAgent, InsecureSharedPrefsAgent, InsecureFileProviderAgent,
