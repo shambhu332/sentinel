@@ -23,7 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from sentinel.api.routes import agents, auth, scans, scope
+from sentinel.api.routes import agents, auth, reports, scans, scope
 from sentinel.core.config import get_settings
 
 FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
@@ -58,6 +58,7 @@ def create_app() -> FastAPI:
             {"name": "scans", "description": "Scan lifecycle operations"},
             {"name": "agents", "description": "Agent registry and metadata"},
             {"name": "scope", "description": "Bug bounty scope parsing"},
+            {"name": "reports", "description": "VAPT report artifacts"},
             {"name": "meta", "description": "Health, version, status"},
         ],
     )
@@ -144,6 +145,7 @@ def create_app() -> FastAPI:
     app.include_router(scans.router)
     app.include_router(agents.router)
     app.include_router(scope.router)
+    app.include_router(reports.router)
 
     # Serve the frontend so `sentinel serve` is one-command for the GUI.
     # Marketing landing at /ui/  ·  app shell at /ui/app.html

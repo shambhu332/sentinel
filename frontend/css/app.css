@@ -1573,3 +1573,120 @@
   font-weight: 600;
 }
 .offline-banner-link:hover { text-decoration: underline; }
+
+/* ============================================================
+ * Reports page — VAPT artifact cards.
+ * Added 2026-06-06 when /reports API endpoint shipped.
+ * ============================================================ */
+
+.reports-summary {
+  font-size: 13px;
+  color: var(--text-dim);
+  padding: 0 4px 12px 4px;
+}
+.reports-summary-count {
+  font-weight: 700;
+  color: var(--text);
+  background: linear-gradient(135deg, var(--accent-1), var(--accent-2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  font-family: 'JetBrains Mono', monospace;
+  margin-right: 4px;
+}
+.reports-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 16px;
+}
+.reports-card { padding: 18px 20px; display: flex; flex-direction: column; gap: 12px; }
+.reports-card-head {
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;
+}
+.reports-card-package { flex: 1; min-width: 0; }
+.reports-card-pkg-name {
+  font-weight: 600; font-size: 15px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.reports-card-pkg-placeholder { color: var(--text-dim); font-weight: 400; font-style: italic; }
+.reports-card-pkg-version {
+  font-size: 11px; color: var(--text-dim);
+  margin-top: 2px;
+}
+.reports-card-risk {
+  text-align: center;
+  padding: 6px 10px;
+  border-radius: 8px;
+  min-width: 64px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.reports-card-risk-score {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+.reports-card-risk-band {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+}
+.reports-card-risk-critical { border-color: color-mix(in srgb, var(--sev-critical) 40%, var(--border)); }
+.reports-card-risk-critical .reports-card-risk-score { color: var(--sev-critical); }
+.reports-card-risk-high { border-color: color-mix(in srgb, var(--sev-high) 40%, var(--border)); }
+.reports-card-risk-high .reports-card-risk-score { color: var(--sev-high); }
+.reports-card-risk-elevated { border-color: color-mix(in srgb, var(--sev-medium) 40%, var(--border)); }
+.reports-card-risk-elevated .reports-card-risk-score { color: var(--sev-medium); }
+.reports-card-risk-moderate { border-color: color-mix(in srgb, var(--sev-low) 40%, var(--border)); }
+.reports-card-risk-moderate .reports-card-risk-score { color: var(--sev-low); }
+.reports-card-risk-low { border-color: color-mix(in srgb, var(--success) 40%, var(--border)); }
+.reports-card-risk-low .reports-card-risk-score { color: var(--success); }
+
+.reports-card-sev { display: flex; gap: 6px; flex-wrap: wrap; }
+.sev-pill {
+  display: inline-flex; align-items: center;
+  padding: 2px 8px; border-radius: 6px;
+  font-size: 11px; font-weight: 600;
+  font-family: 'JetBrains Mono', monospace;
+}
+.sev-pill-critical { background: color-mix(in srgb, var(--sev-critical) 16%, transparent); color: var(--sev-critical); }
+.sev-pill-high { background: color-mix(in srgb, var(--sev-high) 16%, transparent); color: var(--sev-high); }
+.sev-pill-medium { background: color-mix(in srgb, var(--sev-medium) 16%, transparent); color: var(--sev-medium); }
+.sev-pill-low { background: color-mix(in srgb, var(--sev-low) 16%, transparent); color: var(--sev-low); }
+.sev-pill-info { background: color-mix(in srgb, var(--text-muted) 14%, transparent); color: var(--text-muted); }
+
+.reports-card-meta {
+  display: flex; gap: 16px; flex-wrap: wrap;
+  font-size: 12px; color: var(--text-dim);
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.reports-card-meta i { width: 14px; height: 14px; vertical-align: -2px; }
+.reports-card-session { margin-left: auto; opacity: 0.7; }
+
+.reports-card-buttons {
+  display: flex; gap: 8px; flex-wrap: wrap;
+}
+.reports-card-buttons .btn { flex: 1; min-width: 0; }
+.reports-card-size {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  opacity: 0.7;
+  margin-left: 4px;
+}
+
+.reports-empty {
+  padding: 48px;
+  text-align: center;
+  display: flex; flex-direction: column;
+  align-items: center; gap: 12px;
+}
+.reports-empty-icon {
+  color: var(--text-dim);
+  width: 48px; height: 48px;
+  margin-bottom: 4px;
+}
+.reports-empty h3 { margin: 0; }
+.reports-empty-text { color: var(--text-dim); max-width: 480px; line-height: 1.6; }

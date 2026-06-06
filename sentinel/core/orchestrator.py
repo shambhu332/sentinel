@@ -230,6 +230,25 @@ class Orchestrator:
                     )
                 result.phase_timings["phase7"] = asyncio.get_event_loop().time() - start
 
+            # Phase 8: VAPT report generation (R_001).
+            # The agent reads every finding back out of memory and writes
+            # markdown + HTML + JSON artifacts to <workspace>/reports/.
+            # It is best-effort: a failure here must not kill the scan.
+            if result.findings:
+                start = asyncio.get_event_loop().time()
+                try:
+                    report_findings = await self._phase8_report()
+                    result.findings.extend(report_findings)
+                except Exception as e:  # noqa: BLE001
+                    logger.exception("[%s] Phase 8 report generation failed",
+                                     self._context.session_id)
+                    result.warnings.append(f"Phase 8 report generation failed: {str(e)[:200]}")
+                    await self._memory.publish_event(
+                        self._context.session_id, "phase.failed",
+                        {"phase": 8, "error": str(e)[:500]},
+                    )
+                result.phase_timings["phase8"] = asyncio.get_event_loop().time() - start
+
             result.status = "completed"
 
         except OrchestratorError as e:
@@ -823,6 +842,39 @@ class Orchestrator:
             {"phase": 7, "chains_detected": len(chain_findings)},
         )
         return chain_findings
+
+    # ---------- Phase 8: VAPT report generation ----------
+
+    async def _phase8_report(self) -> list[Finding]:
+        """Generate VAPT report artifacts via R_001."""
+        from sentinel.agents.reporting import ReportGeneratorAgent
+
+        logger.info("[%s] Phase 8: VAPT report generation", self._context.session_id)
+        await self._memory.publish_event(
+            self._context.session_id, "phase.started",
+            {"phase": 8},
+        )
+
+        agent = ReportGeneratorAgent(context=self._context, memory=self._memory)
+        meta_findings = await agent.run()
+
+        if meta_findings:
+            paths = meta_findings[0].evidence or {}
+            await self._memory.publish_event(
+                self._context.session_id, "phase.completed",
+                {
+                    "phase": 8,
+                    "report_markdown": paths.get("report_markdown"),
+                    "report_html": paths.get("report_html"),
+                    "report_json": paths.get("report_json"),
+                },
+            )
+        else:
+            await self._memory.publish_event(
+                self._context.session_id, "phase.completed",
+                {"phase": 8, "report": "skipped (no findings to render)"},
+            )
+        return meta_findings
 
     # ---------- Helpers ----------
 

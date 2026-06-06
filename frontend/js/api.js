@@ -83,6 +83,13 @@ export const api = {
   getFindings(id){ return request(`/scans/${id}/findings`); },
   getResult(id)  { return request(`/scans/${id}/result`); },
   deleteScan(id) { return request(`/scans/${id}`, { method: 'DELETE' }); },
+  listReports()  { return request('/reports'); },
+  reportUrl(sessionId, fmt) {
+    // Absolute URL the browser can hit directly — the API streams the
+    // bytes back as a FileResponse, so this works for ``download``
+    // links and ``<a target=_blank>`` opens alike.
+    return `${API_BASE}/reports/${encodeURIComponent(sessionId)}/${encodeURIComponent(fmt)}`;
+  },
 
   async createScan({ file, options = {}, onProgress }) {
     const form = new FormData();
