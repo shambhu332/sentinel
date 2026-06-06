@@ -3,12 +3,14 @@ from sentinel.agents.platform.content_provider_agent import ContentProviderIDORA
 from sentinel.agents.platform.intent_redirect_agent import IntentRedirectAgent
 from sentinel.agents.platform.ipc_exposure_agent import IpcExposureAgent
 from sentinel.agents.platform.p001_deep_link_hijack import DeepLinkHijackAgent
+from sentinel.agents.platform.p005_excessive_permissions import ExcessivePermissionsAgent
 from sentinel.agents.platform.p011_receiver_chain_hijack import ReceiverChainHijackAgent
 from sentinel.agents.platform.p012_mutable_pending_intent import MutablePendingIntentAgent
 
 __all__ = [
     "ContentProviderIDORAgent",
     "DeepLinkHijackAgent",
+    "ExcessivePermissionsAgent",
     "IntentRedirectAgent",
     "IpcExposureAgent",
     "MutablePendingIntentAgent",
