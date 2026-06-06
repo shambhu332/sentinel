@@ -13,6 +13,7 @@ from sentinel.agents.network.n009_webview_debug_flag import (
 from sentinel.agents.network.n010_okhttp_logging import OkHttpLoggingAgent
 from sentinel.agents.network.n011_graphql_fuzzer import GraphqlFuzzerAgent
 from sentinel.agents.network.n012_dns_leak import DnsLeakAgent
+from sentinel.agents.network.n013_insecure_websocket import InsecureWebSocketAgent
 
 __all__ = [
     "CleartextTrafficAgent",
@@ -20,6 +21,7 @@ __all__ = [
     "DnsLeakAgent",
     "GraphqlIntrospectionAgent",
     "InsecureTrustManagerAgent",
+    "InsecureWebSocketAgent",
     "WebViewDebugFlagAgent",
     "OkHttpLoggingAgent",
     "GraphqlFuzzerAgent",
