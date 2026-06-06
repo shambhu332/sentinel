@@ -287,7 +287,10 @@ async def _run_scan(
     from sentinel.agents.random_gen import InsecureRandomAgent
     from sentinel.agents.resilience import AntiTamperAgent
     from sentinel.agents.semgrep import SemgrepAgent
-    from sentinel.agents.shared_prefs import InsecureSharedPrefsAgent
+    from sentinel.agents.shared_prefs import (
+        InsecureFileProviderAgent,
+        InsecureSharedPrefsAgent,
+    )
     from sentinel.agents.special import PipelineSmokeTestAgent
     from sentinel.agents.supply_chain import SCAAgent
     from sentinel.agents.taint import TaintAgent
@@ -431,6 +434,7 @@ async def _run_scan(
             FlutterAgent,                     # FL_001 (Flutter libapp.so string scan)
             SemgrepAgent,                     # SG_001 (AST pattern SAST)
             InsecureSharedPrefsAgent,         # STG_006 (renamed from C_006)
+            InsecureFileProviderAgent,        # STG_007 (FileProvider path audit)
         ]
         if dynamic:
             agent_list.extend([
@@ -1083,7 +1087,10 @@ async def _run_static_scan(
     from sentinel.agents.random_gen import InsecureRandomAgent
     from sentinel.agents.resilience import AntiTamperAgent
     from sentinel.agents.semgrep import SemgrepAgent
-    from sentinel.agents.shared_prefs import InsecureSharedPrefsAgent
+    from sentinel.agents.shared_prefs import (
+        InsecureFileProviderAgent,
+        InsecureSharedPrefsAgent,
+    )
     from sentinel.agents.supply_chain import SCAAgent
     from sentinel.agents.taint import TaintAgent
     from sentinel.agents.webview import InsecureWebViewAgent
@@ -1120,7 +1127,7 @@ async def _run_static_scan(
         MutablePendingIntentAgent, ExcessivePermissionsAgent, IpcExposureAgent,
         NativeLibraryAgent, AntiTamperAgent,
         SCAAgent, TaintAgent, ReactNativeAgent, FlutterAgent,
-        SemgrepAgent, InsecureSharedPrefsAgent,
+        SemgrepAgent, InsecureSharedPrefsAgent, InsecureFileProviderAgent,
     ]
 
     orch = Orchestrator(
