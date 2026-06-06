@@ -251,6 +251,7 @@ async def _run_scan(
         OAuthRedirectUriAgent,
         RaceConditionAgent,
         RestIdorAgent,
+        UnsignedUpdateAgent,
     )
     from sentinel.agents.cert_pinning import MissingCertPinningAgent
     from sentinel.agents.cloud import FcmTokenDisclosureAgent, FirebaseMisconfigAgent
@@ -423,6 +424,7 @@ async def _run_scan(
             RaceConditionAgent,               # B_003
             IapBypassAgent,                   # B_004
             OAuthRedirectUriAgent,            # B_005 (OAuth redirect_uri hijack)
+            UnsignedUpdateAgent,              # B_006 (unsigned in-app APK install)
             InsecureBackupAgent,              # C_001
             WorldReadableStorageAgent,        # C_002
             InsecureWebViewAgent,             # C_004
@@ -1088,6 +1090,7 @@ async def _run_static_scan(
         OAuthRedirectUriAgent,
         RaceConditionAgent,
         RestIdorAgent,
+        UnsignedUpdateAgent,
     )
     from sentinel.agents.cert_pinning import MissingCertPinningAgent
     from sentinel.agents.cloud import FcmTokenDisclosureAgent, FirebaseMisconfigAgent
@@ -1163,7 +1166,7 @@ async def _run_static_scan(
         RefreshTokenReuseAgent, SessionFixationAgent, RestIdorAgent,
         InsecureRandomAgent,
         RaceConditionAgent, IapBypassAgent, OAuthRedirectUriAgent,
-        InsecureBackupAgent,
+        UnsignedUpdateAgent, InsecureBackupAgent,
         WorldReadableStorageAgent, InsecureWebViewAgent,
         HardcodedCryptoKeysAgent, EcbModeAgent, WeakCryptoAgent,
         SQLCipherKeyDerivationAgent, KeystoreMisuseAgent, AesGcmNonceReuseAgent,
