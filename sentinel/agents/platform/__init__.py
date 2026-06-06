@@ -3,10 +3,12 @@ from sentinel.agents.platform.content_provider_agent import ContentProviderIDORA
 from sentinel.agents.platform.intent_redirect_agent import IntentRedirectAgent
 from sentinel.agents.platform.ipc_exposure_agent import IpcExposureAgent
 from sentinel.agents.platform.p001_deep_link_hijack import DeepLinkHijackAgent
+from sentinel.agents.platform.p011_receiver_chain_hijack import ReceiverChainHijackAgent
 
 __all__ = [
     "ContentProviderIDORAgent",
     "DeepLinkHijackAgent",
     "IntentRedirectAgent",
     "IpcExposureAgent",
+    "ReceiverChainHijackAgent",
 ]
