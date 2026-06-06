@@ -246,6 +246,7 @@ async def _run_scan(
     from sentinel.agents.backup import InsecureBackupAgent
     from sentinel.agents.business import (
         IapBypassAgent,
+        OAuthRedirectUriAgent,
         RaceConditionAgent,
         RestIdorAgent,
     )
@@ -411,6 +412,7 @@ async def _run_scan(
             InsecureRandomAgent,              # B_002
             RaceConditionAgent,               # B_003
             IapBypassAgent,                   # B_004
+            OAuthRedirectUriAgent,            # B_005 (OAuth redirect_uri hijack)
             InsecureBackupAgent,              # C_001
             WorldReadableStorageAgent,        # C_002
             InsecureWebViewAgent,             # C_004
@@ -1065,6 +1067,7 @@ async def _run_static_scan(
     from sentinel.agents.backup import InsecureBackupAgent
     from sentinel.agents.business import (
         IapBypassAgent,
+        OAuthRedirectUriAgent,
         RaceConditionAgent,
         RestIdorAgent,
     )
@@ -1134,7 +1137,8 @@ async def _run_static_scan(
         InsecureAuthStorageAgent, HardcodedSecretsAgent, InsecureLoggingAgent,
         BiometricBypassAgent, TapJackingAgent, SessionTokenInUrlAgent,
         RestIdorAgent, InsecureRandomAgent,
-        RaceConditionAgent, IapBypassAgent, InsecureBackupAgent,
+        RaceConditionAgent, IapBypassAgent, OAuthRedirectUriAgent,
+        InsecureBackupAgent,
         WorldReadableStorageAgent, InsecureWebViewAgent,
         HardcodedCryptoKeysAgent, EcbModeAgent, WeakCryptoAgent,
         SQLCipherKeyDerivationAgent, KeystoreMisuseAgent, AesGcmNonceReuseAgent,
