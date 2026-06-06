@@ -266,7 +266,7 @@ async def _run_scan(
         RuntimeCryptoAgent,
     )
     from sentinel.agents.logging import InsecureLoggingAgent
-    from sentinel.agents.meta import ObfuscationDetectorAgent
+    from sentinel.agents.meta import DebuggableManifestAgent, ObfuscationDetectorAgent
     from sentinel.agents.native import NativeLibraryAgent
     from sentinel.agents.network import (
         ApiKeyLeakageAgent,
@@ -394,6 +394,7 @@ async def _run_scan(
         agent_list: list = [
             # Meta — runs first, sets context for the rest
             ObfuscationDetectorAgent,         # META_001
+            DebuggableManifestAgent,          # META_002 (android:debuggable audit)
             # Smoke test
             PipelineSmokeTestAgent,           # TEST_001
             # SAST agents (alphabetical by ID)
@@ -1070,7 +1071,7 @@ async def _run_static_scan(
     )
     from sentinel.agents.data_storage import WorldReadableStorageAgent
     from sentinel.agents.logging import InsecureLoggingAgent
-    from sentinel.agents.meta import ObfuscationDetectorAgent
+    from sentinel.agents.meta import DebuggableManifestAgent, ObfuscationDetectorAgent
     from sentinel.agents.native import NativeLibraryAgent
     from sentinel.agents.network import (
         ApiKeyLeakageAgent,
@@ -1118,7 +1119,7 @@ async def _run_static_scan(
     )
 
     agent_list: list = [
-        ObfuscationDetectorAgent,
+        ObfuscationDetectorAgent, DebuggableManifestAgent,
         InsecureAuthStorageAgent, HardcodedSecretsAgent, InsecureLoggingAgent,
         BiometricBypassAgent, TapJackingAgent, RestIdorAgent, InsecureRandomAgent,
         RaceConditionAgent, IapBypassAgent, InsecureBackupAgent,
