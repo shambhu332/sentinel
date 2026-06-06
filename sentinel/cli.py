@@ -271,6 +271,7 @@ async def _run_scan(
         CleartextTrafficAgent,
         GraphqlFuzzerAgent,
         GraphqlIntrospectionAgent,
+        InsecureTrustManagerAgent,
     )
     from sentinel.agents.platform import (
         ContentProviderIDORAgent,
@@ -408,6 +409,7 @@ async def _run_scan(
             CleartextTrafficAgent,            # N_002
             ApiKeyLeakageAgent,               # N_006
             GraphqlIntrospectionAgent,        # N_007
+            InsecureTrustManagerAgent,        # N_008 (TLS-bypass TrustManager / HostnameVerifier)
             GraphqlFuzzerAgent,               # N_011
             DeepLinkHijackAgent,              # P_001
             ContentProviderIDORAgent,         # P_004
@@ -1059,6 +1061,7 @@ async def _run_static_scan(
         CleartextTrafficAgent,
         GraphqlFuzzerAgent,
         GraphqlIntrospectionAgent,
+        InsecureTrustManagerAgent,
     )
     from sentinel.agents.platform import (
         ContentProviderIDORAgent,
@@ -1101,7 +1104,8 @@ async def _run_static_scan(
         HardcodedCryptoKeysAgent, EcbModeAgent, WeakCryptoAgent,
         KeystoreMisuseAgent, FirebaseMisconfigAgent, MissingCertPinningAgent,
         CleartextTrafficAgent, ApiKeyLeakageAgent, GraphqlIntrospectionAgent,
-        GraphqlFuzzerAgent, DeepLinkHijackAgent, ContentProviderIDORAgent,
+        InsecureTrustManagerAgent, GraphqlFuzzerAgent,
+        DeepLinkHijackAgent, ContentProviderIDORAgent,
         IntentRedirectAgent, ReceiverChainHijackAgent,
         MutablePendingIntentAgent, IpcExposureAgent,
         NativeLibraryAgent, AntiTamperAgent,
