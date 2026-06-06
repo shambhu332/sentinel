@@ -252,6 +252,7 @@ async def _run_scan(
     from sentinel.agents.cloud import FirebaseMisconfigAgent
     from sentinel.agents.crossplatform import FlutterAgent, ReactNativeAgent
     from sentinel.agents.crypto import (
+        AesGcmNonceReuseAgent,
         EcbModeAgent,
         HardcodedCryptoKeysAgent,
         KeystoreMisuseAgent,
@@ -415,6 +416,7 @@ async def _run_scan(
             WeakCryptoAgent,                  # C_007
             SQLCipherKeyDerivationAgent,      # C_010 (SQLCipher KDF audit)
             KeystoreMisuseAgent,              # C_011
+            AesGcmNonceReuseAgent,            # C_012 (AES-GCM nonce reuse)
             FirebaseMisconfigAgent,           # F_001
             MissingCertPinningAgent,          # N_001
             CleartextTrafficAgent,            # N_002
@@ -1063,6 +1065,7 @@ async def _run_static_scan(
     from sentinel.agents.cloud import FirebaseMisconfigAgent
     from sentinel.agents.crossplatform import FlutterAgent, ReactNativeAgent
     from sentinel.agents.crypto import (
+        AesGcmNonceReuseAgent,
         EcbModeAgent,
         HardcodedCryptoKeysAgent,
         KeystoreMisuseAgent,
@@ -1125,7 +1128,7 @@ async def _run_static_scan(
         RaceConditionAgent, IapBypassAgent, InsecureBackupAgent,
         WorldReadableStorageAgent, InsecureWebViewAgent,
         HardcodedCryptoKeysAgent, EcbModeAgent, WeakCryptoAgent,
-        SQLCipherKeyDerivationAgent, KeystoreMisuseAgent,
+        SQLCipherKeyDerivationAgent, KeystoreMisuseAgent, AesGcmNonceReuseAgent,
         FirebaseMisconfigAgent, MissingCertPinningAgent,
         CleartextTrafficAgent, ApiKeyLeakageAgent, GraphqlIntrospectionAgent,
         InsecureTrustManagerAgent, WebViewDebugFlagAgent,
