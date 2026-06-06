@@ -249,6 +249,60 @@ async def test_custom_and_https_emit_two_findings(memory, tmp_path):
     assert vectors == ["applink-unverified", "custom-scheme-no-host"]
 
 
+# ---------- auth-scheme signal → CRITICAL ----------
+
+
+@pytest.mark.asyncio
+async def test_oauth_scheme_name_promotes_to_critical(memory, tmp_path):
+    ctx = _make_ctx(
+        tmp_path,
+        manifest={
+            "package": "com.x",
+            "deep_links": [{
+                "activity": "com.x.OAuthCallback",
+                "data_elements": [{"scheme": "myapp-oauth"}],
+                "auto_verify": False,
+            }],
+        },
+    )
+    agent = DeepLinkHijackAgent(context=ctx, memory=memory)
+    findings = await agent.analyze()
+    assert len(findings) == 1
+    assert findings[0].severity == Severity.CRITICAL
+    assert findings[0].evidence["auth_scheme_signal"] is True
+
+
+@pytest.mark.asyncio
+async def test_login_host_name_promotes_to_critical(memory, tmp_path):
+    ctx = _make_ctx(
+        tmp_path,
+        manifest={
+            "package": "com.x",
+            "deep_links": [{
+                "activity": "com.x.Main",
+                # host is present so the no-host vector wouldn't fire
+                # alone — flip to https without autoVerify to exercise
+                # the auth-signal-on-applink-unverified path.
+                "data_elements": [{"scheme": "myapp"}],
+                "auto_verify": False,
+            }],
+        },
+    )
+    # Override: hand a host with auth signal but no host filter
+    ctx.manifest["deep_links"] = [{
+        "activity": "com.x.Main",
+        "data_elements": [
+            {"scheme": "myapp"},
+            {"host": "login.example.com"},
+        ],
+        "auto_verify": False,
+    }]
+    agent = DeepLinkHijackAgent(context=ctx, memory=memory)
+    findings = await agent.analyze()
+    # host IS present here so custom-scheme-no-host does NOT fire.
+    assert findings == []
+
+
 # ---------- finding schema ----------
 
 

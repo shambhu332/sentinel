@@ -6,8 +6,10 @@ import pytest
 from sentinel.agents.auth_storage import InsecureAuthStorageAgent
 from sentinel.agents.backup import InsecureBackupAgent
 from sentinel.agents.cert_pinning import MissingCertPinningAgent
-from sentinel.agents.deep_links import DeepLinkHijackAgent
 from sentinel.agents.shared_prefs import InsecureSharedPrefsAgent
+
+# Note: P_001 deep-link tests moved to test_deep_link_hijack_agent.py
+# when the agent was consolidated into sentinel/agents/platform/.
 from sentinel.core.finding import BountyScope, Severity
 from sentinel.core.scan_context import ScanContext, generate_session_id
 from sentinel.memory import LightweightMemory
@@ -263,77 +265,3 @@ async def test_n001_detects_xml_pin_set(memory, basic_context):
     assert findings == []
 
 
-# ---------- P_001 Deep Link Hijacking ----------
-
-@pytest.mark.asyncio
-async def test_p001_no_finding_when_no_deep_links(memory, basic_context):
-    basic_context.manifest["deep_links"] = []
-    agent = DeepLinkHijackAgent(context=basic_context, memory=memory)
-    # Note: is_applicable should return False here; analyze isn't called by
-    # production code, but we test the empty path.
-    applicable = await agent.is_applicable()
-    assert applicable is False
-
-
-@pytest.mark.asyncio
-async def test_p001_detects_custom_oauth_scheme_critical(memory, basic_context):
-    basic_context.manifest["deep_links"] = [
-        {
-            "scheme": "myapp",
-            "host": "oauth-callback",
-            "auto_verify": False,
-            "activity": "com.x.test.OAuthActivity",
-        },
-    ]
-    agent = DeepLinkHijackAgent(context=basic_context, memory=memory)
-    findings = await agent.analyze()
-    assert len(findings) == 1
-    assert findings[0].severity == Severity.CRITICAL
-
-
-@pytest.mark.asyncio
-async def test_p001_detects_plain_custom_scheme_high(memory, basic_context):
-    basic_context.manifest["deep_links"] = [
-        {
-            "scheme": "myapp",
-            "host": "products",
-            "auto_verify": False,
-            "activity": "com.x.test.MainActivity",
-        },
-    ]
-    agent = DeepLinkHijackAgent(context=basic_context, memory=memory)
-    findings = await agent.analyze()
-    assert len(findings) == 1
-    assert findings[0].severity == Severity.HIGH
-
-
-@pytest.mark.asyncio
-async def test_p001_detects_http_without_autoverify(memory, basic_context):
-    basic_context.manifest["deep_links"] = [
-        {
-            "scheme": "https",
-            "host": "app.example.com",
-            "auto_verify": False,
-            "activity": "com.x.test.MainActivity",
-        },
-    ]
-    agent = DeepLinkHijackAgent(context=basic_context, memory=memory)
-    findings = await agent.analyze()
-    assert len(findings) == 1
-    assert findings[0].severity == Severity.MEDIUM
-
-
-@pytest.mark.asyncio
-async def test_p001_low_for_autoverify_https(memory, basic_context):
-    basic_context.manifest["deep_links"] = [
-        {
-            "scheme": "https",
-            "host": "app.example.com",
-            "auto_verify": True,
-            "activity": "com.x.test.MainActivity",
-        },
-    ]
-    agent = DeepLinkHijackAgent(context=basic_context, memory=memory)
-    findings = await agent.analyze()
-    assert len(findings) == 1
-    assert findings[0].severity == Severity.LOW

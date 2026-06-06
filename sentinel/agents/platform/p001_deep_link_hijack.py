@@ -29,6 +29,14 @@ SENSITIVE_PARAM_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# Scheme/host name fragments that suggest the deep link carries OAuth or
+# password-reset payloads — when matched, the custom-scheme hijack lands
+# on a Critical-severity finding because the URL itself leaks secrets.
+_AUTH_SCHEME_HINTS = (
+    "oauth", "auth", "login", "callback", "sso", "signin",
+    "reset", "verify", "confirm", "magic",
+)
+
 
 class DeepLinkHijackAgent(BaseAgent):
     """Detect hijackable deep link intent filters."""
@@ -56,11 +64,15 @@ class DeepLinkHijackAgent(BaseAgent):
             schemes = sorted({
                 d.get("scheme") for d in data_elements if d.get("scheme")
             })
-            has_host = any(d.get("host") for d in data_elements)
+            hosts = sorted({
+                d.get("host") for d in data_elements if d.get("host")
+            })
+            has_host = bool(hosts)
             web_schemes = [s for s in schemes if s in WEB_SCHEMES]
             custom_schemes = [s for s in schemes if s not in WEB_SCHEMES]
 
             sensitive = self._activity_reads_sensitive_params(activity)
+            auth_signal = self._auth_scheme_signal(custom_schemes, hosts)
 
             if custom_schemes and not has_host:
                 findings.append(self._build_finding(
@@ -72,6 +84,7 @@ class DeepLinkHijackAgent(BaseAgent):
                     schemes=custom_schemes,
                     vector="custom-scheme-no-host",
                     sensitive=sensitive,
+                    auth_signal=auth_signal,
                 ))
 
             if web_schemes and not auto_verify:
@@ -85,6 +98,7 @@ class DeepLinkHijackAgent(BaseAgent):
                     schemes=web_schemes,
                     vector="applink-unverified",
                     sensitive=sensitive,
+                    auth_signal=False,
                 ))
 
         return findings
@@ -97,9 +111,19 @@ class DeepLinkHijackAgent(BaseAgent):
         schemes: list[str],
         vector: str,
         sensitive: bool,
+        auth_signal: bool,
     ) -> Finding:
-        severity = Severity.HIGH if sensitive else Severity.MEDIUM
-        confidence = 0.85 if sensitive else 0.70
+        # Severity ladder:
+        #   CRITICAL — custom scheme name itself hints at OAuth / auth flow
+        #   HIGH     — handler reads token/code/redirect/state/otp
+        #   MEDIUM   — generic hijack, no extra context
+        if auth_signal:
+            severity, confidence = Severity.CRITICAL, 0.90
+        elif sensitive:
+            severity, confidence = Severity.HIGH, 0.85
+        else:
+            severity, confidence = Severity.MEDIUM, 0.70
+
         recommendation = (
             "Add an explicit android:host filter and validate received URIs "
             "in the handler. For https schemes, set android:autoVerify=true "
@@ -107,11 +131,14 @@ class DeepLinkHijackAgent(BaseAgent):
             "/.well-known/assetlinks.json on the domain to bind the link "
             "via Digital Asset Links."
         )
-        if sensitive:
+        if sensitive or auth_signal:
             recommendation += (
-                " The activity reads auth-flow parameters (token/code/etc.) "
-                "— treat all deep-link inputs as untrusted and validate "
-                "redirect URIs against an allowlist before navigation."
+                " The handler is on an auth-flow path (scheme name or "
+                "extracted parameters indicate token / OAuth code / reset "
+                "magic-link material) — treat all deep-link inputs as "
+                "untrusted and validate redirect URIs against an allowlist "
+                "before navigation. Prefer the AppAuth-Android library for "
+                "OAuth callbacks instead of custom schemes."
             )
 
         return self._make_finding(
@@ -123,6 +150,7 @@ class DeepLinkHijackAgent(BaseAgent):
                 "schemes": schemes,
                 "vector": vector,
                 "reads_sensitive_params": sensitive,
+                "auth_scheme_signal": auth_signal,
                 "issue": issue,
             },
             recommendation=recommendation,
@@ -130,10 +158,19 @@ class DeepLinkHijackAgent(BaseAgent):
             masvs="MSTG-PLATFORM-3",
             cvss_vector=(
                 "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:C/C:H/I:H/A:N"
-                if sensitive
+                if sensitive or auth_signal
                 else "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:U/C:L/I:L/A:N"
             ),
         )
+
+    @staticmethod
+    def _auth_scheme_signal(
+        custom_schemes: list[str],
+        hosts: list[str],
+    ) -> bool:
+        """True when any custom scheme or host fragment looks auth-flow-related."""
+        haystack = " ".join(custom_schemes + hosts).lower()
+        return any(hint in haystack for hint in _AUTH_SCHEME_HINTS)
 
     def _activity_reads_sensitive_params(self, activity: str) -> bool:
         decompiled = self._context.decompiled_dir

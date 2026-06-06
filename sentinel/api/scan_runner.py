@@ -24,7 +24,6 @@ from sentinel.agents.cert_pinning import MissingCertPinningAgent
 from sentinel.agents.cloud import FirebaseMisconfigAgent
 from sentinel.agents.crypto import WeakCryptoAgent
 from sentinel.agents.data_storage import WorldReadableStorageAgent
-from sentinel.agents.deep_links import DeepLinkHijackAgent
 from sentinel.agents.dynamic import (
     CertPinningBypassAgent,
     DataInTransitAgent,
@@ -34,7 +33,11 @@ from sentinel.agents.dynamic import (
 from sentinel.agents.logging import InsecureLoggingAgent
 from sentinel.agents.meta import ObfuscationDetectorAgent
 from sentinel.agents.network import CleartextTrafficAgent
-from sentinel.agents.platform import ContentProviderIDORAgent, IntentRedirectAgent
+from sentinel.agents.platform import (
+    ContentProviderIDORAgent,
+    DeepLinkHijackAgent,
+    IntentRedirectAgent,
+)
 from sentinel.agents.random_gen import InsecureRandomAgent
 from sentinel.agents.shared_prefs import InsecureSharedPrefsAgent
 from sentinel.agents.special import PipelineSmokeTestAgent

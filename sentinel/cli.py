@@ -257,7 +257,6 @@ async def _run_scan(
         WeakCryptoAgent,
     )
     from sentinel.agents.data_storage import WorldReadableStorageAgent
-    from sentinel.agents.deep_links import DeepLinkHijackAgent
     from sentinel.agents.dynamic import (
         CertPinningBypassAgent,
         DataInTransitAgent,
@@ -1050,7 +1049,6 @@ async def _run_static_scan(
         WeakCryptoAgent,
     )
     from sentinel.agents.data_storage import WorldReadableStorageAgent
-    from sentinel.agents.deep_links import DeepLinkHijackAgent
     from sentinel.agents.logging import InsecureLoggingAgent
     from sentinel.agents.meta import ObfuscationDetectorAgent
     from sentinel.agents.native import NativeLibraryAgent
