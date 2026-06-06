@@ -1368,5 +1368,81 @@ def rag_stats(workspace: Path) -> None:
     asyncio.run(_run())
 
 
+@main.command("verify")
+@click.argument(
+    "findings_json",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+)
+@click.option(
+    "--workspace",
+    type=click.Path(path_type=Path),
+    default=Path("./workspace"),
+    help="Scan workspace (used to reach decompiled / resources / captures).",
+)
+@click.option(
+    "--output",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Write the verified findings JSON to this path (default: stdout).",
+)
+def verify_cmd(findings_json: Path, workspace: Path, output: Path | None) -> None:
+    """Run per-finding-class verifiers against a JSON findings file.
+
+    The input is the JSON produced by ``sentinel scan --output``.
+    Each finding is routed to its matching verifier (META_002, P_005,
+    STG_007, STG_009, N_002, A_003, N_005) and the result is written
+    back under ``evidence._verify`` for the report generator to
+    consume.
+    """
+    import json as _json
+
+    from sentinel.core.finding import BountyScope, Finding
+    from sentinel.core.scan_context import ScanContext, generate_session_id
+    from sentinel.verify import VerifyEngine
+
+    async def _run() -> None:
+        raw = _json.loads(findings_json.read_text())
+        finding_dicts = raw.get("findings") or raw.get("results") or []
+        if not finding_dicts:
+            console.print("[yellow]No findings in input file.[/]")
+            return
+
+        findings = [Finding.model_validate(d) for d in finding_dicts]
+        apk = workspace / "apk.placeholder"
+        if not apk.exists():
+            apk.parent.mkdir(parents=True, exist_ok=True)
+            apk.write_bytes(b"PK\x03\x04")
+        scan = ScanContext(
+            session_id=raw.get("session_id") or generate_session_id(),
+            apk_path=apk,
+            workspace=workspace,
+            scope=BountyScope(),
+        )
+        scan.decompiled_dir = workspace / "decompiled"
+        scan.resources_dir = workspace / "resources"
+        scan.manifest = raw.get("manifest") or {}
+
+        engine = VerifyEngine()
+        engine.register_default_verifiers()
+        results = await engine.verify_all(findings, scan)
+
+        counts: dict[str, int] = {}
+        for _, r in results:
+            counts[r.outcome.value] = counts.get(r.outcome.value, 0) + 1
+        for outcome, n in sorted(counts.items()):
+            console.print(f"  [bold]{outcome:12s}[/] {n}")
+
+        if output is not None:
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text(_json.dumps(
+                {"findings": [f.model_dump(mode="json") for f, _ in results]},
+                indent=2,
+                default=str,
+            ))
+            console.print(f"[green]✓[/] Wrote {output}")
+
+    asyncio.run(_run())
+
+
 if __name__ == "__main__":
     main()
