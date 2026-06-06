@@ -29,10 +29,12 @@ build/
 # Runtime artifacts
 workspace/
 data/
-# Bundled RAG corpora are versioned source data, not runtime output —
+# Bundled RAG corpora and frontend data modules are versioned source —
 # allow them back through the broader ``data/`` ignore.
 !sentinel/rag/data/
 !sentinel/rag/data/**
+!frontend/js/data/
+!frontend/js/data/**
 scan-results.json
 reports/
 .env

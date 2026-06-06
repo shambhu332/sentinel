@@ -1306,3 +1306,185 @@
   background: color-mix(in srgb, var(--text-muted) 14%, transparent);
   color: var(--text-muted);
 }
+
+/* ============================================================
+ * AI Platform pages — RAG / Verify / Exploit
+ * Added 2026-06-06 alongside the AI-platform upgrade.
+ * ============================================================ */
+
+/* --- Shared --- */
+.cli {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  padding: 12px 14px;
+  border-radius: 8px;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text);
+}
+.empty-state {
+  display: flex; flex-direction: column;
+  align-items: center; gap: 8px;
+  padding: 40px; color: var(--text-dim);
+}
+
+/* --- RAG knowledge browser --- */
+.rag-list { display: flex; flex-direction: column; gap: 12px; }
+.rag-counter {
+  font-size: 12px; color: var(--text-dim);
+  text-transform: uppercase; letter-spacing: 0.06em;
+  padding: 0 4px 4px 4px;
+}
+.rag-card { padding: 16px 18px; }
+.rag-card-head {
+  display: flex; gap: 8px; align-items: center;
+  flex-wrap: wrap; margin-bottom: 6px;
+}
+.rag-cid {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--accent-2);
+}
+.rag-category {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.rag-title { margin: 0 0 6px 0; font-size: 15px; }
+.rag-text { font-size: 13px; line-height: 1.55; color: var(--text-dim); margin: 0; }
+
+.chip-masvs { background: color-mix(in srgb, var(--accent-1) 16%, transparent); color: var(--accent-1); }
+.chip-owasp-mobile { background: color-mix(in srgb, var(--accent-2) 16%, transparent); color: var(--accent-2); }
+.chip-cwe { background: color-mix(in srgb, var(--sev-medium) 16%, transparent); color: var(--sev-medium); }
+.chip-osv { background: color-mix(in srgb, var(--sev-low) 16%, transparent); color: var(--sev-low); }
+
+/* --- Verify engine --- */
+.verify-legend {
+  display: flex; gap: 12px; flex-wrap: wrap;
+  margin: 16px 0 24px 0;
+}
+.verify-pill {
+  display: inline-flex; gap: 8px; align-items: center;
+  padding: 8px 14px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 13px;
+}
+.verify-pill i { width: 16px; height: 16px; }
+.verify-pill-count {
+  margin-left: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.verify-pill-verified { color: var(--success); }
+.verify-pill-refuted { color: var(--sev-critical); }
+.verify-pill-inconclusive { color: var(--sev-medium); }
+.verify-pill-unsupported { color: var(--text-muted); }
+
+.verify-section-title {
+  font-size: 16px;
+  margin: 32px 0 12px 0;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.verify-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+.verify-card { padding: 14px; }
+.verify-card-head {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 6px;
+}
+.verify-card-title { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
+.verify-card-method {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.verify-badge {
+  display: inline-flex; gap: 4px; align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.verify-badge i { width: 12px; height: 12px; }
+.verify-badge-verified { background: color-mix(in srgb, var(--success) 16%, transparent); color: var(--success); }
+.verify-badge-refuted { background: color-mix(in srgb, var(--sev-critical) 16%, transparent); color: var(--sev-critical); }
+.verify-badge-inconclusive { background: color-mix(in srgb, var(--sev-medium) 16%, transparent); color: var(--sev-medium); }
+.verify-badge-unsupported { background: color-mix(in srgb, var(--text-muted) 14%, transparent); color: var(--text-muted); }
+
+.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.data-table th, .data-table td {
+  padding: 10px 14px; text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+.data-table th {
+  color: var(--text-dim); font-weight: 600;
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
+}
+.data-table tbody tr:last-child td { border-bottom: none; }
+.mono.small { font-size: 11px; }
+
+/* --- Exploit PoC --- */
+.exploit-safety {
+  padding: 16px 20px; margin-top: 16px;
+  background: color-mix(in srgb, var(--accent-1) 6%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--accent-1) 30%, var(--border));
+}
+.exploit-safety-head {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
+}
+.exploit-safety-head h3 { margin: 0; font-size: 14px; }
+.exploit-safety-list {
+  list-style: none; margin: 0; padding: 0;
+  display: flex; flex-direction: column; gap: 6px;
+  font-size: 13px;
+}
+.exploit-safety-list li { display: flex; gap: 8px; align-items: center; }
+.exploit-safety-list i { color: var(--success); width: 16px; height: 16px; }
+
+.exploit-artifact { padding: 20px 24px; }
+.exploit-banner {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--sev-medium) 8%, var(--surface-2));
+  border: 1px solid color-mix(in srgb, var(--sev-medium) 30%, var(--border));
+  border-radius: 6px;
+  white-space: pre;
+  color: var(--sev-medium);
+  margin-bottom: 16px;
+  overflow-x: auto;
+}
+.exploit-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 14px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 16px;
+}
+.exploit-meta-label {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.exploit-meta-value { font-size: 13px; margin-top: 3px; }
+.exploit-h4 { font-size: 13px; margin: 16px 0 8px 0; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; }
+.exploit-narrative { line-height: 1.65; font-size: 14px; }
+.exploit-steps ul { margin: 0 0 0 20px; padding: 0; font-size: 13px; line-height: 1.6; }
+.exploit-steps li { margin-bottom: 4px; }

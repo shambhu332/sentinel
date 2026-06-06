@@ -7,7 +7,7 @@ const NAV_GROUPS = [
     items: [
       { id: 'dashboard', label: 'Dashboard', icon: 'layout-dashboard', href: '#dashboard' },
       { id: 'scans',     label: 'Scans',     icon: 'shield-check',     href: '#scans', badge: '40' },
-      { id: 'agents',    label: 'Agents',    icon: 'cpu',              href: '#agents', badge: '20' },
+      { id: 'agents',    label: 'Agents',    icon: 'cpu',              href: '#agents', badge: '69' },
     ],
   },
   {
@@ -16,6 +16,14 @@ const NAV_GROUPS = [
       { id: 'projects',  label: 'Projects',  icon: 'folder',           href: '#projects' },
       { id: 'reports',   label: 'Reports',   icon: 'file-text',        href: '#reports' },
       { id: 'history',   label: 'History',   icon: 'history',          href: '#history' },
+    ],
+  },
+  {
+    title: 'AI Platform',
+    items: [
+      { id: 'rag',       label: 'Knowledge', icon: 'library',          href: '#rag',     badge: '61' },
+      { id: 'verify',    label: 'Verify',    icon: 'badge-check',      href: '#verify' },
+      { id: 'exploit',   label: 'PoC',       icon: 'flame',            href: '#exploit' },
     ],
   },
   {

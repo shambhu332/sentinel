@@ -13,6 +13,9 @@ import { renderProjectsPage }  from './pages/projects.js';
 import { renderReportsPage }   from './pages/reports.js';
 import { renderHistoryPage }   from './pages/history.js';
 import { renderDocsPage }      from './pages/docs.js';
+import { renderRagPage }       from './pages/rag.js';
+import { renderVerifyPage }    from './pages/verify.js';
+import { renderExploitPage }   from './pages/exploit.js';
 
 document.addEventListener('DOMContentLoaded', () => {
   const shell = document.getElementById('app-shell');
@@ -47,6 +50,9 @@ document.addEventListener('DOMContentLoaded', () => {
   registerRoute('reports',   renderReportsPage);
   registerRoute('history',   renderHistoryPage);
   registerRoute('docs',      renderDocsPage);
+  registerRoute('rag',       renderRagPage);
+  registerRoute('verify',    renderVerifyPage);
+  registerRoute('exploit',   renderExploitPage);
 
   initRouter();
 
