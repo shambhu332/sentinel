@@ -256,6 +256,7 @@ async def _run_scan(
     from sentinel.agents.crossplatform import FlutterAgent, ReactNativeAgent
     from sentinel.agents.crypto import (
         AesGcmNonceReuseAgent,
+        CbcPredictableIvAgent,
         EcbModeAgent,
         HardcodedCryptoKeysAgent,
         JavaSerializationAgent,
@@ -428,6 +429,7 @@ async def _run_scan(
             KeystoreMisuseAgent,              # C_011
             AesGcmNonceReuseAgent,            # C_012 (AES-GCM nonce reuse)
             JavaSerializationAgent,           # C_013 (ObjectInputStream RCE sink)
+            CbcPredictableIvAgent,            # C_014 (CBC predictable IV)
             FirebaseMisconfigAgent,           # F_001
             FcmTokenDisclosureAgent,          # F_002 (FCM token logcat / HTTP)
             MissingCertPinningAgent,          # N_001
@@ -1085,6 +1087,7 @@ async def _run_static_scan(
     from sentinel.agents.crossplatform import FlutterAgent, ReactNativeAgent
     from sentinel.agents.crypto import (
         AesGcmNonceReuseAgent,
+        CbcPredictableIvAgent,
         EcbModeAgent,
         HardcodedCryptoKeysAgent,
         JavaSerializationAgent,
@@ -1154,7 +1157,7 @@ async def _run_static_scan(
         WorldReadableStorageAgent, InsecureWebViewAgent,
         HardcodedCryptoKeysAgent, EcbModeAgent, WeakCryptoAgent,
         SQLCipherKeyDerivationAgent, KeystoreMisuseAgent, AesGcmNonceReuseAgent,
-        JavaSerializationAgent,
+        JavaSerializationAgent, CbcPredictableIvAgent,
         FirebaseMisconfigAgent, FcmTokenDisclosureAgent, MissingCertPinningAgent,
         CleartextTrafficAgent, ApiKeyLeakageAgent, GraphqlIntrospectionAgent,
         InsecureTrustManagerAgent, WebViewDebugFlagAgent,

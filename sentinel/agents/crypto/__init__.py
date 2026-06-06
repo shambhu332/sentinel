@@ -7,6 +7,7 @@ from sentinel.agents.crypto.c010_sqlcipher_key_derivation import (
 from sentinel.agents.crypto.c011_keystore_misuse import KeystoreMisuseAgent
 from sentinel.agents.crypto.c012_aes_gcm_nonce_reuse import AesGcmNonceReuseAgent
 from sentinel.agents.crypto.c013_java_serialization import JavaSerializationAgent
+from sentinel.agents.crypto.c014_cbc_predictable_iv import CbcPredictableIvAgent
 from sentinel.agents.crypto.weak_crypto_agent import WeakCryptoAgent
 
 __all__ = [
@@ -15,6 +16,7 @@ __all__ = [
     "SQLCipherKeyDerivationAgent",
     "KeystoreMisuseAgent",
     "AesGcmNonceReuseAgent",
+    "CbcPredictableIvAgent",
     "JavaSerializationAgent",
     "WeakCryptoAgent",
 ]
