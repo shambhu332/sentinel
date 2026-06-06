@@ -1,5 +1,6 @@
 // Settings page
 import { el, refreshIcons, toast } from '../utils.js';
+import { API_BASE, setApiBase } from '../api.js';
 
 export function renderSettingsPage(main) {
   main.appendChild(el('div', { class: 'page-header' },
@@ -11,6 +12,8 @@ export function renderSettingsPage(main) {
 
   const wrap = el('div', { class: 'settings-layout' });
 
+  // Connection (deliberately first — most-needed when the user is here)
+  wrap.appendChild(buildConnectionSection());
   // LLM Provider
   wrap.appendChild(buildLLMSection());
   // Scan Defaults
@@ -22,6 +25,117 @@ export function renderSettingsPage(main) {
 
   main.appendChild(wrap);
   refreshIcons();
+}
+
+function buildConnectionSection() {
+  const section = el('div', { class: 'settings-section', id: 'settings-connection' });
+
+  const statusDot = el('span', { class: 'conn-dot conn-dot-unknown', id: 'conn-status-dot' });
+  const statusLabel = el('span', { id: 'conn-status-label', class: 'mono' }, 'checking…');
+
+  const input = el('input', {
+    class: 'input mono',
+    type: 'text',
+    value: API_BASE,
+    placeholder: 'http://localhost:8000',
+    style: 'min-width: 320px; flex: 1;',
+  });
+
+  const detail = el('div', { class: 'label-desc conn-detail', id: 'conn-status-detail' },
+    'Probing the gateway…',
+  );
+
+  async function probe(url) {
+    const trimmed = (url || API_BASE).replace(/\/+$/, '');
+    statusDot.className = 'conn-dot conn-dot-unknown';
+    statusLabel.textContent = 'checking…';
+    detail.textContent = `GET ${trimmed}/health`;
+    try {
+      const res = await fetch(`${trimmed}/health`, { method: 'GET' });
+      if (!res.ok) {
+        statusDot.className = 'conn-dot conn-dot-error';
+        statusLabel.textContent = `HTTP ${res.status}`;
+        detail.textContent = `Gateway reachable but returned ${res.status}. Check the server log.`;
+        return false;
+      }
+      const body = await res.json();
+      statusDot.className = 'conn-dot conn-dot-ok';
+      statusLabel.textContent = body.status || 'online';
+      detail.textContent = `Connected — ${trimmed}`;
+      return true;
+    } catch (e) {
+      statusDot.className = 'conn-dot conn-dot-error';
+      statusLabel.textContent = 'offline';
+      detail.textContent = (
+        `Cannot reach ${trimmed}/health. ` +
+        `Is the gateway running on that port?`
+      );
+      return false;
+    }
+  }
+
+  const testBtn = el('button', { class: 'btn btn-secondary' },
+    el('i', { 'data-lucide': 'activity' }), 'Test',
+  );
+  testBtn.addEventListener('click', () => probe(input.value.trim()));
+
+  const saveBtn = el('button', { class: 'btn btn-primary' },
+    el('i', { 'data-lucide': 'save' }), 'Save & reload',
+  );
+  saveBtn.addEventListener('click', async () => {
+    const url = input.value.trim().replace(/\/+$/, '');
+    if (!url) {
+      toast('Enter a base URL like http://localhost:8000');
+      return;
+    }
+    const ok = await probe(url);
+    if (!ok && !confirm('Gateway is unreachable. Save anyway?')) return;
+    setApiBase(url);
+    toast('Saved. Reloading…');
+    setTimeout(() => location.reload(), 500);
+  });
+
+  const resetBtn = el('button', { class: 'btn btn-ghost' },
+    el('i', { 'data-lucide': 'rotate-ccw' }), 'Reset',
+  );
+  resetBtn.addEventListener('click', () => {
+    input.value = 'http://localhost:8000';
+    probe(input.value);
+  });
+
+  section.append(
+    el('h3', {}, 'Connection'),
+    el('div', { class: 'section-sub' },
+      'The frontend talks to the FastAPI gateway via this URL. If you run ',
+      el('code', { class: 'inline' }, 'sentinel serve --port 8001'),
+      ', point this here.',
+    ),
+
+    el('div', { class: 'conn-row' },
+      el('div', { class: 'conn-status' }, statusDot, statusLabel),
+      detail,
+    ),
+
+    el('div', { class: 'settings-row' },
+      el('div', { class: 'settings-row-label' },
+        el('div', { class: 'label-title' }, 'API base URL'),
+        el('div', { class: 'label-desc' }, 'Stored in localStorage. Browser-only — never sent to SENTINEL.'),
+      ),
+      el('div', { style: 'display: flex; gap: 8px; flex-wrap: wrap;' },
+        input, testBtn, saveBtn, resetBtn,
+      ),
+    ),
+
+    el('div', { class: 'conn-cli' },
+      el('div', { class: 'label-desc' }, 'Start the gateway with:'),
+      el('pre', { class: 'cli' }, 'poetry run sentinel serve --port 8000'),
+    ),
+  );
+
+  // Probe on page render
+  setTimeout(() => probe(API_BASE), 0);
+
+  return section;
 }
 
 function buildLLMSection() {

@@ -1,5 +1,6 @@
 // Topbar component — breadcrumb, search, notifications, user menu
 import { el, refreshIcons } from '../utils.js';
+import { API_BASE } from '../api.js';
 
 export function renderTopbar(container) {
   container.innerHTML = '';
@@ -21,7 +22,19 @@ export function renderTopbar(container) {
     el('input', { type: 'text', placeholder: 'Search scans, findings, agents…' }),
   );
 
+  // Connection status pill — clicks straight through to Settings ▸ Connection
+  const statusPill = el('a', {
+    class: 'topbar-status topbar-status-unknown',
+    id: 'topbar-status',
+    href: '#settings',
+    'data-tip': 'Open Settings ▸ Connection',
+  },
+    el('span', { class: 'topbar-status-dot' }),
+    el('span', { class: 'topbar-status-text' }, 'checking…'),
+  );
+
   const actions = el('div', { class: 'topbar-actions' },
+    statusPill,
     el('button', { class: 'topbar-action', 'data-tip': 'Notifications' },
       el('i', { 'data-lucide': 'bell' }),
       el('span', { class: 'notif-dot' }),
@@ -36,6 +49,41 @@ export function renderTopbar(container) {
 
   container.append(toggle, breadcrumb, spacer, search, actions);
   refreshIcons();
+
+  // Begin polling /health every 30s.
+  pollHealth();
+}
+
+// ---------- /health poller ----------
+
+let _healthTimer = null;
+
+async function pollHealth() {
+  await tickHealth();
+  if (_healthTimer) clearInterval(_healthTimer);
+  _healthTimer = setInterval(tickHealth, 30_000);
+}
+
+async function tickHealth() {
+  const pill = document.getElementById('topbar-status');
+  if (!pill) return;
+  const text = pill.querySelector('.topbar-status-text');
+  try {
+    const res = await fetch(`${API_BASE}/health`, { method: 'GET' });
+    if (!res.ok) {
+      pill.className = 'topbar-status topbar-status-error';
+      pill.setAttribute('data-tip', `Gateway returned ${res.status}. Click to configure.`);
+      if (text) text.textContent = `HTTP ${res.status}`;
+      return;
+    }
+    pill.className = 'topbar-status topbar-status-ok';
+    pill.setAttribute('data-tip', `API online — ${API_BASE}`);
+    if (text) text.textContent = 'API online';
+  } catch (_) {
+    pill.className = 'topbar-status topbar-status-error';
+    pill.setAttribute('data-tip', `Cannot reach ${API_BASE}. Click to configure.`);
+    if (text) text.textContent = 'API offline';
+  }
 }
 
 export function setBreadcrumb(crumbs) {

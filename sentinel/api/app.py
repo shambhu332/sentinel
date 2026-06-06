@@ -62,15 +62,26 @@ def create_app() -> FastAPI:
         ],
     )
 
-    # CORS — accept anything from localhost so the static frontend works
-    # whether it is served from this app, from python -m http.server, or
-    # opened directly off disk (Origin: null).
+    # CORS — SENTINEL is a single-user self-hosted tool that binds to
+    # 127.0.0.1 by default. The threat model for CORS here is "another
+    # process on the same machine snooping requests" — not a meaningful
+    # boundary. Use a wildcard to sidestep the recurring traps:
+    #
+    #   - localhost vs 127.0.0.1 are different CORS origins
+    #   - file:// pages send Origin: null
+    #   - some browsers send Origin with a trailing slash
+    #
+    # NOTE: ``allow_origins=["*"]`` and ``allow_credentials=True`` are
+    # mutually exclusive per the CORS spec, so we drop credentials.
+    # JWT goes in the Authorization header anyway, not cookies.
     app.add_middleware(
         CORSMiddleware,
-        allow_origin_regex=r"^(https?://(localhost|127\.0\.0\.1)(:\d+)?|null)$",
-        allow_credentials=True,
-        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_origins=["*"],
+        allow_credentials=False,
+        allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["X-Request-ID"],
+        max_age=86400,
     )
 
     @app.middleware("http")

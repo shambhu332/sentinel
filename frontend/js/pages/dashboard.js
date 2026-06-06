@@ -84,29 +84,53 @@ export async function renderDashboard(main) {
 }
 
 async function loadData() {
+  const banner = document.getElementById('dash-api-banner');
   try {
     const live = await api.listScans();
     SCANS = live.map(liveToView);
     apiOnline = true;
+    // Clear any stale offline banner left over from a previous failed
+    // load — otherwise it stays visible even after the user starts the
+    // gateway and the page successfully refreshes.
+    if (banner) banner.innerHTML = '';
   } catch (e) {
     SCANS = MOCK_SCANS.slice();
     apiOnline = false;
-    const banner = document.getElementById('dash-api-banner');
     if (banner) {
       banner.innerHTML = '';
-      banner.appendChild(el('div', { class: 'card', style: 'padding: 12px 16px; border-color: var(--sev-medium); margin-bottom: 16px;' },
-        el('div', { style: 'display: flex; gap: 12px; align-items: center;' },
-          el('i', { 'data-lucide': 'wifi-off', style: 'color: var(--sev-medium); flex-shrink: 0;' }),
-          el('div', { style: 'font-size: 13px;' },
-            el('strong', {}, 'SENTINEL API offline. '),
-            'Showing sample data. Start the gateway with ',
-            el('span', { class: 'mono' }, 'poetry run sentinel serve'),
-          ),
-        ),
+      banner.appendChild(buildOfflineBanner(
+        'SENTINEL API offline.',
+        'Showing sample data — start the gateway or change the API URL in ',
       ));
     }
   }
   paintDash();
+}
+
+function buildOfflineBanner(strongText, prefix) {
+  return el('div', { class: 'card offline-banner' },
+    el('div', { class: 'offline-banner-row' },
+      el('i', { 'data-lucide': 'wifi-off', class: 'offline-banner-icon' }),
+      el('div', { style: 'font-size: 13px; flex: 1;' },
+        el('strong', {}, strongText, ' '),
+        prefix,
+        el('a', { href: '#settings', class: 'offline-banner-link' },
+          el('i', { 'data-lucide': 'settings', style: 'width: 14px; height: 14px;' }),
+          'Settings ▸ Connection',
+        ),
+        '. Or run ',
+        el('span', { class: 'mono' }, 'poetry run sentinel serve'),
+        '.',
+      ),
+      el('button', {
+        class: 'btn btn-sm btn-ghost',
+        onclick: () => location.reload(),
+      },
+        el('i', { 'data-lucide': 'rotate-cw' }),
+        'Retry',
+      ),
+    ),
+  );
 }
 
 function liveToView(row) {
