@@ -10,6 +10,9 @@ from sentinel.agents.shared_prefs.stg009_backup_rules import BackupRulesAgent
 from sentinel.agents.shared_prefs.stg010_plaintext_password_file import (
     PlaintextPasswordFileAgent,
 )
+from sentinel.agents.shared_prefs.stg011_sqlite_wal_leak import (
+    SqliteWalLeakAgent,
+)
 
 __all__ = [
     "BackupRulesAgent",
@@ -17,4 +20,5 @@ __all__ = [
     "InsecureFileProviderAgent",
     "InsecureSharedPrefsAgent",
     "PlaintextPasswordFileAgent",
+    "SqliteWalLeakAgent",
 ]

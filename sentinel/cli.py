@@ -315,6 +315,7 @@ async def _run_scan(
         InsecureFileProviderAgent,
         InsecureSharedPrefsAgent,
         PlaintextPasswordFileAgent,
+        SqliteWalLeakAgent,
     )
     from sentinel.agents.special import PipelineSmokeTestAgent
     from sentinel.agents.supply_chain import SCAAgent
@@ -484,6 +485,7 @@ async def _run_scan(
             ExternalStorageCredentialAgent,   # STG_008 (credential -> external storage)
             BackupRulesAgent,                 # STG_009 (auto-backup rules audit)
             PlaintextPasswordFileAgent,       # STG_010 (plaintext password file write)
+            SqliteWalLeakAgent,               # STG_011 (SQLite WAL credential leak)
         ]
         if dynamic:
             agent_list.extend([
@@ -1191,6 +1193,7 @@ async def _run_static_scan(
         InsecureFileProviderAgent,
         InsecureSharedPrefsAgent,
         PlaintextPasswordFileAgent,
+        SqliteWalLeakAgent,
     )
     from sentinel.agents.supply_chain import SCAAgent
     from sentinel.agents.taint import TaintAgent
@@ -1238,7 +1241,7 @@ async def _run_static_scan(
         SCAAgent, TaintAgent, ReactNativeAgent, FlutterAgent,
         SemgrepAgent, InsecureSharedPrefsAgent, InsecureFileProviderAgent,
         ExternalStorageCredentialAgent, BackupRulesAgent,
-        PlaintextPasswordFileAgent,
+        PlaintextPasswordFileAgent, SqliteWalLeakAgent,
     ]
 
     orch = Orchestrator(
