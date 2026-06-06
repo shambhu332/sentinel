@@ -239,6 +239,7 @@ async def _run_scan(
     from sentinel.agents.auth import (
         BiometricBypassAgent,
         HardcodedSecretsAgent,
+        SessionTokenInUrlAgent,
         TapJackingAgent,
     )
     from sentinel.agents.auth_storage import InsecureAuthStorageAgent
@@ -404,6 +405,7 @@ async def _run_scan(
             InsecureLoggingAgent,             # A_007
             BiometricBypassAgent,             # A_008
             TapJackingAgent,                  # A_009 (overlay touch-filter audit)
+            SessionTokenInUrlAgent,           # A_010 (token in URL query string)
             RestIdorAgent,                    # B_001
             InsecureRandomAgent,              # B_002
             RaceConditionAgent,               # B_003
@@ -1054,6 +1056,7 @@ async def _run_static_scan(
     from sentinel.agents.auth import (
         BiometricBypassAgent,
         HardcodedSecretsAgent,
+        SessionTokenInUrlAgent,
         TapJackingAgent,
     )
     from sentinel.agents.auth_storage import InsecureAuthStorageAgent
@@ -1126,7 +1129,8 @@ async def _run_static_scan(
     agent_list: list = [
         ObfuscationDetectorAgent, DebuggableManifestAgent,
         InsecureAuthStorageAgent, HardcodedSecretsAgent, InsecureLoggingAgent,
-        BiometricBypassAgent, TapJackingAgent, RestIdorAgent, InsecureRandomAgent,
+        BiometricBypassAgent, TapJackingAgent, SessionTokenInUrlAgent,
+        RestIdorAgent, InsecureRandomAgent,
         RaceConditionAgent, IapBypassAgent, InsecureBackupAgent,
         WorldReadableStorageAgent, InsecureWebViewAgent,
         HardcodedCryptoKeysAgent, EcbModeAgent, WeakCryptoAgent,
