@@ -99,6 +99,10 @@ def serve(host: str, port: int, reload: bool) -> None:
               help="Force local LLM only — no cloud API calls (forces Ollama)")
 @click.option("--no-triage", is_flag=True,
               help="Disable LLM triage (faster, but more false positives)")
+@click.option("--no-rag", "no_rag", is_flag=True,
+              help="Disable RAG context (MASVS / OWASP / CWE) in LLM triage. "
+                   "RAG is enabled by default and silently no-ops if the "
+                   "knowledge base has not been built (`sentinel rag build`).")
 @click.option("--show-filtered", is_flag=True,
               help="Show findings the LLM filtered as false positives")
 @click.option("--dynamic", is_flag=True,
@@ -161,6 +165,7 @@ def scan(
     output: Path | None,
     private: bool,
     no_triage: bool,
+    no_rag: bool,
     show_filtered: bool,
     dynamic: bool,
     dynamic_duration: int,
@@ -197,6 +202,7 @@ def scan(
         output=output,
         private=private,
         no_triage=no_triage,
+        no_rag=no_rag,
         show_filtered=show_filtered,
         dynamic=dynamic,
         dynamic_duration=dynamic_duration,
@@ -234,6 +240,7 @@ async def _run_scan(
     profile_name: str | None = None,
     generate_patch: bool = False,
     patches_dir: Path = Path("./output/patches"),
+    no_rag: bool = False,
 ) -> None:
     """Async implementation of the scan command."""
     from sentinel.agents.auth import (
@@ -390,7 +397,10 @@ async def _run_scan(
     triager: LLMTriager | None = None
     if not no_triage:
         router = FreeProviderRouter(force_local=private)
-        triager = LLMTriager(router=router)
+        enricher = (
+            await _build_enricher(workspace) if not no_rag else None
+        )
+        triager = LLMTriager(router=router, enricher=enricher)
 
     try:
         ctx = ScanContext(
@@ -624,6 +634,40 @@ async def _generate_and_write_patches(
         except OSError as e:
             logger.warning("[remediation] cannot write %s: %s", target, e)
     return written
+
+
+async def _build_enricher(workspace: Path):
+    """Construct a KnowledgeEnricher from the workspace KB, or ``None``.
+
+    Returns ``None`` (and logs a single info line) when:
+    - The knowledge base directory does not exist yet — the user
+      hasn't run ``sentinel rag build``. Triage proceeds without RAG.
+    - The corpus is empty for any other reason.
+
+    Failure modes here are deliberately non-fatal — RAG is an
+    augmentation, not a hard dependency of the triage pipeline.
+    """
+    from sentinel.rag.enricher import KnowledgeEnricher
+    from sentinel.rag.knowledge_base import KnowledgeBase
+
+    kb_path = KnowledgeBase.default_persist_path(workspace)
+    if not kb_path.exists():
+        logger.info(
+            "[rag] No knowledge base at %s; "
+            "run `sentinel rag build` to enable LLM context enrichment.",
+            kb_path,
+        )
+        return None
+    kb = KnowledgeBase(persist_path=kb_path)
+    try:
+        await kb.connect()
+        if await kb.count() == 0:
+            logger.info("[rag] Knowledge base is empty; skipping enrichment.")
+            return None
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[rag] Could not open knowledge base: %s", exc)
+        return None
+    return KnowledgeEnricher(kb=kb)
 
 
 def _print_summary(ctx, result) -> None:

@@ -29,6 +29,7 @@ from pydantic import ValidationError
 from sentinel.core.finding import Finding, Severity
 from sentinel.core.scan_context import ScanContext
 from sentinel.llm.router import FreeProviderRouter, RouterError
+from sentinel.rag.enricher import KnowledgeEnricher
 from sentinel.triage.code_loader import load_code_context
 from sentinel.triage.models import TriageOutcome, TriageResult, TriageVerdict
 from sentinel.triage.prompts import SYSTEM_PROMPT, render_prompt
@@ -57,11 +58,18 @@ class LLMTriager:
         router: FreeProviderRouter,
         max_retries: int = 1,
         inter_call_delay_seconds: float = _INTER_CALL_DELAY_SECONDS,
+        enricher: KnowledgeEnricher | None = None,
     ) -> None:
         self._router = router
         self._max_retries = max_retries
         # Test code can pass 0.0 to skip rate-limit sleeps
         self._inter_call_delay = inter_call_delay_seconds
+        # Optional RAG layer. When provided, every triaged finding is
+        # enriched with retrieved MASVS / OWASP / CWE passages, which
+        # are prepended to the LLM prompt and persisted into the
+        # finding's evidence so downstream consumers (the VAPT report
+        # generator) can render the compliance mapping.
+        self._enricher = enricher
 
     async def triage(
         self,
@@ -131,6 +139,11 @@ class LLMTriager:
                 error=f"prompt_render_failed: {type(e).__name__}",
                 duration_ms=int((time.monotonic() - start) * 1000),
             )
+
+        # RAG enrichment — optional, never blocks triage on failure.
+        rag_context = await self._gather_rag_context(finding)
+        if rag_context:
+            user_prompt = f"{rag_context}\n\n{user_prompt}"
 
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
@@ -245,6 +258,34 @@ class LLMTriager:
             return TriageVerdict.model_validate(synthesized)
         except ValidationError:
             return None
+
+    async def _gather_rag_context(self, finding: Finding) -> str:
+        """Return a prompt-ready context block for the finding, or ``""``.
+
+        Persists the structured compliance mapping into
+        ``finding.evidence['_rag_mapping']`` so downstream consumers
+        (the VAPT report generator, the API) can render references
+        without re-querying the knowledge base.
+        """
+        if self._enricher is None:
+            return ""
+        try:
+            enriched = await self._enricher.enrich(finding)
+        except Exception as exc:  # noqa: BLE001 - never block triage
+            logger.warning(
+                "[triage] RAG enrichment failed for %s: %s",
+                finding.agent_id, exc,
+            )
+            return ""
+        if not enriched.passages:
+            return ""
+        if finding.evidence is None:
+            finding.evidence = {}
+        finding.evidence["_rag_mapping"] = enriched.compliance_mapping
+        finding.evidence["_rag_passage_ids"] = [
+            p.source for p in enriched.passages
+        ]
+        return enriched.prompt_context(max_passages=3)
 
     @staticmethod
     def _attach_result(finding: Finding, result: TriageResult) -> None:
