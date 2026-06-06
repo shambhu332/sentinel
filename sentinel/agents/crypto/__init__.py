@@ -9,6 +9,7 @@ from sentinel.agents.crypto.c012_aes_gcm_nonce_reuse import AesGcmNonceReuseAgen
 from sentinel.agents.crypto.c013_java_serialization import JavaSerializationAgent
 from sentinel.agents.crypto.c014_cbc_predictable_iv import CbcPredictableIvAgent
 from sentinel.agents.crypto.c015_weak_prng_seed import WeakPrngSeedAgent
+from sentinel.agents.crypto.c016_hash_kdf import HashKdfAgent
 from sentinel.agents.crypto.weak_crypto_agent import WeakCryptoAgent
 
 __all__ = [
@@ -18,6 +19,7 @@ __all__ = [
     "KeystoreMisuseAgent",
     "AesGcmNonceReuseAgent",
     "CbcPredictableIvAgent",
+    "HashKdfAgent",
     "JavaSerializationAgent",
     "WeakCryptoAgent",
     "WeakPrngSeedAgent",

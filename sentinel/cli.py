@@ -268,6 +268,7 @@ async def _run_scan(
         CbcPredictableIvAgent,
         EcbModeAgent,
         HardcodedCryptoKeysAgent,
+        HashKdfAgent,
         JavaSerializationAgent,
         KeystoreMisuseAgent,
         SQLCipherKeyDerivationAgent,
@@ -449,6 +450,7 @@ async def _run_scan(
             JavaSerializationAgent,           # C_013 (ObjectInputStream RCE sink)
             CbcPredictableIvAgent,            # C_014 (CBC predictable IV)
             WeakPrngSeedAgent,                # C_015 (PRNG seeded predictably)
+            HashKdfAgent,                     # C_016 (password → MessageDigest → key)
             FirebaseMisconfigAgent,           # F_001
             FcmTokenDisclosureAgent,          # F_002 (FCM token logcat / HTTP)
             MissingCertPinningAgent,          # N_001
@@ -1148,6 +1150,7 @@ async def _run_static_scan(
         CbcPredictableIvAgent,
         EcbModeAgent,
         HardcodedCryptoKeysAgent,
+        HashKdfAgent,
         JavaSerializationAgent,
         KeystoreMisuseAgent,
         SQLCipherKeyDerivationAgent,
@@ -1221,6 +1224,7 @@ async def _run_static_scan(
         HardcodedCryptoKeysAgent, EcbModeAgent, WeakCryptoAgent,
         SQLCipherKeyDerivationAgent, KeystoreMisuseAgent, AesGcmNonceReuseAgent,
         JavaSerializationAgent, CbcPredictableIvAgent, WeakPrngSeedAgent,
+        HashKdfAgent,
         FirebaseMisconfigAgent, FcmTokenDisclosureAgent, MissingCertPinningAgent,
         CleartextTrafficAgent, ApiKeyLeakageAgent, GraphqlIntrospectionAgent,
         InsecureTrustManagerAgent, WebViewDebugFlagAgent,
