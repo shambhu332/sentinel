@@ -272,6 +272,7 @@ async def _run_scan(
         GraphqlFuzzerAgent,
         GraphqlIntrospectionAgent,
         InsecureTrustManagerAgent,
+        WebViewDebugFlagAgent,
     )
     from sentinel.agents.platform import (
         ContentProviderIDORAgent,
@@ -410,6 +411,7 @@ async def _run_scan(
             ApiKeyLeakageAgent,               # N_006
             GraphqlIntrospectionAgent,        # N_007
             InsecureTrustManagerAgent,        # N_008 (TLS-bypass TrustManager / HostnameVerifier)
+            WebViewDebugFlagAgent,            # N_009 (ungated WebView remote debug)
             GraphqlFuzzerAgent,               # N_011
             DeepLinkHijackAgent,              # P_001
             ContentProviderIDORAgent,         # P_004
@@ -1062,6 +1064,7 @@ async def _run_static_scan(
         GraphqlFuzzerAgent,
         GraphqlIntrospectionAgent,
         InsecureTrustManagerAgent,
+        WebViewDebugFlagAgent,
     )
     from sentinel.agents.platform import (
         ContentProviderIDORAgent,
@@ -1104,7 +1107,7 @@ async def _run_static_scan(
         HardcodedCryptoKeysAgent, EcbModeAgent, WeakCryptoAgent,
         KeystoreMisuseAgent, FirebaseMisconfigAgent, MissingCertPinningAgent,
         CleartextTrafficAgent, ApiKeyLeakageAgent, GraphqlIntrospectionAgent,
-        InsecureTrustManagerAgent, GraphqlFuzzerAgent,
+        InsecureTrustManagerAgent, WebViewDebugFlagAgent, GraphqlFuzzerAgent,
         DeepLinkHijackAgent, ContentProviderIDORAgent,
         IntentRedirectAgent, ReceiverChainHijackAgent,
         MutablePendingIntentAgent, IpcExposureAgent,
