@@ -1444,5 +1444,151 @@ def verify_cmd(findings_json: Path, workspace: Path, output: Path | None) -> Non
     asyncio.run(_run())
 
 
+@main.group()
+def exploit() -> None:
+    """LLM-generated PoC payloads (scope-gated, dry-run by default)."""
+
+
+@exploit.command("generate")
+@click.argument(
+    "findings_json",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+)
+@click.option(
+    "--scope-file",
+    "scope_file",
+    type=click.Path(exists=True, path_type=Path),
+    required=True,
+    help="Bug-bounty scope JSON or text. Required — generation refuses "
+         "to run without explicit authorization.",
+)
+@click.option(
+    "--finding-id",
+    "finding_id",
+    type=str,
+    default=None,
+    help="Generate for a single finding (by finding_id). Default: all "
+         "verified findings in the input file.",
+)
+@click.option(
+    "--output-dir",
+    "output_dir",
+    type=click.Path(path_type=Path),
+    default=Path("./output/exploits"),
+    help="Where to write the generated artifacts (one .md per finding).",
+)
+@click.option(
+    "--live",
+    is_flag=True,
+    help="Disable the dry-run banner. Requires --i-am-authorized.",
+)
+@click.option(
+    "--i-am-authorized",
+    "i_am_authorized",
+    is_flag=True,
+    help="Explicit acknowledgement that you are authorized to test the "
+         "target named in --scope-file. Required by --live.",
+)
+@click.option(
+    "--private",
+    is_flag=True,
+    help="Force local LLM only (Ollama).",
+)
+def exploit_generate(
+    findings_json: Path,
+    scope_file: Path,
+    finding_id: str | None,
+    output_dir: Path,
+    live: bool,
+    i_am_authorized: bool,
+    private: bool,
+) -> None:
+    """Generate authorized exploit PoCs for verified findings.
+
+    Refuses to run unless the supplied scope authorizes the target.
+    Produces one Markdown artifact per finding under ``--output-dir``.
+    """
+    import json as _json
+
+    from sentinel.core.finding import Finding, TriageState
+    from sentinel.exploit import (
+        AuthorizationError,
+        ExploitContext,
+        ExploitGenerator,
+    )
+    from sentinel.exploit.generator import render_artifact_markdown
+    from sentinel.llm.router import FreeProviderRouter
+    from sentinel.scope import parse_scope
+
+    if live and not i_am_authorized:
+        raise click.UsageError(
+            "--live disables the dry-run banner; you must also pass "
+            "--i-am-authorized to confirm you have written permission "
+            "to test the target.",
+        )
+
+    async def _run() -> None:
+        scope = parse_scope(file=scope_file)
+        raw = _json.loads(findings_json.read_text())
+        finding_dicts = raw.get("findings") or raw.get("results") or []
+        if not finding_dicts:
+            console.print("[yellow]No findings in input file.[/]")
+            return
+
+        findings = [Finding.model_validate(d) for d in finding_dicts]
+        if finding_id:
+            findings = [f for f in findings if f.finding_id == finding_id]
+        else:
+            findings = [
+                f for f in findings
+                if f.triage == TriageState.TRUE_POSITIVE
+            ]
+        if not findings:
+            console.print(
+                "[yellow]No matching findings to generate against.[/]",
+            )
+            return
+
+        router = FreeProviderRouter(force_local=private)
+        generator = ExploitGenerator(router=router)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        for finding in findings:
+            target_pkg = (finding.evidence or {}).get("package") or ""
+            target_host = (finding.evidence or {}).get("host") or ""
+            ctx = ExploitContext(
+                finding=finding,
+                scope=scope,
+                target_package=target_pkg,
+                target_host=target_host,
+                dry_run=not live,
+            )
+            try:
+                artifact = await generator.generate(ctx)
+            except AuthorizationError as exc:
+                console.print(
+                    f"[red]✗[/] {finding.agent_id} {finding.finding_id}: "
+                    f"refused — {exc}",
+                )
+                continue
+            except Exception as exc:  # noqa: BLE001
+                console.print(
+                    f"[red]✗[/] {finding.agent_id} {finding.finding_id}: "
+                    f"generation failed — {type(exc).__name__}: {exc}",
+                )
+                continue
+
+            out_path = (
+                output_dir / f"{finding.agent_id}_{finding.finding_id}.md"
+            )
+            out_path.write_text(render_artifact_markdown(artifact))
+            tag = "LIVE" if not artifact.dry_run else "DRY"
+            console.print(
+                f"[green]✓[/] [{tag}] {finding.agent_id} → {out_path}",
+            )
+
+    asyncio.run(_run())
+
+
 if __name__ == "__main__":
     main()
