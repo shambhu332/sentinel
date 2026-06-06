@@ -246,6 +246,7 @@ async def _run_scan(
     from sentinel.agents.auth import (
         BiometricBypassAgent,
         HardcodedSecretsAgent,
+        MagicLinkTokenAgent,
         RefreshTokenReuseAgent,
         SessionFixationAgent,
         SessionTokenInUrlAgent,
@@ -433,6 +434,7 @@ async def _run_scan(
             SessionTokenInUrlAgent,           # A_010 (token in URL query string)
             RefreshTokenReuseAgent,           # A_011 (refresh token survives logout)
             SessionFixationAgent,             # A_012 (session fixation on login)
+            MagicLinkTokenAgent,              # A_013 (magic-link token replay)
             RestIdorAgent,                    # B_001
             InsecureRandomAgent,              # B_002
             RaceConditionAgent,               # B_003
@@ -1130,6 +1132,7 @@ async def _run_static_scan(
     from sentinel.agents.auth import (
         BiometricBypassAgent,
         HardcodedSecretsAgent,
+        MagicLinkTokenAgent,
         RefreshTokenReuseAgent,
         SessionFixationAgent,
         SessionTokenInUrlAgent,
@@ -1219,7 +1222,8 @@ async def _run_static_scan(
         ObfuscationDetectorAgent, DebuggableManifestAgent,
         InsecureAuthStorageAgent, HardcodedSecretsAgent, InsecureLoggingAgent,
         BiometricBypassAgent, TapJackingAgent, SessionTokenInUrlAgent,
-        RefreshTokenReuseAgent, SessionFixationAgent, RestIdorAgent,
+        RefreshTokenReuseAgent, SessionFixationAgent, MagicLinkTokenAgent,
+        RestIdorAgent,
         InsecureRandomAgent,
         RaceConditionAgent, IapBypassAgent, OAuthRedirectUriAgent,
         UnsignedUpdateAgent, InsecureBackupAgent,
