@@ -277,6 +277,7 @@ async def _run_scan(
     from sentinel.agents.network import (
         ApiKeyLeakageAgent,
         CleartextTrafficAgent,
+        DnsLeakAgent,
         GraphqlFuzzerAgent,
         GraphqlIntrospectionAgent,
         InsecureTrustManagerAgent,
@@ -440,6 +441,7 @@ async def _run_scan(
             WebViewDebugFlagAgent,            # N_009 (ungated WebView remote debug)
             OkHttpLoggingAgent,               # N_010 (HttpLoggingInterceptor leak)
             GraphqlFuzzerAgent,               # N_011
+            DnsLeakAgent,                     # N_012 (Private-DNS opt-out)
             DeepLinkHijackAgent,              # P_001
             ExcessivePermissionsAgent,        # P_005 (manifest sensitive-perm audit)
             UnprotectedBroadcastAgent,        # P_006 (sendBroadcast without permission)
@@ -1102,6 +1104,7 @@ async def _run_static_scan(
     from sentinel.agents.network import (
         ApiKeyLeakageAgent,
         CleartextTrafficAgent,
+        DnsLeakAgent,
         GraphqlFuzzerAgent,
         GraphqlIntrospectionAgent,
         InsecureTrustManagerAgent,
@@ -1161,7 +1164,7 @@ async def _run_static_scan(
         FirebaseMisconfigAgent, FcmTokenDisclosureAgent, MissingCertPinningAgent,
         CleartextTrafficAgent, ApiKeyLeakageAgent, GraphqlIntrospectionAgent,
         InsecureTrustManagerAgent, WebViewDebugFlagAgent,
-        OkHttpLoggingAgent, GraphqlFuzzerAgent,
+        OkHttpLoggingAgent, GraphqlFuzzerAgent, DnsLeakAgent,
         DeepLinkHijackAgent, ContentProviderIDORAgent,
         IntentRedirectAgent, ReceiverChainHijackAgent,
         MutablePendingIntentAgent, ExcessivePermissionsAgent,
