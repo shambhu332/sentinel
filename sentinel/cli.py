@@ -240,6 +240,7 @@ async def _run_scan(
         BiometricBypassAgent,
         HardcodedSecretsAgent,
         RefreshTokenReuseAgent,
+        SessionFixationAgent,
         SessionTokenInUrlAgent,
         TapJackingAgent,
     )
@@ -415,6 +416,7 @@ async def _run_scan(
             TapJackingAgent,                  # A_009 (overlay touch-filter audit)
             SessionTokenInUrlAgent,           # A_010 (token in URL query string)
             RefreshTokenReuseAgent,           # A_011 (refresh token survives logout)
+            SessionFixationAgent,             # A_012 (session fixation on login)
             RestIdorAgent,                    # B_001
             InsecureRandomAgent,              # B_002
             RaceConditionAgent,               # B_003
@@ -1073,6 +1075,7 @@ async def _run_static_scan(
         BiometricBypassAgent,
         HardcodedSecretsAgent,
         RefreshTokenReuseAgent,
+        SessionFixationAgent,
         SessionTokenInUrlAgent,
         TapJackingAgent,
     )
@@ -1154,7 +1157,8 @@ async def _run_static_scan(
         ObfuscationDetectorAgent, DebuggableManifestAgent,
         InsecureAuthStorageAgent, HardcodedSecretsAgent, InsecureLoggingAgent,
         BiometricBypassAgent, TapJackingAgent, SessionTokenInUrlAgent,
-        RefreshTokenReuseAgent, RestIdorAgent, InsecureRandomAgent,
+        RefreshTokenReuseAgent, SessionFixationAgent, RestIdorAgent,
+        InsecureRandomAgent,
         RaceConditionAgent, IapBypassAgent, OAuthRedirectUriAgent,
         InsecureBackupAgent,
         WorldReadableStorageAgent, InsecureWebViewAgent,
