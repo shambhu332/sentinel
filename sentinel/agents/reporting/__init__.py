@@ -1,9 +1,23 @@
 """Reporting agents — generate professional VAPT reports."""
 from __future__ import annotations
 
-__all__ = ["ReportGeneratorAgent"]
+from sentinel.agents.reporting.builder import build_report_data
+from sentinel.agents.reporting.models import (
+    FindingSection,
+    ReferenceBlock,
+    ReportData,
+    RiskScore,
+)
+from sentinel.agents.reporting.r001_report_agent import ReportGeneratorAgent
+from sentinel.agents.reporting.templates import render_html, render_markdown
 
-try:
-    from .r001_report_agent import ReportGeneratorAgent
-except ImportError:
-    pass
+__all__ = [
+    "FindingSection",
+    "ReferenceBlock",
+    "ReportData",
+    "ReportGeneratorAgent",
+    "RiskScore",
+    "build_report_data",
+    "render_html",
+    "render_markdown",
+]
