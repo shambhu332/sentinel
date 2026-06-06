@@ -7,10 +7,14 @@ from sentinel.agents.shared_prefs.stg008_external_storage_credential import (
     ExternalStorageCredentialAgent,
 )
 from sentinel.agents.shared_prefs.stg009_backup_rules import BackupRulesAgent
+from sentinel.agents.shared_prefs.stg010_plaintext_password_file import (
+    PlaintextPasswordFileAgent,
+)
 
 __all__ = [
     "BackupRulesAgent",
     "ExternalStorageCredentialAgent",
     "InsecureFileProviderAgent",
     "InsecureSharedPrefsAgent",
+    "PlaintextPasswordFileAgent",
 ]

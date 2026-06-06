@@ -303,6 +303,7 @@ async def _run_scan(
         ExternalStorageCredentialAgent,
         InsecureFileProviderAgent,
         InsecureSharedPrefsAgent,
+        PlaintextPasswordFileAgent,
     )
     from sentinel.agents.special import PipelineSmokeTestAgent
     from sentinel.agents.supply_chain import SCAAgent
@@ -464,6 +465,7 @@ async def _run_scan(
             InsecureFileProviderAgent,        # STG_007 (FileProvider path audit)
             ExternalStorageCredentialAgent,   # STG_008 (credential -> external storage)
             BackupRulesAgent,                 # STG_009 (auto-backup rules audit)
+            PlaintextPasswordFileAgent,       # STG_010 (plaintext password file write)
         ]
         if dynamic:
             agent_list.extend([
@@ -1132,6 +1134,7 @@ async def _run_static_scan(
         ExternalStorageCredentialAgent,
         InsecureFileProviderAgent,
         InsecureSharedPrefsAgent,
+        PlaintextPasswordFileAgent,
     )
     from sentinel.agents.supply_chain import SCAAgent
     from sentinel.agents.taint import TaintAgent
@@ -1177,6 +1180,7 @@ async def _run_static_scan(
         SCAAgent, TaintAgent, ReactNativeAgent, FlutterAgent,
         SemgrepAgent, InsecureSharedPrefsAgent, InsecureFileProviderAgent,
         ExternalStorageCredentialAgent, BackupRulesAgent,
+        PlaintextPasswordFileAgent,
     ]
 
     orch = Orchestrator(
