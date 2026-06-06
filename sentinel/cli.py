@@ -265,6 +265,7 @@ async def _run_scan(
         KeystoreMisuseAgent,
         SQLCipherKeyDerivationAgent,
         WeakCryptoAgent,
+        WeakPrngSeedAgent,
     )
     from sentinel.agents.data_storage import WorldReadableStorageAgent
     from sentinel.agents.dynamic import (
@@ -436,6 +437,7 @@ async def _run_scan(
             AesGcmNonceReuseAgent,            # C_012 (AES-GCM nonce reuse)
             JavaSerializationAgent,           # C_013 (ObjectInputStream RCE sink)
             CbcPredictableIvAgent,            # C_014 (CBC predictable IV)
+            WeakPrngSeedAgent,                # C_015 (PRNG seeded predictably)
             FirebaseMisconfigAgent,           # F_001
             FcmTokenDisclosureAgent,          # F_002 (FCM token logcat / HTTP)
             MissingCertPinningAgent,          # N_001
@@ -1104,6 +1106,7 @@ async def _run_static_scan(
         KeystoreMisuseAgent,
         SQLCipherKeyDerivationAgent,
         WeakCryptoAgent,
+        WeakPrngSeedAgent,
     )
     from sentinel.agents.data_storage import WorldReadableStorageAgent
     from sentinel.agents.logging import InsecureLoggingAgent
@@ -1170,7 +1173,7 @@ async def _run_static_scan(
         WorldReadableStorageAgent, InsecureWebViewAgent,
         HardcodedCryptoKeysAgent, EcbModeAgent, WeakCryptoAgent,
         SQLCipherKeyDerivationAgent, KeystoreMisuseAgent, AesGcmNonceReuseAgent,
-        JavaSerializationAgent, CbcPredictableIvAgent,
+        JavaSerializationAgent, CbcPredictableIvAgent, WeakPrngSeedAgent,
         FirebaseMisconfigAgent, FcmTokenDisclosureAgent, MissingCertPinningAgent,
         CleartextTrafficAgent, ApiKeyLeakageAgent, GraphqlIntrospectionAgent,
         InsecureTrustManagerAgent, WebViewDebugFlagAgent,
