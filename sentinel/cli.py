@@ -254,6 +254,7 @@ async def _run_scan(
         EcbModeAgent,
         HardcodedCryptoKeysAgent,
         KeystoreMisuseAgent,
+        SQLCipherKeyDerivationAgent,
         WeakCryptoAgent,
     )
     from sentinel.agents.data_storage import WorldReadableStorageAgent
@@ -405,6 +406,7 @@ async def _run_scan(
             HardcodedCryptoKeysAgent,         # C_005
             EcbModeAgent,                     # C_006
             WeakCryptoAgent,                  # C_007
+            SQLCipherKeyDerivationAgent,      # C_010 (SQLCipher KDF audit)
             KeystoreMisuseAgent,              # C_011
             FirebaseMisconfigAgent,           # F_001
             MissingCertPinningAgent,          # N_001
@@ -1054,6 +1056,7 @@ async def _run_static_scan(
         EcbModeAgent,
         HardcodedCryptoKeysAgent,
         KeystoreMisuseAgent,
+        SQLCipherKeyDerivationAgent,
         WeakCryptoAgent,
     )
     from sentinel.agents.data_storage import WorldReadableStorageAgent
@@ -1108,7 +1111,8 @@ async def _run_static_scan(
         RaceConditionAgent, IapBypassAgent, InsecureBackupAgent,
         WorldReadableStorageAgent, InsecureWebViewAgent,
         HardcodedCryptoKeysAgent, EcbModeAgent, WeakCryptoAgent,
-        KeystoreMisuseAgent, FirebaseMisconfigAgent, MissingCertPinningAgent,
+        SQLCipherKeyDerivationAgent, KeystoreMisuseAgent,
+        FirebaseMisconfigAgent, MissingCertPinningAgent,
         CleartextTrafficAgent, ApiKeyLeakageAgent, GraphqlIntrospectionAgent,
         InsecureTrustManagerAgent, WebViewDebugFlagAgent, GraphqlFuzzerAgent,
         DeepLinkHijackAgent, ContentProviderIDORAgent,
