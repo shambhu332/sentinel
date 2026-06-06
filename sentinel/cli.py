@@ -292,6 +292,7 @@ async def _run_scan(
     from sentinel.agents.resilience import AntiTamperAgent
     from sentinel.agents.semgrep import SemgrepAgent
     from sentinel.agents.shared_prefs import (
+        ExternalStorageCredentialAgent,
         InsecureFileProviderAgent,
         InsecureSharedPrefsAgent,
     )
@@ -446,6 +447,7 @@ async def _run_scan(
             SemgrepAgent,                     # SG_001 (AST pattern SAST)
             InsecureSharedPrefsAgent,         # STG_006 (renamed from C_006)
             InsecureFileProviderAgent,        # STG_007 (FileProvider path audit)
+            ExternalStorageCredentialAgent,   # STG_008 (credential -> external storage)
         ]
         if dynamic:
             agent_list.extend([
@@ -1103,6 +1105,7 @@ async def _run_static_scan(
     from sentinel.agents.resilience import AntiTamperAgent
     from sentinel.agents.semgrep import SemgrepAgent
     from sentinel.agents.shared_prefs import (
+        ExternalStorageCredentialAgent,
         InsecureFileProviderAgent,
         InsecureSharedPrefsAgent,
     )
@@ -1145,6 +1148,7 @@ async def _run_static_scan(
         NativeLibraryAgent, LoadLibraryTaintAgent, AntiTamperAgent,
         SCAAgent, TaintAgent, ReactNativeAgent, FlutterAgent,
         SemgrepAgent, InsecureSharedPrefsAgent, InsecureFileProviderAgent,
+        ExternalStorageCredentialAgent,
     ]
 
     orch = Orchestrator(
