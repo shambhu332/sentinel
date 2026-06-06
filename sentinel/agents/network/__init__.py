@@ -14,12 +14,14 @@ from sentinel.agents.network.n010_okhttp_logging import OkHttpLoggingAgent
 from sentinel.agents.network.n011_graphql_fuzzer import GraphqlFuzzerAgent
 from sentinel.agents.network.n012_dns_leak import DnsLeakAgent
 from sentinel.agents.network.n013_insecure_websocket import InsecureWebSocketAgent
+from sentinel.agents.network.n014_hardcoded_mtls_key import HardcodedMtlsKeyAgent
 
 __all__ = [
     "CleartextTrafficAgent",
     "ApiKeyLeakageAgent",
     "DnsLeakAgent",
     "GraphqlIntrospectionAgent",
+    "HardcodedMtlsKeyAgent",
     "InsecureTrustManagerAgent",
     "InsecureWebSocketAgent",
     "WebViewDebugFlagAgent",

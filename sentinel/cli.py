@@ -293,6 +293,7 @@ async def _run_scan(
         DnsLeakAgent,
         GraphqlFuzzerAgent,
         GraphqlIntrospectionAgent,
+        HardcodedMtlsKeyAgent,
         InsecureTrustManagerAgent,
         InsecureWebSocketAgent,
         OkHttpLoggingAgent,
@@ -468,6 +469,7 @@ async def _run_scan(
             GraphqlFuzzerAgent,               # N_011
             DnsLeakAgent,                     # N_012 (Private-DNS opt-out)
             InsecureWebSocketAgent,           # N_013 (cleartext ws:// WebSocket)
+            HardcodedMtlsKeyAgent,            # N_014 (bundled mTLS client cert)
             DeepLinkHijackAgent,              # P_001
             ExcessivePermissionsAgent,        # P_005 (manifest sensitive-perm audit)
             UnprotectedBroadcastAgent,        # P_006 (sendBroadcast without permission)
@@ -1175,6 +1177,7 @@ async def _run_static_scan(
         DnsLeakAgent,
         GraphqlFuzzerAgent,
         GraphqlIntrospectionAgent,
+        HardcodedMtlsKeyAgent,
         InsecureTrustManagerAgent,
         InsecureWebSocketAgent,
         OkHttpLoggingAgent,
@@ -1239,7 +1242,7 @@ async def _run_static_scan(
         CleartextTrafficAgent, ApiKeyLeakageAgent, GraphqlIntrospectionAgent,
         InsecureTrustManagerAgent, WebViewDebugFlagAgent,
         OkHttpLoggingAgent, GraphqlFuzzerAgent, DnsLeakAgent,
-        InsecureWebSocketAgent,
+        InsecureWebSocketAgent, HardcodedMtlsKeyAgent,
         DeepLinkHijackAgent, ContentProviderIDORAgent,
         IntentRedirectAgent, ReceiverChainHijackAgent,
         MutablePendingIntentAgent, ExcessivePermissionsAgent,
