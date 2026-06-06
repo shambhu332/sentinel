@@ -10,6 +10,7 @@ from sentinel.agents.network.n008_insecure_trust_manager import (
 from sentinel.agents.network.n009_webview_debug_flag import (
     WebViewDebugFlagAgent,
 )
+from sentinel.agents.network.n010_okhttp_logging import OkHttpLoggingAgent
 from sentinel.agents.network.n011_graphql_fuzzer import GraphqlFuzzerAgent
 
 __all__ = [
@@ -18,5 +19,6 @@ __all__ = [
     "GraphqlIntrospectionAgent",
     "InsecureTrustManagerAgent",
     "WebViewDebugFlagAgent",
+    "OkHttpLoggingAgent",
     "GraphqlFuzzerAgent",
 ]
