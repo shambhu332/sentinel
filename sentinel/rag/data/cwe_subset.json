@@ -1,0 +1,137 @@
+{
+  "source": "MITRE CWE",
+  "license": "public-domain",
+  "license_url": "https://cwe.mitre.org/about/copyright.html",
+  "entries": [
+    {
+      "id": "CWE-22",
+      "title": "Path Traversal",
+      "text": "The product uses external input to construct a pathname that is intended to identify a file or directory that is located underneath a restricted parent directory, but the product does not properly neutralize special elements within the pathname."
+    },
+    {
+      "id": "CWE-79",
+      "title": "Improper Neutralization of Input During Web Page Generation (XSS)",
+      "text": "The product does not neutralize or incorrectly neutralizes user-controllable input before it is placed in output that is used as a web page. In mobile this manifests in WebView JS interfaces and dangerouslySetInnerHTML in React Native."
+    },
+    {
+      "id": "CWE-89",
+      "title": "SQL Injection",
+      "text": "The product constructs all or part of an SQL command using externally-influenced input but does not neutralize or incorrectly neutralizes special elements. ContentProvider rawQuery with caller-supplied selection arguments is the canonical Android instance."
+    },
+    {
+      "id": "CWE-200",
+      "title": "Exposure of Sensitive Information",
+      "text": "The product exposes sensitive information to an actor that is not explicitly authorized to have access. Tokens in URL query strings, FCM tokens logged to logcat, and unprotected broadcasts all fall under CWE-200."
+    },
+    {
+      "id": "CWE-209",
+      "title": "Generation of Error Message Containing Sensitive Information",
+      "text": "The product generates an error message that includes sensitive information about its environment, users, or associated data. Stack traces in user-facing dialogs and BuildConfig.DEBUG branches that survive R8 are mobile-specific cases."
+    },
+    {
+      "id": "CWE-256",
+      "title": "Plaintext Storage of a Password",
+      "text": "Storing a password in plaintext may result in a system compromise. SharedPreferences without encryption, credentials.json files, and \"remember me\" features that persist the user's password instead of a refresh token are direct violations."
+    },
+    {
+      "id": "CWE-295",
+      "title": "Improper Certificate Validation",
+      "text": "The product does not validate, or incorrectly validates, a certificate. Custom X509TrustManager implementations with empty checkServerTrusted bodies and HostnameVerifier returning true unconditionally are CWE-295 instances."
+    },
+    {
+      "id": "CWE-311",
+      "title": "Missing Encryption of Sensitive Data",
+      "text": "The product does not encrypt sensitive or critical information before storage or transmission. WebSocket over ws://, FCM token uploads to HTTP collectors, and unencrypted database files all violate CWE-311."
+    },
+    {
+      "id": "CWE-319",
+      "title": "Cleartext Transmission of Sensitive Information",
+      "text": "The product transmits sensitive or security-critical data in cleartext in a communication channel that can be sniffed by unauthorized actors. http:// URLs in network requests and TLS opt-outs in NetworkSecurityConfig fall under CWE-319."
+    },
+    {
+      "id": "CWE-326",
+      "title": "Inadequate Encryption Strength",
+      "text": "The product stores or transmits sensitive data using an encryption scheme that is theoretically sound, but is not strong enough for the level of protection required. AES-128 with insecure key derivation, RSA-1024, and DES are the common mobile cases."
+    },
+    {
+      "id": "CWE-327",
+      "title": "Use of a Broken or Risky Cryptographic Algorithm",
+      "text": "The product uses a broken or risky cryptographic algorithm or protocol. DES, RC4, MD5, SHA-1, and ECB mode are all broken; AES-GCM with reused nonces is risky despite the algorithm being sound."
+    },
+    {
+      "id": "CWE-328",
+      "title": "Use of Weak Hash",
+      "text": "The product uses an algorithm that produces a digest (output value) that does not meet security expectations for a hash function that allows an adversary to find collisions or pre-images. MD5 collisions are trivial; SHA-1 is broken since 2017."
+    },
+    {
+      "id": "CWE-330",
+      "title": "Use of Insufficiently Random Values",
+      "text": "The product uses insufficiently random numbers or values in a security context that depends on unpredictable numbers. java.util.Random for token generation, SecureRandom seeded with System.currentTimeMillis, and PRNG state leaks all qualify."
+    },
+    {
+      "id": "CWE-331",
+      "title": "Insufficient Entropy",
+      "text": "The product uses an algorithm or scheme that produces insufficient entropy, leaving patterns or clusters of values that are more likely to occur than others. Common in IV / nonce generation."
+    },
+    {
+      "id": "CWE-345",
+      "title": "Insufficient Verification of Data Authenticity",
+      "text": "The product does not sufficiently verify the origin or authenticity of data, in a way that causes it to accept invalid data. In-app updaters that install APKs without verifying the signing certificate or a pinned SHA-256 digest are textbook cases."
+    },
+    {
+      "id": "CWE-352",
+      "title": "Cross-Site Request Forgery (CSRF)",
+      "text": "The web application does not, or can not, sufficiently verify whether a well-formed, valid, consistent request was intentionally provided by the user who submitted the request. Mobile-side: deep-link CSRF via Intent and WebView postMessage."
+    },
+    {
+      "id": "CWE-359",
+      "title": "Exposure of Private Personal Information to an Unauthorized Actor",
+      "text": "The product does not properly prevent a person's private, personal information from being accessed by actors who either are not explicitly authorized to access the information or do not have the implicit consent of the person about whom the information is collected."
+    },
+    {
+      "id": "CWE-384",
+      "title": "Session Fixation",
+      "text": "Authenticating a user, or otherwise establishing a new user session, without invalidating any existing session identifier gives an attacker the opportunity to steal authenticated sessions. Deep-link-supplied session_id values persisted into the auth-token slot are mobile instances."
+    },
+    {
+      "id": "CWE-470",
+      "title": "Use of Externally-Controlled Input to Select Classes or Code",
+      "text": "The product uses external input with reflection to select which classes or code to use. System.loadLibrary / System.load with an Intent-extra-derived argument is the canonical Android case."
+    },
+    {
+      "id": "CWE-502",
+      "title": "Deserialization of Untrusted Data",
+      "text": "The product deserializes untrusted data without sufficiently verifying that the resulting data will be valid. Java native ObjectInputStream.readObject fed from network / Intent / external storage yields RCE via gadget chains."
+    },
+    {
+      "id": "CWE-532",
+      "title": "Insertion of Sensitive Information into Log File",
+      "text": "Information written to log files can be of a sensitive nature and give valuable guidance to an attacker or expose sensitive user information. Log.d(...) of FCM tokens, OAuth refresh tokens, and OkHttp body logging at release time all qualify."
+    },
+    {
+      "id": "CWE-639",
+      "title": "Authorization Bypass Through User-Controlled Key (IDOR)",
+      "text": "The system's authorization functionality does not prevent one user from gaining access to another user's data or record by modifying the key value identifying the data. REST endpoints accepting /users/{id} without ownership checks are the standard case."
+    },
+    {
+      "id": "CWE-749",
+      "title": "Exposed Dangerous Method or Function",
+      "text": "The product provides an Applet, ActiveX control, or other component that contains a method or function that, when called, can lead to security risk. addJavascriptInterface and @JavascriptInterface bridges expose Java methods to attacker-controlled JS."
+    },
+    {
+      "id": "CWE-798",
+      "title": "Use of Hardcoded Credentials",
+      "text": "The product contains hardcoded credentials, such as a password or cryptographic key, which it uses for its own inbound authentication, outbound communication to external components, or encryption of internal data."
+    },
+    {
+      "id": "CWE-926",
+      "title": "Improper Export of Android Application Components",
+      "text": "The Android application exports a component for use by other applications, but does not properly restrict which applications can launch the component or access the data it contains. Intent-redirect (confused-deputy) and unprotected broadcast both fall under CWE-926."
+    },
+    {
+      "id": "CWE-927",
+      "title": "Use of Implicit Intent for Sensitive Communication",
+      "text": "The Android application uses an implicit intent for transmitting sensitive data to other applications. Implicit broadcasts of auth state, OTPs, or payment events are eavesdroppable by any app on the device that registers the action."
+    }
+  ]
+}

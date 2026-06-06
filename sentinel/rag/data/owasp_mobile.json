@@ -1,0 +1,57 @@
+{
+  "source": "OWASP Mobile Top 10 (2024)",
+  "license": "CC-BY-SA-4.0",
+  "license_url": "https://owasp.org/www-project-mobile-top-10/",
+  "entries": [
+    {
+      "id": "M1",
+      "title": "Improper Credential Usage",
+      "text": "Improper credential usage encompasses hardcoded credentials, insecure credential storage in plain SharedPreferences / files, transmission over insecure channels, and credentials persisted past logout. Mobile apps must derive credentials at runtime, store them in hardware-backed keystores, and rotate them on every authentication transition."
+    },
+    {
+      "id": "M2",
+      "title": "Inadequate Supply Chain Security",
+      "text": "Vulnerabilities in third-party libraries (Log4j-style RCE, vulnerable OkHttp / Bouncy Castle), build-time secret leakage into APK resources, and unsigned in-app updates all fall under M2. Mitigations include SCA scanning, dependency pinning, in-house code signing on every update bundle, and an approved-libraries allowlist."
+    },
+    {
+      "id": "M3",
+      "title": "Insecure Authentication / Authorization",
+      "text": "Client-side-only authentication checks, missing server-side authorization on REST IDs, OAuth redirect_uri without strict validation, and session fixation via deep-link tokens. The mobile client must treat itself as untrusted; the server is the authority on every access decision."
+    },
+    {
+      "id": "M4",
+      "title": "Insufficient Input/Output Validation",
+      "text": "Inputs from Intents, deep links, WebView JS bridges, and IPC must be validated as strictly as inputs from the network. Outputs to logs, files, and broadcasts must be sanitized. Intent-redirect (CWE-926), receiver-chain hijack, and mutable-PendingIntent vulnerabilities all stem from missing validation."
+    },
+    {
+      "id": "M5",
+      "title": "Insecure Communication",
+      "text": "Cleartext HTTP, weak TLS configurations (custom TrustManager / HostnameVerifier), missing certificate pinning, DNS-over-cleartext opt-outs, WebSocket over ws://, and WebView remote-debugging in release builds. Apps must enforce TLS with proper validation and honor the user's Private DNS preference."
+    },
+    {
+      "id": "M6",
+      "title": "Inadequate Privacy Controls",
+      "text": "Excessive permissions (READ_SMS, BIND_ACCESSIBILITY_SERVICE without justification), PII leakage via logs or auto-backup, GDPR/CCPA non-compliance, and FCM tokens shipped over HTTP. Apps must request least privilege, surface a privacy policy, and redact sensitive fields from telemetry."
+    },
+    {
+      "id": "M7",
+      "title": "Insufficient Binary Protections",
+      "text": "Missing anti-tamper, missing root detection, unobfuscated bytecode, exported JNI symbols revealing internals, and ungated System.loadLibrary calls. Apps handling financial / health data should apply RASP, obfuscation, and integrity checks on every release build."
+    },
+    {
+      "id": "M8",
+      "title": "Security Misconfiguration",
+      "text": "Debuggable=\"true\" in release manifests, FileProvider entries with wildcard paths, exported components without permission gating, and verbose error messages exposing stack traces. Misconfiguration is the single most common high-severity finding in shipped Android apps."
+    },
+    {
+      "id": "M9",
+      "title": "Insecure Data Storage",
+      "text": "Plaintext SharedPreferences for tokens, world-readable external storage writes, SQLCipher with hardcoded passphrases, and credential files written to Downloads. Mobile devices are shared, lost, and stolen; persisted secrets must be encrypted with hardware-backed keys."
+    },
+    {
+      "id": "M10",
+      "title": "Insufficient Cryptography",
+      "text": "Weak algorithms (DES, RC4, MD5, SHA-1), insufficient key length (RSA-1024), ECB mode, predictable IVs in CBC, deterministic GCM nonces, and PRNGs seeded with clock values. Cryptography is rarely broken by attacks on the primitive; it's broken by implementation choices."
+    }
+  ]
+}

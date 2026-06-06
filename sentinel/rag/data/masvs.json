@@ -1,0 +1,157 @@
+{
+  "source": "OWASP MASVS v2",
+  "license": "CC-BY-SA-4.0",
+  "license_url": "https://github.com/OWASP/owasp-mastg/blob/master/LICENSE",
+  "controls": [
+    {
+      "id": "MSTG-AUTH-1",
+      "title": "Server-side authentication of users",
+      "category": "auth",
+      "text": "If the app provides users access to a remote service, some form of authentication, such as username/password authentication, is performed at the remote endpoint. Authentication must always be performed server-side; the mobile client must never trust client-side flags claiming a user is authenticated."
+    },
+    {
+      "id": "MSTG-AUTH-2",
+      "title": "Stateful session identifiers must be invalidated server-side on logout",
+      "category": "auth",
+      "text": "If stateful session management is used, the remote endpoint terminates existing sessions when the user logs out and rotates the session identifier. Tokens carried in URL query parameters violate this control because URLs are persisted in logs and Referer headers."
+    },
+    {
+      "id": "MSTG-AUTH-3",
+      "title": "Re-authentication for sensitive operations",
+      "category": "auth",
+      "text": "The remote endpoint requires the user to authenticate or re-authenticate for accessing data or operations of high sensitivity. Session id / token must be refreshed on every authentication transition; client-supplied identifiers must never become the authoritative session."
+    },
+    {
+      "id": "MSTG-AUTH-7",
+      "title": "Sessions are invalidated at remote endpoint after timeout",
+      "category": "auth",
+      "text": "Sessions are invalidated at the remote endpoint after a predefined period of inactivity, and access tokens have a clearly bounded lifetime. Logout flows on the client must remove every persisted credential, including refresh tokens, from SharedPreferences and equivalent stores."
+    },
+    {
+      "id": "MSTG-AUTH-8",
+      "title": "Biometric authentication is bound to cryptographic operations",
+      "category": "auth",
+      "text": "Biometric authentication is not event-bound (i.e. using only a true/false return). It is invoked with a CryptoObject so the biometric prompt unlocks a cryptographic primitive, defeating Frida-based bypass of the success callback."
+    },
+    {
+      "id": "MSTG-NETWORK-1",
+      "title": "Data is encrypted on the network using TLS",
+      "category": "network",
+      "text": "Data is encrypted on the network using TLS. The secure channel is used consistently throughout the app, no cleartext fallback. WebSocket (ws://), DNS-over-cleartext, and FCM token uploads over HTTP all violate this control."
+    },
+    {
+      "id": "MSTG-NETWORK-2",
+      "title": "TLS settings follow current best practices",
+      "category": "network",
+      "text": "The TLS settings are in line with current best practices, or as close as possible if the mobile operating system does not support the recommended standards. Custom X509TrustManager / HostnameVerifier that accept all certificates is a critical violation."
+    },
+    {
+      "id": "MSTG-NETWORK-3",
+      "title": "Verifies the X.509 certificate of the remote endpoint",
+      "category": "network",
+      "text": "The app verifies the X.509 certificate of the remote endpoint when the secure channel is established. Only certificates signed by a trusted CA are accepted. Empty checkServerTrusted implementations and HostnameVerifier returning true unconditionally defeat this control."
+    },
+    {
+      "id": "MSTG-NETWORK-4",
+      "title": "Certificate pinning",
+      "category": "network",
+      "text": "The app either uses its own certificate store, or pins the endpoint certificate or public key, and subsequently does not establish connections with endpoints that offer a different certificate or key, even if signed by a trusted CA."
+    },
+    {
+      "id": "MSTG-PLATFORM-1",
+      "title": "IPC mechanisms are properly secured",
+      "category": "platform",
+      "text": "The app does not export sensitive functionality via custom URL schemes, unless these mechanisms are properly protected. Exported BroadcastReceivers, Services, and Activities require explicit android:permission with signature-level protection, or intent.setPackage to restrict delivery."
+    },
+    {
+      "id": "MSTG-PLATFORM-2",
+      "title": "Limits the access permissions of FileProvider entries",
+      "category": "platform",
+      "text": "The app does not export sensitive functionality through IPC facilities, unless these mechanisms are properly protected. FileProvider declarations must always be android:exported=\"false\" and rely on per-URI grant flags."
+    },
+    {
+      "id": "MSTG-PLATFORM-3",
+      "title": "Deep links are verified",
+      "category": "platform",
+      "text": "The app does not export sensitive functionality via deep links unless these are properly protected. App Links must use android:autoVerify=\"true\" with /.well-known/assetlinks.json hosted on the domain. Custom schemes need explicit host filters to prevent same-scheme hijack."
+    },
+    {
+      "id": "MSTG-PLATFORM-9",
+      "title": "Activities prevent overlay-based tap-jacking",
+      "category": "platform",
+      "text": "Activities that handle sensitive operations (login, payment, biometric, password reset) set android:filterTouchesWhenObscured=\"true\" or call setFilterTouchesWhenObscured(true) on touch-receiving views so MotionEvents with FLAG_WINDOW_IS_OBSCURED are dropped."
+    },
+    {
+      "id": "MSTG-STORAGE-1",
+      "title": "System credential storage facilities used appropriately",
+      "category": "storage",
+      "text": "System credential storage facilities are used appropriately to store sensitive data, such as personally identifiable information (PII), credentials and keys. Plaintext passwords in .txt/.json/.properties files violate this control."
+    },
+    {
+      "id": "MSTG-STORAGE-2",
+      "title": "No sensitive data stored outside app container",
+      "category": "storage",
+      "text": "No sensitive data is stored outside of the app container or system credential storage facilities. Writes to getExternalStorageDirectory / DIRECTORY_DOWNLOADS / /sdcard are world-readable on API ≤ 28 and persist across uninstall."
+    },
+    {
+      "id": "MSTG-STORAGE-3",
+      "title": "No sensitive data written to application logs",
+      "category": "storage",
+      "text": "No sensitive data is written to application logs. Log.d/v/i/w/e calls carrying FCM tokens, OAuth refresh tokens, OkHttp body / header logging at release time, or PII land in logcat and are scrapeable by any process with READ_LOGS."
+    },
+    {
+      "id": "MSTG-STORAGE-8",
+      "title": "No sensitive data included in backups",
+      "category": "storage",
+      "text": "No sensitive data is included in backups generated by the mobile operating system. Auto-backup rules with wildcard <include> elements or domain=\"root\" ship secrets to Google Drive. Always exclude credential files explicitly or set android:allowBackup=\"false\"."
+    },
+    {
+      "id": "MSTG-STORAGE-14",
+      "title": "Sensitive data stored on memory at rest is encrypted",
+      "category": "storage",
+      "text": "If sensitive data is still required to be stored locally, the data should be encrypted using a key derived from hardware-backed storage. Prefer EncryptedSharedPreferences or seal data with an Android Keystore key."
+    },
+    {
+      "id": "MSTG-CRYPTO-1",
+      "title": "App does not rely on symmetric cryptography with hardcoded keys",
+      "category": "crypto",
+      "text": "The app does not rely on symmetric cryptography with hardcoded keys as a sole method of encryption. Hardcoded AES/RSA keys, BuildConfig constants, static final String passphrases for SQLCipher, and Base64-encoded keys in source all violate this control."
+    },
+    {
+      "id": "MSTG-CRYPTO-2",
+      "title": "App uses proven implementations of cryptographic primitives",
+      "category": "crypto",
+      "text": "The app uses proven implementations of cryptographic primitives. ECB mode, AES/GCM with deterministic nonces, AES/CBC with predictable IVs, and DES/RC4/MD5/SHA1 all violate this control."
+    },
+    {
+      "id": "MSTG-CRYPTO-6",
+      "title": "All random values are generated using a cryptographically secure RNG",
+      "category": "crypto",
+      "text": "All random values are generated using a sufficiently secure random number generator. SecureRandom seeded with System.currentTimeMillis(), java.util.Random for token generation, and string-literal getBytes() seeds all collapse the output to a predictable sequence."
+    },
+    {
+      "id": "MSTG-CODE-2",
+      "title": "App has been built in release mode",
+      "category": "code",
+      "text": "The app has been built in release mode, with settings appropriate for a release build (e.g. non-debuggable). android:debuggable=\"true\" in a shipping APK lets any local process run-as the UID and read the private data directory."
+    },
+    {
+      "id": "MSTG-CODE-8",
+      "title": "Deserialization, if any, is performed safely",
+      "category": "code",
+      "text": "Deserialization, if any, is performed safely. ObjectInputStream.readObject fed from a network / Intent / external-storage source is an arbitrary-code-execution primitive via gadget chains. Prefer JSON or Protocol Buffers."
+    },
+    {
+      "id": "MSTG-RESILIENCE-2",
+      "title": "App detects whether it is being debugged",
+      "category": "resilience",
+      "text": "The app detects whether it is being debugged. WebView.setWebContentsDebuggingEnabled(true) and HttpLoggingInterceptor.Level.BODY shipped to release builds give attackers a fully-instrumented session via adb."
+    },
+    {
+      "id": "MSTG-RESILIENCE-3",
+      "title": "App detects the presence of root or jailbreak",
+      "category": "resilience",
+      "text": "The app detects whether it is being executed on a rooted or jailbroken device. The app's response is to alert the user, deny continued operation, or both, depending on the data sensitivity and business policy."
+    }
+  ]
+}

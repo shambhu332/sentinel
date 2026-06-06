@@ -1210,5 +1210,119 @@ async def _run_static_scan(
     return result.findings, ctx.apk_sha256 or ""
 
 
+@main.group()
+def rag() -> None:
+    """Retrieval-augmented knowledge base (MASVS / OWASP / CWE)."""
+
+
+@rag.command("build")
+@click.option(
+    "--workspace",
+    type=click.Path(path_type=Path),
+    default=Path("./workspace"),
+    help="Workspace root (the knowledge base lives in <workspace>/data/rag).",
+)
+@click.option(
+    "--rebuild",
+    is_flag=True,
+    help="Drop the existing collection before ingesting.",
+)
+@click.option(
+    "--osv-dir",
+    type=click.Path(path_type=Path, exists=False),
+    default=None,
+    help="Optional OSV dump directory (see scripts/fetch_osv_db.py).",
+)
+def rag_build(workspace: Path, rebuild: bool, osv_dir: Path | None) -> None:
+    """Ingest the bundled MASVS / OWASP / CWE corpora (and optionally OSV)."""
+    from sentinel.rag.ingester import ingest_default_corpora, ingest_osv
+    from sentinel.rag.knowledge_base import KnowledgeBase
+
+    async def _run() -> None:
+        kb = KnowledgeBase(
+            persist_path=KnowledgeBase.default_persist_path(workspace),
+        )
+        await kb.connect()
+        if rebuild:
+            console.print("[yellow]Dropping existing collection…[/]")
+            await kb.clear()
+        report = await ingest_default_corpora(kb)
+        osv_count = 0
+        if osv_dir is not None:
+            osv_count = await ingest_osv(kb, osv_dir)
+        total = await kb.count()
+        console.print(
+            f"[green]✓[/] Knowledge base built — MASVS={report.masvs}, "
+            f"OWASP={report.owasp_mobile}, CWE={report.cwe}, "
+            f"OSV={osv_count}, total={total}",
+        )
+
+    asyncio.run(_run())
+
+
+@rag.command("query")
+@click.argument("text", type=str)
+@click.option(
+    "--workspace",
+    type=click.Path(path_type=Path),
+    default=Path("./workspace"),
+)
+@click.option("--top-k", type=int, default=4, help="Number of passages to return.")
+@click.option(
+    "--source",
+    type=click.Choice(["MASVS", "OWASP_MOBILE", "CWE", "OSV"]),
+    default=None,
+    help="Restrict to a single corpus.",
+)
+def rag_query(workspace: Path, text: str, top_k: int, source: str | None) -> None:
+    """Run an ad-hoc query against the knowledge base."""
+    from sentinel.rag.knowledge_base import KnowledgeBase
+    from sentinel.rag.retriever import KnowledgeRetriever
+
+    async def _run() -> None:
+        kb = KnowledgeBase(
+            persist_path=KnowledgeBase.default_persist_path(workspace),
+        )
+        await kb.connect()
+        retriever = KnowledgeRetriever(kb)
+        passages = await retriever.retrieve(
+            query=text, top_k=top_k, source_filter=source,
+        )
+        if not passages:
+            console.print("[yellow]No passages — build the corpus first.[/]")
+            return
+        for p in passages:
+            console.print(
+                f"[bold cyan]{p.source}[/] [dim]({p.score:.3f})[/] {p.title}",
+            )
+            console.print(f"  {p.text[:300]}\n")
+
+    asyncio.run(_run())
+
+
+@rag.command("stats")
+@click.option(
+    "--workspace",
+    type=click.Path(path_type=Path),
+    default=Path("./workspace"),
+)
+def rag_stats(workspace: Path) -> None:
+    """Show the size of the current knowledge base."""
+    from sentinel.rag.knowledge_base import KnowledgeBase
+
+    async def _run() -> None:
+        kb = KnowledgeBase(
+            persist_path=KnowledgeBase.default_persist_path(workspace),
+        )
+        await kb.connect()
+        total = await kb.count()
+        console.print(
+            f"Knowledge base at [dim]{KnowledgeBase.default_persist_path(workspace)}[/]"
+            f" contains [bold cyan]{total}[/] passages.",
+        )
+
+    asyncio.run(_run())
+
+
 if __name__ == "__main__":
     main()
