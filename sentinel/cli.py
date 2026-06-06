@@ -268,7 +268,7 @@ async def _run_scan(
     )
     from sentinel.agents.logging import InsecureLoggingAgent
     from sentinel.agents.meta import DebuggableManifestAgent, ObfuscationDetectorAgent
-    from sentinel.agents.native import NativeLibraryAgent
+    from sentinel.agents.native import LoadLibraryTaintAgent, NativeLibraryAgent
     from sentinel.agents.network import (
         ApiKeyLeakageAgent,
         CleartextTrafficAgent,
@@ -434,6 +434,7 @@ async def _run_scan(
             MutablePendingIntentAgent,        # P_012 (CVE-2021-0938 family)
             IpcExposureAgent,                 # IPC_001 (Phase B)
             NativeLibraryAgent,               # NL_001 (Phase B)
+            LoadLibraryTaintAgent,            # NL_002 (loadLibrary taint sink)
             AntiTamperAgent,                  # RES_001 (Phase B)
             SCAAgent,                         # SCA_001 (supply chain CVE scanner)
             TaintAgent,                       # TAINT_001 (data-flow taint analysis)
@@ -1075,7 +1076,7 @@ async def _run_static_scan(
     from sentinel.agents.data_storage import WorldReadableStorageAgent
     from sentinel.agents.logging import InsecureLoggingAgent
     from sentinel.agents.meta import DebuggableManifestAgent, ObfuscationDetectorAgent
-    from sentinel.agents.native import NativeLibraryAgent
+    from sentinel.agents.native import LoadLibraryTaintAgent, NativeLibraryAgent
     from sentinel.agents.network import (
         ApiKeyLeakageAgent,
         CleartextTrafficAgent,
@@ -1136,7 +1137,7 @@ async def _run_static_scan(
         DeepLinkHijackAgent, ContentProviderIDORAgent,
         IntentRedirectAgent, ReceiverChainHijackAgent,
         MutablePendingIntentAgent, ExcessivePermissionsAgent, IpcExposureAgent,
-        NativeLibraryAgent, AntiTamperAgent,
+        NativeLibraryAgent, LoadLibraryTaintAgent, AntiTamperAgent,
         SCAAgent, TaintAgent, ReactNativeAgent, FlutterAgent,
         SemgrepAgent, InsecureSharedPrefsAgent, InsecureFileProviderAgent,
     ]
