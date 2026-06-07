@@ -279,8 +279,11 @@ async def _run_scan(
     )
     from sentinel.agents.data_storage import WorldReadableStorageAgent
     from sentinel.agents.dynamic import (
+        BiometricWeakAgent,
         CertPinningBypassAgent,
+        ClipboardLeakAgent,
         DataInTransitAgent,
+        FlagSecureMissingAgent,
         ImproperTLSAgent,
         RuntimeCryptoAgent,
     )
@@ -503,6 +506,9 @@ async def _run_scan(
         if dynamic and frida:
             agent_list.append(RuntimeCryptoAgent)        # A_003 (Sprint 8.2A DAST)
             agent_list.append(CertPinningBypassAgent)    # N_005 (Sprint 8.2B DAST)
+            agent_list.append(ClipboardLeakAgent)        # D_001 (Sprint 8.3 DAST)
+            agent_list.append(FlagSecureMissingAgent)    # D_002 (Sprint 8.3 DAST)
+            agent_list.append(BiometricWeakAgent)        # D_003 (Sprint 8.3 DAST)
 
         if profile_name:
             from sentinel.profiles import load_profile

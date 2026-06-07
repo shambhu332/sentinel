@@ -66,3 +66,47 @@ export function sendHooksSummary(summary: {
 export function sendError(message: string): void {
     send({ kind: "error", message });
 }
+
+/* ------- Sprint 8.3: clipboard / window-flags / biometric ------- */
+
+export function sendClipboardWrite(p: {
+    label?: string;
+    text?: string;
+    mime_types?: string[];
+    stack?: string;
+}): void {
+    send({ kind: "clipboard.write", ...p });
+}
+
+export function sendClipboardRead(p: {
+    mime_types?: string[];
+    stack?: string;
+}): void {
+    send({ kind: "clipboard.read", ...p });
+}
+
+export function sendSensitiveInputSeen(p: {
+    activity: string;
+    field: string;
+}): void {
+    send({ kind: "ui.sensitive_input_seen", ...p });
+}
+
+export function sendWindowFlags(p: {
+    activity: string;
+    flags: number;
+    secure: boolean;
+}): void {
+    send({ kind: "ui.window_flags", ...p });
+}
+
+export function sendBiometricPrompt(p: {
+    activity?: string;
+    authenticators?: number;
+    device_credential_allowed?: boolean;
+    crypto_object?: boolean;
+    negative_button?: string;
+    stack?: string;
+}): void {
+    send({ kind: "biometric.prompt", ...p });
+}

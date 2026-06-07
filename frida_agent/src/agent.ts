@@ -18,6 +18,9 @@ import { installSystemHooks } from "./hooks/pinning_system.js";
 import { installLibraryHooks } from "./hooks/pinning_libraries.js";
 import { installWebViewHooks } from "./hooks/pinning_webview.js";
 import { installNativeHooks } from "./hooks/pinning_native.js";
+import { installClipboardHooks } from "./hooks/clipboard.js";
+import { installWindowFlagHooks } from "./hooks/window_flags.js";
+import { installBiometricHooks } from "./hooks/biometric.js";
 import { emitHooksSummary } from "./hooks/diagnostics.js";
 
 // Native hooks first — independent of Java bridge readiness.
@@ -52,6 +55,15 @@ waitForJava("sentinel-agent", () => {
     } catch (e) {
         sendError(`webview: ${String(e)}`);
     }
+
+    try { installClipboardHooks(); }
+    catch (e) { sendError(`clipboard: ${String(e)}`); }
+
+    try { installWindowFlagHooks(); }
+    catch (e) { sendError(`window_flags: ${String(e)}`); }
+
+    try { installBiometricHooks(); }
+    catch (e) { sendError(`biometric: ${String(e)}`); }
 
     try { emitHooksSummary(result, subclassesHooked, nativeHooks); }
     catch (e) { sendError(`summary: ${String(e)}`); }

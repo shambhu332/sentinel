@@ -74,6 +74,11 @@ class FridaHookEvent:
     - "tls.bypass": when a pin check is bypassed by our script (N_005)
     - "tls.bypass_failed": pinning library present but bypass setup failed
     - "tls.hooks_installed": diagnostic, lists pinning libraries hooked
+    - "clipboard.write": ClipboardManager.setPrimaryClip (D_001)
+    - "clipboard.read": ClipboardManager.getPrimaryClip (D_001)
+    - "ui.sensitive_input_seen": EditText with password/PIN input type (D_002)
+    - "ui.window_flags": Window.setFlags/addFlags with secure flag state (D_002)
+    - "biometric.prompt": BiometricPrompt.Builder configuration (D_003)
     - "error": something went wrong inside the script
     """
     kind: str
