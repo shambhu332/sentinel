@@ -283,6 +283,7 @@ async def _run_scan(
         BiometricWeakAgent,
         CertPinningBypassAgent,
         ClipboardLeakAgent,
+        CookieHardeningAgent,
         DataInTransitAgent,
         DynamicCodeLoadingAgent,
         FlagSecureMissingAgent,
@@ -516,6 +517,7 @@ async def _run_scan(
                 IdorCandidateAgent,           # D_009 (Sprint 8.5 mitmproxy)
                 JwtWeaknessAgent,             # D_010 (Sprint 8.6 mitmproxy)
                 ThirdPartyPiiLeakAgent,       # D_013 (Sprint 8.7 mitmproxy)
+                CookieHardeningAgent,         # D_014 (Sprint 8.7 mitmproxy)
             ])
         if dynamic and frida:
             agent_list.append(RuntimeCryptoAgent)        # A_003 (Sprint 8.2A DAST)
