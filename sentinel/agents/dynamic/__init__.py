@@ -22,6 +22,10 @@ Sprint 8.4 agents (resilience / runtime integrity):
 - D_005 Dynamic Code Loading
 - D_006 Runtime IV / Key Reuse
 - D_007 Race-Condition / TOCTOU Candidate
+
+Sprint 8.5 agents (business-logic candidate identifiers):
+- D_008 IAP Verification Bypass
+- D_009 IDOR / Mass-Assignment Candidate
 """
 from sentinel.agents.dynamic.cert_pinning_bypass_agent import CertPinningBypassAgent
 from sentinel.agents.dynamic.d001_clipboard_leak_agent import ClipboardLeakAgent
@@ -41,6 +45,8 @@ from sentinel.agents.dynamic.d006_static_iv_reuse_agent import (
 from sentinel.agents.dynamic.d007_race_condition_agent import (
     RaceConditionCandidateAgent,
 )
+from sentinel.agents.dynamic.d008_iap_bypass_agent import IapBypassAgent
+from sentinel.agents.dynamic.d009_idor_candidate_agent import IdorCandidateAgent
 from sentinel.agents.dynamic.data_in_transit_agent import DataInTransitAgent
 from sentinel.agents.dynamic.improper_tls_agent import ImproperTLSAgent
 from sentinel.agents.dynamic.runtime_crypto_agent import RuntimeCryptoAgent
@@ -53,6 +59,8 @@ __all__ = [
     "DataInTransitAgent",
     "DynamicCodeLoadingAgent",
     "FlagSecureMissingAgent",
+    "IapBypassAgent",
+    "IdorCandidateAgent",
     "ImproperTLSAgent",
     "RaceConditionCandidateAgent",
     "RuntimeCryptoAgent",

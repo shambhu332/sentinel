@@ -166,3 +166,24 @@ export function sendSecretKeyCreated(p: {
 }): void {
     send({ kind: "crypto.secret_key_created", ...p });
 }
+
+/* ------- D_008: billing / IAP ------- */
+
+export function sendPurchaseObserved(p: {
+    sku?: string;
+    purchase_state?: number;
+    order_id?: string;
+    token_prefix?: string;
+    acknowledged?: boolean;
+    stack?: string;
+}): void {
+    send({ kind: "billing.purchase_observed", ...p });
+}
+
+export function sendFeatureUnlock(p: {
+    entitlement?: string;
+    source?: string;
+    stack?: string;
+}): void {
+    send({ kind: "billing.feature_unlock", ...p });
+}

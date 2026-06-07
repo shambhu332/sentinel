@@ -88,6 +88,8 @@ class FridaHookEvent:
     - "code_loading.exec": Runtime.exec (D_005)
     - "crypto.iv_constructed": IvParameterSpec/GCMParameterSpec ctor (D_006)
     - "crypto.secret_key_created": SecretKeySpec ctor (D_006)
+    - "billing.purchase_observed": Purchase ctor seen (D_008)
+    - "billing.feature_unlock": acknowledgePurchase / feature unlock (D_008)
     - "error": something went wrong inside the script
     """
     kind: str
