@@ -301,3 +301,36 @@ export function sendSmsRetrieverStarted(p: {
 }): void {
     send({ kind: "sms.retriever_started", ...p });
 }
+
+/* ------- D_019: screen capture / MediaProjection ------- */
+
+export function sendProjectionStarted(p: {
+    result_code?: number;
+    stack?: string;
+}): void {
+    send({ kind: "screen.projection_started", ...p });
+}
+
+export function sendVirtualDisplayCreated(p: {
+    width?: number;
+    height?: number;
+    dpi?: number;
+    surface_type?: string;
+    stack?: string;
+}): void {
+    send({ kind: "screen.virtual_display_created", ...p });
+}
+
+export function sendImageReaderUsed(p: {
+    api?: string;
+    stack?: string;
+}): void {
+    send({ kind: "screen.image_reader_used", ...p });
+}
+
+export function sendMediaRecorderVideoSource(p: {
+    source?: number | string;
+    stack?: string;
+}): void {
+    send({ kind: "screen.media_recorder_set_video_source", ...p });
+}

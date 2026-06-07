@@ -102,6 +102,10 @@ class FridaHookEvent:
     - "sms.broadcast_received": BroadcastReceiver.onReceive on SMS_RECEIVED (D_018)
     - "sms.content_provider_query": ContentResolver.query on content://sms (D_018)
     - "sms.retriever_started": SmsRetrieverClient.startSmsRetriever (D_018)
+    - "screen.projection_started": MediaProjectionManager.getMediaProjection (D_019)
+    - "screen.virtual_display_created": MediaProjection.createVirtualDisplay (D_019)
+    - "screen.image_reader_used": ImageReader.acquireLatestImage / Next (D_019)
+    - "screen.media_recorder_set_video_source": MediaRecorder.setVideoSource (D_019)
     - "error": something went wrong inside the script
     """
     kind: str

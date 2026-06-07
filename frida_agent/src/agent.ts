@@ -30,6 +30,7 @@ import { installNotificationHooks } from "./hooks/notifications.js";
 import { installIntentDispatchHooks } from "./hooks/intent_dispatch.js";
 import { installAccessibilityHooks } from "./hooks/accessibility.js";
 import { installSmsHooks } from "./hooks/sms.js";
+import { installScreenCaptureHooks } from "./hooks/screen_capture.js";
 import { emitHooksSummary } from "./hooks/diagnostics.js";
 
 // Native hooks first — independent of Java bridge readiness.
@@ -100,6 +101,9 @@ waitForJava("sentinel-agent", () => {
 
     try { installSmsHooks(); }
     catch (e) { sendError(`sms: ${String(e)}`); }
+
+    try { installScreenCaptureHooks(); }
+    catch (e) { sendError(`screen_capture: ${String(e)}`); }
 
     try { emitHooksSummary(result, subclassesHooked, nativeHooks); }
     catch (e) { sendError(`summary: ${String(e)}`); }

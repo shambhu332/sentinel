@@ -314,6 +314,7 @@ async def _run_scan(
         NotificationLeakAgent,
         RaceConditionCandidateAgent,
         RuntimeCryptoAgent,
+        ScreenCaptureAgent,
         SmsPermissionAbuseAgent,
         StaticIvReuseAgent,
         ThirdPartyPiiLeakAgent,
@@ -564,6 +565,7 @@ async def _run_scan(
             agent_list.append(ImplicitIntentLeakAgent)   # D_015 (Sprint 8.8 DAST)
             agent_list.append(AccessibilityAbuseAgent)   # D_016 (Sprint 8.8 DAST)
             agent_list.append(SmsPermissionAbuseAgent)   # D_018 (Sprint 8.9 DAST)
+            agent_list.append(ScreenCaptureAgent)        # D_019 (Sprint 8.9 DAST)
 
         if profile_name:
             from sentinel.profiles import load_profile
