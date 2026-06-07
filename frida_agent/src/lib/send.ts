@@ -187,3 +187,34 @@ export function sendFeatureUnlock(p: {
 }): void {
     send({ kind: "billing.feature_unlock", ...p });
 }
+
+/* ------- D_011: WebView runtime ------- */
+
+export function sendWebViewJsInterface(p: {
+    name?: string;
+    object_class?: string;
+    exposed_methods?: string[];
+    stack?: string;
+}): void {
+    send({ kind: "webview.js_interface_added", ...p });
+}
+
+export function sendWebViewLoad(p: {
+    url?: string;
+    scheme?: string;
+    stack?: string;
+}): void {
+    send({ kind: "webview.load", ...p });
+}
+
+export function sendWebViewSetting(p: {
+    setting: string;
+    value: unknown;
+    stack?: string;
+}): void {
+    send({ kind: "webview.settings", ...p });
+}
+
+export function sendWebViewDebugging(enabled: boolean): void {
+    send({ kind: "webview.debugging", enabled });
+}

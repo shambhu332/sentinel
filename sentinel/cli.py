@@ -293,6 +293,7 @@ async def _run_scan(
         RaceConditionCandidateAgent,
         RuntimeCryptoAgent,
         StaticIvReuseAgent,
+        WebViewRuntimeAgent,
     )
     from sentinel.agents.logging import InsecureLoggingAgent
     from sentinel.agents.meta import DebuggableManifestAgent, ObfuscationDetectorAgent
@@ -523,6 +524,7 @@ async def _run_scan(
             agent_list.append(DynamicCodeLoadingAgent)   # D_005 (Sprint 8.4 DAST)
             agent_list.append(StaticIvReuseAgent)        # D_006 (Sprint 8.4 DAST)
             agent_list.append(IapBypassAgent)            # D_008 (Sprint 8.5 DAST)
+            agent_list.append(WebViewRuntimeAgent)       # D_011 (Sprint 8.6 DAST)
 
         if profile_name:
             from sentinel.profiles import load_profile

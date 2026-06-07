@@ -90,6 +90,10 @@ class FridaHookEvent:
     - "crypto.secret_key_created": SecretKeySpec ctor (D_006)
     - "billing.purchase_observed": Purchase ctor seen (D_008)
     - "billing.feature_unlock": acknowledgePurchase / feature unlock (D_008)
+    - "webview.js_interface_added": WebView.addJavascriptInterface (D_011)
+    - "webview.load": WebView.loadUrl (D_011)
+    - "webview.settings": WebSettings setters of interest (D_011)
+    - "webview.debugging": setWebContentsDebuggingEnabled (D_011)
     - "error": something went wrong inside the script
     """
     kind: str
