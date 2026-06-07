@@ -218,3 +218,17 @@ export function sendWebViewSetting(p: {
 export function sendWebViewDebugging(enabled: boolean): void {
     send({ kind: "webview.debugging", enabled });
 }
+
+/* ------- D_012: notification leak ------- */
+
+export function sendNotificationPosted(p: {
+    channel_id?: string;
+    channel_importance?: number;
+    visibility?: number;
+    has_public_version?: boolean;
+    title?: string;
+    text?: string;
+    stack?: string;
+}): void {
+    send({ kind: "notification.posted", ...p });
+}
