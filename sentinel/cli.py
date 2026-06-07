@@ -289,6 +289,7 @@ async def _run_scan(
         FlagSecureMissingAgent,
         IapBypassAgent,
         IdorCandidateAgent,
+        ImplicitIntentLeakAgent,
         ImproperTLSAgent,
         JwtWeaknessAgent,
         NotificationLeakAgent,
@@ -531,6 +532,7 @@ async def _run_scan(
             agent_list.append(IapBypassAgent)            # D_008 (Sprint 8.5 DAST)
             agent_list.append(WebViewRuntimeAgent)       # D_011 (Sprint 8.6 DAST)
             agent_list.append(NotificationLeakAgent)     # D_012 (Sprint 8.6 DAST)
+            agent_list.append(ImplicitIntentLeakAgent)   # D_015 (Sprint 8.8 DAST)
 
         if profile_name:
             from sentinel.profiles import load_profile

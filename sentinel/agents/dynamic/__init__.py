@@ -33,6 +33,7 @@ Sprint 8.6 agents (token + web analysis):
 - D_012 Sensitive Lockscreen Notification
 - D_013 Third-Party PII / Credential Leak
 - D_014 Cookie Hardening Audit
+- D_015 Implicit Intent Sensitive Extras Leak
 """
 from sentinel.agents.dynamic.cert_pinning_bypass_agent import CertPinningBypassAgent
 from sentinel.agents.dynamic.d001_clipboard_leak_agent import ClipboardLeakAgent
@@ -67,6 +68,9 @@ from sentinel.agents.dynamic.d013_third_party_pii_leak_agent import (
 from sentinel.agents.dynamic.d014_cookie_hardening_agent import (
     CookieHardeningAgent,
 )
+from sentinel.agents.dynamic.d015_implicit_intent_leak_agent import (
+    ImplicitIntentLeakAgent,
+)
 from sentinel.agents.dynamic.data_in_transit_agent import DataInTransitAgent
 from sentinel.agents.dynamic.improper_tls_agent import ImproperTLSAgent
 from sentinel.agents.dynamic.runtime_crypto_agent import RuntimeCryptoAgent
@@ -82,6 +86,7 @@ __all__ = [
     "FlagSecureMissingAgent",
     "IapBypassAgent",
     "IdorCandidateAgent",
+    "ImplicitIntentLeakAgent",
     "ImproperTLSAgent",
     "JwtWeaknessAgent",
     "NotificationLeakAgent",

@@ -95,6 +95,7 @@ class FridaHookEvent:
     - "webview.settings": WebSettings setters of interest (D_011)
     - "webview.debugging": setWebContentsDebuggingEnabled (D_011)
     - "notification.posted": NotificationManager.notify (D_012)
+    - "intent.dispatched": Context.startActivity / sendBroadcast / etc (D_015)
     - "error": something went wrong inside the script
     """
     kind: str

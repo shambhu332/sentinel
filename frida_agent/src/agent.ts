@@ -27,6 +27,7 @@ import { installCryptoIvHooks } from "./hooks/crypto_iv.js";
 import { installBillingHooks } from "./hooks/billing.js";
 import { installWebViewRuntimeHooks } from "./hooks/webview_runtime.js";
 import { installNotificationHooks } from "./hooks/notifications.js";
+import { installIntentDispatchHooks } from "./hooks/intent_dispatch.js";
 import { emitHooksSummary } from "./hooks/diagnostics.js";
 
 // Native hooks first — independent of Java bridge readiness.
@@ -88,6 +89,9 @@ waitForJava("sentinel-agent", () => {
 
     try { installNotificationHooks(); }
     catch (e) { sendError(`notifications: ${String(e)}`); }
+
+    try { installIntentDispatchHooks(); }
+    catch (e) { sendError(`intent_dispatch: ${String(e)}`); }
 
     try { emitHooksSummary(result, subclassesHooked, nativeHooks); }
     catch (e) { sendError(`summary: ${String(e)}`); }

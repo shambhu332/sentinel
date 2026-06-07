@@ -232,3 +232,16 @@ export function sendNotificationPosted(p: {
 }): void {
     send({ kind: "notification.posted", ...p });
 }
+
+/* ------- D_015: implicit intent dispatch ------- */
+
+export function sendIntentDispatched(p: {
+    method: string;
+    action?: string;
+    has_component: boolean;
+    package?: string;
+    extras?: string[];
+    stack?: string;
+}): void {
+    send({ kind: "intent.dispatched", ...p });
+}
