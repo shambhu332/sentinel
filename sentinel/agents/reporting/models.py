@@ -22,6 +22,12 @@ class FindingSection:
     rag_passage_ids: list[str] = field(default_factory=list)
     triage_explanation: str = ""
     llm_provider: str = ""
+    # Advisory-grade narrative (optional). Populated by the enrichment
+    # pass before rendering. Keys: summary, affected_components (list),
+    # evidence_notes, repro_steps (list[str]), poc_snippet (str|dict),
+    # impact_bullets (list[str]), fix_bullets (list[str]),
+    # references (list[{label,url}]).
+    narrative: dict = field(default_factory=dict)
 
 
 @dataclass

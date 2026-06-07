@@ -26,6 +26,7 @@ from pathlib import Path
 
 from sentinel.agents.base import BaseAgent
 from sentinel.agents.reporting.builder import build_report_data
+from sentinel.agents.reporting.enrich import enrich_sections
 from sentinel.agents.reporting.models import ReportData
 from sentinel.agents.reporting.templates import render_html, render_markdown
 from sentinel.core.finding import Finding, Severity, TriageState
@@ -61,8 +62,37 @@ class ReportGeneratorAgent(BaseAgent):
             apk_size_bytes=self.context.apk_size_bytes or 0,
             generated_at=datetime.now(timezone.utc),
         )
+
+        # Narrative enrichment via the free LLM router (Groq → Cerebras
+        # → Ollama). Falls back to deterministic boilerplate when every
+        # provider is unavailable — the report still renders cleanly.
+        router = await self._get_router()
+        try:
+            await enrich_sections(data.sections, router)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("R_001: narrative enrichment failed: %s", exc)
+            await enrich_sections(data.sections, None)
+        finally:
+            if router is not None:
+                try:
+                    await router.close()
+                except Exception:  # noqa: BLE001
+                    pass
+
         artifacts = self._write_artifacts(data)
         return [self._meta_finding(data, artifacts)]
+
+    async def _get_router(self):
+        """Build a FreeProviderRouter, or return None if unavailable."""
+        try:
+            from sentinel.llm.router import FreeProviderRouter
+            return FreeProviderRouter()
+        except Exception as exc:  # noqa: BLE001
+            logger.info(
+                "R_001: free LLM router unavailable, using boilerplate (%s)",
+                exc,
+            )
+            return None
 
     # ---------- selection ----------
 

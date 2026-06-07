@@ -226,28 +226,40 @@ def test_markdown_includes_triage_explanation():
 def test_html_is_self_contained():
     html = render_html(_sample_data())
     assert html.startswith("<!doctype html>")
-    # CSS inline, no external link tags.
-    assert "<link" not in html
+    # Style is inline; the only external <link> permitted is the
+    # Google Fonts CDN for typography, which gracefully degrades to
+    # Georgia when offline (declared in the font-family stack).
     assert "<style>" in html
-    # Severity pill present (NCC-grade template uses sev-pill).
-    assert "sev-pill Critical" in html
+    external_links = [
+        line for line in html.split(">")
+        if line.startswith("<link") and "fonts.googleapis.com" not in line
+    ]
+    assert not external_links, f"unexpected external link(s): {external_links}"
+    # Per-advisory severity chip rendered in the masthead.
+    assert "sev-chip CRITICAL" in html
 
 
 def test_html_includes_finding_card():
     html = render_html(_sample_data())
     assert "com.example.app" in html
     assert "MSTG-PLATFORM-1" in html
-    assert "Standards Cited" in html
+    # Advisory bundle has the canonical numbered sections.
+    for label in (
+        "Summary", "Affected Components", "Evidence in the APK",
+        "Steps to Reproduce", "Proof of Concept", "Impact",
+        "Suggested Fix", "References",
+    ):
+        assert label in html, f"missing section {label!r}"
 
 
-def test_html_has_vapt_structure():
+def test_html_has_advisory_structure():
     html = render_html(_sample_data())
-    # Cover page + executive summary + scope + findings + appendix
+    # Cover + TOC + exec summary + at least F1 advisory + appendix.
     assert "Mobile Application Security Assessment" in html
     assert "CONFIDENTIAL" in html
+    assert "Table of Contents" in html
     assert "Executive Summary" in html
-    assert "Scope &amp; Methodology" in html
-    assert "Technical Findings" in html
+    assert ">F1<" in html  # numbered finding ID badge
     assert "Appendix" in html
 
 
@@ -256,4 +268,7 @@ def test_html_renders_no_findings_gracefully():
         findings=[], package="com.x", version="0", session_id="s12345678",
     )
     html = render_html(empty)
-    assert "No findings identified" in html
+    # No advisories — but cover / TOC / exec / appendix still render.
+    assert "Table of Contents" in html
+    assert "Appendix" in html
+    assert ">F1<" not in html
