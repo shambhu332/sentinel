@@ -109,6 +109,8 @@ class FridaHookEvent:
     - "receiver.dynamic_registered": Context.registerReceiver (D_020)
     - "pending_intent.created": PendingIntent.getActivity / etc. (D_021)
     - "local_socket.server_created": LocalServerSocket.<init> (D_022)
+    - "provider.uri_opened": ContentResolver.openFileDescriptor (D_023)
+    - "provider.query_returned": ContentResolver.query cursor leak (D_023)
     - "error": something went wrong inside the script
     """
     kind: str

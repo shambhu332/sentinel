@@ -369,3 +369,26 @@ export function sendLocalSocketServerCreated(p: {
 }): void {
     send({ kind: "local_socket.server_created", ...p });
 }
+
+/* ------- D_023: ContentProvider URI exposure ------- */
+
+export function sendProviderUriOpened(p: {
+    caller_uid?: number;
+    target_uid?: number;
+    uri?: string;
+    mode?: string;
+    real_path?: string;
+    stack?: string;
+}): void {
+    send({ kind: "provider.uri_opened", ...p });
+}
+
+export function sendProviderQueryReturned(p: {
+    caller_uid?: number;
+    target_uid?: number;
+    uri?: string;
+    exposed_paths?: string[];
+    stack?: string;
+}): void {
+    send({ kind: "provider.query_returned", ...p });
+}
