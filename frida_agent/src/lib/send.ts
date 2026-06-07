@@ -392,3 +392,16 @@ export function sendProviderQueryReturned(p: {
 }): void {
     send({ kind: "provider.query_returned", ...p });
 }
+
+/* ------- D_024: FileProvider URI minting ------- */
+
+export function sendFileProviderUriMinted(p: {
+    authority?: string;
+    input_path?: string;
+    canonical_path?: string;
+    is_symlink?: boolean;
+    caller_controlled_segments?: boolean;
+    stack?: string;
+}): void {
+    send({ kind: "file_provider.uri_minted", ...p });
+}

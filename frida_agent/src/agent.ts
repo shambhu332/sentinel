@@ -33,6 +33,7 @@ import { installSmsHooks } from "./hooks/sms.js";
 import { installScreenCaptureHooks } from "./hooks/screen_capture.js";
 import { installRegistrationHooks } from "./hooks/registrations.js";
 import { installContentProviderHooks } from "./hooks/content_provider.js";
+import { installFileProviderHooks } from "./hooks/file_provider.js";
 import { emitHooksSummary } from "./hooks/diagnostics.js";
 
 // Native hooks first — independent of Java bridge readiness.
@@ -112,6 +113,9 @@ waitForJava("sentinel-agent", () => {
 
     try { installContentProviderHooks(); }
     catch (e) { sendError(`content_provider: ${String(e)}`); }
+
+    try { installFileProviderHooks(); }
+    catch (e) { sendError(`file_provider: ${String(e)}`); }
 
     try { emitHooksSummary(result, subclassesHooked, nativeHooks); }
     catch (e) { sendError(`summary: ${String(e)}`); }
