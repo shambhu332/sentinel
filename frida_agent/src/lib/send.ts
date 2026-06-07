@@ -245,3 +245,33 @@ export function sendIntentDispatched(p: {
 }): void {
     send({ kind: "intent.dispatched", ...p });
 }
+
+/* ------- D_016: accessibility / notification listener ------- */
+
+export function sendA11yEvent(p: {
+    event_type?: number;
+    source_package?: string;
+    source_text_redacted?: string;
+    stack?: string;
+}): void {
+    send({ kind: "a11y.event_observed", ...p });
+}
+
+export function sendA11yAction(p: {
+    action?: string;
+    source_package?: string;
+    stack?: string;
+}): void {
+    send({ kind: "a11y.action_performed", ...p });
+}
+
+export function sendNotifListenerReceived(p: {
+    source_package?: string;
+    channel_id?: string;
+    title_redacted?: string;
+    text_redacted?: string;
+    has_otp_shape?: boolean;
+    stack?: string;
+}): void {
+    send({ kind: "notif_listener.notification_received", ...p });
+}

@@ -96,6 +96,9 @@ class FridaHookEvent:
     - "webview.debugging": setWebContentsDebuggingEnabled (D_011)
     - "notification.posted": NotificationManager.notify (D_012)
     - "intent.dispatched": Context.startActivity / sendBroadcast / etc (D_015)
+    - "a11y.event_observed": AccessibilityService.onAccessibilityEvent (D_016)
+    - "a11y.action_performed": AccessibilityNodeInfo.performAction (D_016)
+    - "notif_listener.notification_received": NotificationListener.onNotificationPosted (D_016)
     - "error": something went wrong inside the script
     """
     kind: str
