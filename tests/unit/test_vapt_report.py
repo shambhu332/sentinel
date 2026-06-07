@@ -229,8 +229,8 @@ def test_html_is_self_contained():
     # CSS inline, no external link tags.
     assert "<link" not in html
     assert "<style>" in html
-    # Severity badge present.
-    assert "badge Critical" in html
+    # Severity pill present (NCC-grade template uses sev-pill).
+    assert "sev-pill Critical" in html
 
 
 def test_html_includes_finding_card():
@@ -240,9 +240,20 @@ def test_html_includes_finding_card():
     assert "Standards Cited" in html
 
 
+def test_html_has_vapt_structure():
+    html = render_html(_sample_data())
+    # Cover page + executive summary + scope + findings + appendix
+    assert "Mobile Application Security Assessment" in html
+    assert "CONFIDENTIAL" in html
+    assert "Executive Summary" in html
+    assert "Scope &amp; Methodology" in html
+    assert "Technical Findings" in html
+    assert "Appendix" in html
+
+
 def test_html_renders_no_findings_gracefully():
     empty = build_report_data(
         findings=[], package="com.x", version="0", session_id="s12345678",
     )
     html = render_html(empty)
-    assert "No findings" in html
+    assert "No findings identified" in html

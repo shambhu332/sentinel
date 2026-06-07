@@ -89,6 +89,7 @@ async function paint(scanId, summary) {
   const tabsConfig = [
     { id: 'summary',  label: 'Summary',  icon: 'layout-grid' },
     { id: 'findings', label: 'Findings', icon: 'shield-alert', count: findings.length },
+    { id: 'vapt',     label: 'VAPT Report', icon: 'file-text' },
     { id: 'json',     label: 'Raw JSON', icon: 'braces' },
     { id: 'warn',     label: 'Warnings', icon: 'alert-triangle', count: (result?.warnings || []).length },
   ];
@@ -107,6 +108,7 @@ async function paint(scanId, summary) {
 
   renderSummaryPane(summary, findings, result);
   renderFindingsPane(findings, summary.status);
+  renderVaptPane(scanId, summary);
   renderJsonPane(scanId, summary, result, findings);
   renderWarningsPane(result?.warnings || []);
   refreshIcons();
@@ -437,6 +439,108 @@ function renderJsonPane(scanId, summary, result, findings) {
   const json = JSON.stringify(result || { summary, findings }, null, 2);
   pane.appendChild(codeBlock(json, { showLineNumbers: true }));
   refreshIcons();
+}
+
+function renderVaptPane(scanId, summary) {
+  const pane = document.querySelector('[data-pane="vapt"]');
+  pane.innerHTML = '';
+
+  // If the scan hasn't finished Phase 8 yet, the report isn't on disk.
+  // Probe /reports first; the iframe fallback would only show a 404 page.
+  api.listReports().then((reports) => {
+    const found = (reports || []).some(r => r.session_id === scanId);
+    if (!found) {
+      pane.appendChild(el('div', { class: 'empty-state' },
+        el('i', { 'data-lucide': 'file-clock' }),
+        el('h3', {}, 'VAPT report not yet generated'),
+        el('p', {}, ACTIVE_STATES.has(summary.status)
+          ? 'The report is produced during Phase 8 (Reporting) after analysis completes. This pane will refresh when the scan finishes.'
+          : 'No report artifact was found on disk for this scan. Re-run the scan or check workspace permissions.'),
+      ));
+      refreshIcons();
+      return;
+    }
+    mountVaptIframe(pane, scanId);
+  }).catch(() => {
+    pane.appendChild(el('div', { class: 'empty-state' },
+      el('i', { 'data-lucide': 'wifi-off' }),
+      el('h3', {}, 'Could not reach the reports service'),
+      el('p', {}, 'Check that the gateway is running and try again.'),
+    ));
+    refreshIcons();
+  });
+}
+
+function mountVaptIframe(pane, scanId) {
+  const htmlUrl = api.reportUrl(scanId, 'html');
+  const mdUrl   = api.reportUrl(scanId, 'markdown');
+  const jsonUrl = api.reportUrl(scanId, 'json');
+
+  const toolbar = el('div', {
+    style: 'display:flex; justify-content:space-between; align-items:center; '
+         + 'gap:12px; margin-bottom: 12px; flex-wrap: wrap;',
+  },
+    el('div', { style: 'display:flex; align-items:center; gap:8px;' },
+      el('i', { 'data-lucide': 'shield-check', style: 'width:16px;height:16px;color:var(--accent-2,#22d3ee);' }),
+      el('div', {},
+        el('div', { style: 'font-weight:600;' }, 'Professional VAPT Report'),
+        el('div', { class: 'text-muted', style: 'font-size:12px;' },
+          'Client-ready engagement deliverable · ', el('span', { class: 'mono' }, scanId)),
+      ),
+    ),
+    el('div', { style: 'display:flex; gap:8px;' },
+      el('button', {
+        class: 'btn btn-secondary btn-sm',
+        onclick: () => printVaptIframe(),
+      },
+        el('i', { 'data-lucide': 'printer' }), 'Export PDF'),
+      el('a', {
+        class: 'btn btn-secondary btn-sm',
+        href: htmlUrl, target: '_blank', rel: 'noopener',
+      },
+        el('i', { 'data-lucide': 'external-link' }), 'Open full'),
+      el('a', {
+        class: 'btn btn-secondary btn-sm',
+        href: htmlUrl, download: `VAPT_Report_${scanId}.html`,
+      },
+        el('i', { 'data-lucide': 'download' }), 'HTML'),
+      el('a', {
+        class: 'btn btn-secondary btn-sm',
+        href: mdUrl, download: `VAPT_Report_${scanId}.md`,
+      },
+        el('i', { 'data-lucide': 'file-down' }), 'Markdown'),
+      el('a', {
+        class: 'btn btn-secondary btn-sm',
+        href: jsonUrl, download: `VAPT_Report_${scanId}.json`,
+      },
+        el('i', { 'data-lucide': 'braces' }), 'JSON'),
+    ),
+  );
+
+  const frame = el('iframe', {
+    id: 'vapt-frame',
+    src: htmlUrl,
+    title: 'VAPT Report',
+    style: 'width:100%; height: calc(100vh - 240px); min-height: 600px; '
+         + 'border: 1px solid var(--border, #1F2940); border-radius: 8px; '
+         + 'background: white;',
+  });
+
+  pane.appendChild(toolbar);
+  pane.appendChild(frame);
+  refreshIcons();
+}
+
+function printVaptIframe() {
+  const frame = document.getElementById('vapt-frame');
+  if (!frame) return;
+  try {
+    frame.contentWindow.focus();
+    frame.contentWindow.print();
+  } catch (e) {
+    toast('Print failed — opening report in a new tab instead', 'error');
+    window.open(frame.src, '_blank');
+  }
 }
 
 function renderWarningsPane(warnings) {
