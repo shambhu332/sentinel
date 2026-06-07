@@ -305,6 +305,7 @@ async def _run_scan(
         DataInTransitAgent,
         DynamicCodeLoadingAgent,
         FlagSecureMissingAgent,
+        GraphqlPersistedQueryAgent,
         IapBypassAgent,
         IdorCandidateAgent,
         ImplicitIntentLeakAgent,
@@ -545,6 +546,7 @@ async def _run_scan(
                 JwtWeaknessAgent,             # D_010 (Sprint 8.6 mitmproxy)
                 ThirdPartyPiiLeakAgent,       # D_013 (Sprint 8.7 mitmproxy)
                 CookieHardeningAgent,         # D_014 (Sprint 8.7 mitmproxy)
+                GraphqlPersistedQueryAgent,   # D_017 (Sprint 8.9 mitmproxy)
             ])
         if dynamic and frida:
             agent_list.append(RuntimeCryptoAgent)        # A_003 (Sprint 8.2A DAST)

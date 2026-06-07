@@ -35,10 +35,14 @@ Sprint 8.6 agents (token + web analysis):
 - D_014 Cookie Hardening Audit
 - D_015 Implicit Intent Sensitive Extras Leak
 - D_016 Accessibility / NotificationListener Abuse Pattern
+- D_017 GraphQL Persisted-Query Bypass
 """
 from sentinel.agents.dynamic.cert_pinning_bypass_agent import CertPinningBypassAgent
 from sentinel.agents.dynamic.d016_accessibility_abuse_agent import (
     AccessibilityAbuseAgent,
+)
+from sentinel.agents.dynamic.d017_graphql_persisted_query_agent import (
+    GraphqlPersistedQueryAgent,
 )
 from sentinel.agents.dynamic.d001_clipboard_leak_agent import ClipboardLeakAgent
 from sentinel.agents.dynamic.d002_flag_secure_missing_agent import (
@@ -89,6 +93,7 @@ __all__ = [
     "DataInTransitAgent",
     "DynamicCodeLoadingAgent",
     "FlagSecureMissingAgent",
+    "GraphqlPersistedQueryAgent",
     "IapBypassAgent",
     "IdorCandidateAgent",
     "ImplicitIntentLeakAgent",
