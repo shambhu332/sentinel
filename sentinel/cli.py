@@ -300,6 +300,7 @@ async def _run_scan(
         WebViewDebugFlagAgent,
     )
     from sentinel.agents.platform import (
+        ActivityResultLeakAgent,
         ContentProviderIDORAgent,
         DeepLinkHijackAgent,
         ExcessivePermissionsAgent,
@@ -473,6 +474,7 @@ async def _run_scan(
             DeepLinkHijackAgent,              # P_001
             ExcessivePermissionsAgent,        # P_005 (manifest sensitive-perm audit)
             UnprotectedBroadcastAgent,        # P_006 (sendBroadcast without permission)
+            ActivityResultLeakAgent,          # P_007 (exported activity → credential extras)
             ContentProviderIDORAgent,         # P_004
             IntentRedirectAgent,              # P_010 (CWE-926 AST)
             ReceiverChainHijackAgent,         # P_011 (exported-receiver chain hijack)
@@ -1184,6 +1186,7 @@ async def _run_static_scan(
         WebViewDebugFlagAgent,
     )
     from sentinel.agents.platform import (
+        ActivityResultLeakAgent,
         ContentProviderIDORAgent,
         DeepLinkHijackAgent,
         ExcessivePermissionsAgent,
@@ -1246,7 +1249,7 @@ async def _run_static_scan(
         DeepLinkHijackAgent, ContentProviderIDORAgent,
         IntentRedirectAgent, ReceiverChainHijackAgent,
         MutablePendingIntentAgent, ExcessivePermissionsAgent,
-        UnprotectedBroadcastAgent, IpcExposureAgent,
+        UnprotectedBroadcastAgent, ActivityResultLeakAgent, IpcExposureAgent,
         NativeLibraryAgent, LoadLibraryTaintAgent, AntiTamperAgent,
         SCAAgent, TaintAgent, ReactNativeAgent, FlutterAgent,
         SemgrepAgent, InsecureSharedPrefsAgent, InsecureFileProviderAgent,
