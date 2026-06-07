@@ -857,6 +857,15 @@ export const AGENTS = [
     severities: ['high', 'medium'],
     description: "Audits KeyGenParameterSpec for missing user-auth, biometric-enrollment hijack, wide validity windows, and StrongBox gaps.",
   },
+  {
+    id: 'D_027',
+    name: "ZipPathTraversal",
+    vuln_class: "Zip-Slip / Archive Path Traversal",
+    phase: "dynamic",
+    category: "storage",
+    severities: ['critical', 'high', 'medium'],
+    description: "Detects archive entries with .. / absolute-path names and confirms Zip-Slip by canonical-path-checking the extracted FileOutputStream.",
+  },
 ];
 
 export const CATEGORIES = [

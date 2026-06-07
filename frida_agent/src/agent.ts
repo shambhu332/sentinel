@@ -36,6 +36,7 @@ import { installContentProviderHooks } from "./hooks/content_provider.js";
 import { installFileProviderHooks } from "./hooks/file_provider.js";
 import { installLocationHooks } from "./hooks/location.js";
 import { installKeystoreHooks } from "./hooks/keystore.js";
+import { installZipHooks } from "./hooks/zip.js";
 import { emitHooksSummary } from "./hooks/diagnostics.js";
 
 // Native hooks first — independent of Java bridge readiness.
@@ -124,6 +125,9 @@ waitForJava("sentinel-agent", () => {
 
     try { installKeystoreHooks(); }
     catch (e) { sendError(`keystore: ${String(e)}`); }
+
+    try { installZipHooks(); }
+    catch (e) { sendError(`zip: ${String(e)}`); }
 
     try { emitHooksSummary(result, subclassesHooked, nativeHooks); }
     catch (e) { sendError(`summary: ${String(e)}`); }

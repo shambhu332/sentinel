@@ -114,6 +114,8 @@ class FridaHookEvent:
     - "file_provider.uri_minted": FileProvider.getUriForFile (D_024)
     - "location.update_requested": requestLocationUpdates (D_025)
     - "keystore.key_spec_built": KeyGenParameterSpec$Builder.build (D_026)
+    - "zip.entry_observed": ZipInputStream.getNextEntry / ZipFile.getEntry (D_027)
+    - "zip.entry_extracted": FileOutputStream.<init> in a Zip read stack (D_027)
     - "error": something went wrong inside the script
     """
     kind: str

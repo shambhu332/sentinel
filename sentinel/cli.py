@@ -326,6 +326,7 @@ async def _run_scan(
         StaticIvReuseAgent,
         ThirdPartyPiiLeakAgent,
         WebViewRuntimeAgent,
+        ZipPathTraversalAgent,
     )
     from sentinel.agents.logging import InsecureLoggingAgent
     from sentinel.agents.meta import DebuggableManifestAgent, ObfuscationDetectorAgent
@@ -580,6 +581,7 @@ async def _run_scan(
             agent_list.append(FileProviderTraversalAgent)       # D_024 (Sprint 8.11 DAST)
             agent_list.append(BackgroundLocationLeakAgent)      # D_025 (Sprint 8.11 DAST)
             agent_list.append(InsecureKeystoreUsageAgent)       # D_026 (Sprint 8.11 DAST)
+            agent_list.append(ZipPathTraversalAgent)            # D_027 (Sprint 8.12 DAST)
 
         if profile_name:
             from sentinel.profiles import load_profile

@@ -433,3 +433,25 @@ export function sendKeystoreKeySpecBuilt(p: {
 }): void {
     send({ kind: "keystore.key_spec_built", ...p });
 }
+
+/* ------- D_027: ZIP extraction observation ------- */
+
+export function sendZipEntryObserved(p: {
+    name?: string;
+    size?: number;
+    source?: string;
+    stack?: string;
+}): void {
+    send({ kind: "zip.entry_observed", ...p });
+}
+
+export function sendZipEntryExtracted(p: {
+    entry_name?: string;
+    target_path?: string;
+    canonical_path?: string;
+    intended_dir?: string;
+    escaped_intended_dir?: boolean;
+    stack?: string;
+}): void {
+    send({ kind: "zip.entry_extracted", ...p });
+}
