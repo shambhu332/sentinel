@@ -141,6 +141,15 @@ def serve(host: str, port: int, reload: bool) -> None:
                    "to a custom .json). Reorders the agent roster so the "
                    "agents most relevant to the category run first; "
                    "coverage is unchanged.")
+@click.option("--active-replay", "active_replay", is_flag=True,
+              help="EXPERIMENTAL: allow verifiers to issue live HTTP "
+                   "replays against the application's backend in order "
+                   "to promote candidate findings (race-condition, IDOR, "
+                   "third-party token leak) to VERIFIED. Off by default. "
+                   "Replays are budget-capped (max 50 requests / 10s "
+                   "timeout / host allow-list from the original mitm "
+                   "capture). Only enable on hosts you are authorised "
+                   "to test.")
 @click.option("--generate-patch", "generate_patch", is_flag=True,
               help="EXPERIMENTAL: ask the LLM to suggest a unified-diff "
                    "fix for each VERIFIED finding. Patches are "
@@ -177,6 +186,7 @@ def scan(
     keep_workspace: bool,
     profile_name: str | None,
     static_only: bool,
+    active_replay: bool,
     generate_patch: bool,
     patches_dir: Path,
 ) -> None:
@@ -185,6 +195,11 @@ def scan(
         raise click.UsageError(
             "--static-only cannot be combined with --dynamic / --frida / "
             "--frida-spawn",
+        )
+    if active_replay and not dynamic:
+        raise click.UsageError(
+            "--active-replay requires --dynamic — verifiers need the "
+            "mitmproxy capture to know which endpoints to replay.",
         )
     if generate_patch and no_triage:
         raise click.UsageError(
@@ -213,6 +228,7 @@ def scan(
         no_proxy=no_proxy,
         keep_workspace=keep_workspace,
         profile_name=profile_name,
+        active_replay=active_replay,
         generate_patch=generate_patch,
         patches_dir=patches_dir,
     ))
@@ -238,6 +254,7 @@ async def _run_scan(
     no_proxy: bool,
     keep_workspace: bool,
     profile_name: str | None = None,
+    active_replay: bool = False,
     generate_patch: bool = False,
     patches_dir: Path = Path("./output/patches"),
     no_rag: bool = False,
@@ -279,6 +296,7 @@ async def _run_scan(
     )
     from sentinel.agents.data_storage import WorldReadableStorageAgent
     from sentinel.agents.dynamic import (
+        AccessibilityAbuseAgent,
         AntiTamperCoverageAgent,
         BiometricWeakAgent,
         CertPinningBypassAgent,
@@ -429,8 +447,16 @@ async def _run_scan(
             apk_path=apk_path,
             workspace=workspace,
             scope=scope,
+            active_replay=active_replay,
         )
 
+        if active_replay:
+            console.print(
+                "[bold yellow]⚠  --active-replay enabled[/] — verifiers "
+                "may issue live HTTP requests against the application's "
+                "backend (capped: 50 requests, 10s timeout, host "
+                "allow-list from mitm capture).",
+            )
         console.print(f"[bold]Session:[/]   {ctx.session_id}")
         console.print()
 
@@ -533,6 +559,7 @@ async def _run_scan(
             agent_list.append(WebViewRuntimeAgent)       # D_011 (Sprint 8.6 DAST)
             agent_list.append(NotificationLeakAgent)     # D_012 (Sprint 8.6 DAST)
             agent_list.append(ImplicitIntentLeakAgent)   # D_015 (Sprint 8.8 DAST)
+            agent_list.append(AccessibilityAbuseAgent)   # D_016 (Sprint 8.8 DAST)
 
         if profile_name:
             from sentinel.profiles import load_profile
