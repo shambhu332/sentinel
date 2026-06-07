@@ -112,6 +112,7 @@ class FridaHookEvent:
     - "provider.uri_opened": ContentResolver.openFileDescriptor (D_023)
     - "provider.query_returned": ContentResolver.query cursor leak (D_023)
     - "file_provider.uri_minted": FileProvider.getUriForFile (D_024)
+    - "location.update_requested": requestLocationUpdates (D_025)
     - "error": something went wrong inside the script
     """
     kind: str

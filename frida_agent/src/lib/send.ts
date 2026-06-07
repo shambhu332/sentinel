@@ -405,3 +405,16 @@ export function sendFileProviderUriMinted(p: {
 }): void {
     send({ kind: "file_provider.uri_minted", ...p });
 }
+
+/* ------- D_025: background location request ------- */
+
+export function sendLocationUpdateRequested(p: {
+    api?: string;
+    caller_class?: string;
+    importance?: number;
+    interval_ms?: number;
+    priority?: number;
+    stack?: string;
+}): void {
+    send({ kind: "location.update_requested", ...p });
+}

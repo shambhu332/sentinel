@@ -43,6 +43,7 @@ Sprint 8.6 agents (token + web analysis):
 - D_022 Local-Socket Server Exposed Across App Boundary
 - D_023 ContentProvider URI Exposure to Cross-UID Caller
 - D_024 FileProvider Path-Traversal / Symlink Escape
+- D_025 Background Location Request from Non-Foreground Context
 """
 from sentinel.agents.dynamic.cert_pinning_bypass_agent import CertPinningBypassAgent
 from sentinel.agents.dynamic.d016_accessibility_abuse_agent import (
@@ -71,6 +72,9 @@ from sentinel.agents.dynamic.d023_content_provider_uri_exposure_agent import (
 )
 from sentinel.agents.dynamic.d024_file_provider_traversal_agent import (
     FileProviderTraversalAgent,
+)
+from sentinel.agents.dynamic.d025_background_location_leak_agent import (
+    BackgroundLocationLeakAgent,
 )
 from sentinel.agents.dynamic.d001_clipboard_leak_agent import ClipboardLeakAgent
 from sentinel.agents.dynamic.d002_flag_secure_missing_agent import (
@@ -114,6 +118,7 @@ from sentinel.agents.dynamic.runtime_crypto_agent import RuntimeCryptoAgent
 __all__ = [
     "AccessibilityAbuseAgent",
     "AntiTamperCoverageAgent",
+    "BackgroundLocationLeakAgent",
     "BiometricWeakAgent",
     "CertPinningBypassAgent",
     "ClipboardLeakAgent",

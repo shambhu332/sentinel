@@ -298,6 +298,7 @@ async def _run_scan(
     from sentinel.agents.dynamic import (
         AccessibilityAbuseAgent,
         AntiTamperCoverageAgent,
+        BackgroundLocationLeakAgent,
         BiometricWeakAgent,
         CertPinningBypassAgent,
         ClipboardLeakAgent,
@@ -576,6 +577,7 @@ async def _run_scan(
             agent_list.append(LocalSocketServerAgent)      # D_022 (Sprint 8.10 DAST)
             agent_list.append(ContentProviderUriExposureAgent)  # D_023 (Sprint 8.11 DAST)
             agent_list.append(FileProviderTraversalAgent)       # D_024 (Sprint 8.11 DAST)
+            agent_list.append(BackgroundLocationLeakAgent)      # D_025 (Sprint 8.11 DAST)
 
         if profile_name:
             from sentinel.profiles import load_profile
