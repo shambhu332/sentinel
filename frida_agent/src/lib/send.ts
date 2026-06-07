@@ -418,3 +418,18 @@ export function sendLocationUpdateRequested(p: {
 }): void {
     send({ kind: "location.update_requested", ...p });
 }
+
+/* ------- D_026: Keystore key generation ------- */
+
+export function sendKeystoreKeySpecBuilt(p: {
+    alias?: string;
+    purposes?: number;
+    user_auth_required?: boolean;
+    invalidated_by_biometric_enrollment?: boolean | null;
+    strong_box_backed?: boolean | null;
+    validity_duration_seconds?: number | null;
+    user_confirmation_required?: boolean | null;
+    stack?: string;
+}): void {
+    send({ kind: "keystore.key_spec_built", ...p });
+}

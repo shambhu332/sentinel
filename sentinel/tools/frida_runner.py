@@ -113,6 +113,7 @@ class FridaHookEvent:
     - "provider.query_returned": ContentResolver.query cursor leak (D_023)
     - "file_provider.uri_minted": FileProvider.getUriForFile (D_024)
     - "location.update_requested": requestLocationUpdates (D_025)
+    - "keystore.key_spec_built": KeyGenParameterSpec$Builder.build (D_026)
     - "error": something went wrong inside the script
     """
     kind: str

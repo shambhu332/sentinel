@@ -44,6 +44,7 @@ Sprint 8.6 agents (token + web analysis):
 - D_023 ContentProvider URI Exposure to Cross-UID Caller
 - D_024 FileProvider Path-Traversal / Symlink Escape
 - D_025 Background Location Request from Non-Foreground Context
+- D_026 Insecure Android-Keystore Key Generation
 """
 from sentinel.agents.dynamic.cert_pinning_bypass_agent import CertPinningBypassAgent
 from sentinel.agents.dynamic.d016_accessibility_abuse_agent import (
@@ -75,6 +76,9 @@ from sentinel.agents.dynamic.d024_file_provider_traversal_agent import (
 )
 from sentinel.agents.dynamic.d025_background_location_leak_agent import (
     BackgroundLocationLeakAgent,
+)
+from sentinel.agents.dynamic.d026_insecure_keystore_usage_agent import (
+    InsecureKeystoreUsageAgent,
 )
 from sentinel.agents.dynamic.d001_clipboard_leak_agent import ClipboardLeakAgent
 from sentinel.agents.dynamic.d002_flag_secure_missing_agent import (
@@ -134,6 +138,7 @@ __all__ = [
     "IdorCandidateAgent",
     "ImplicitIntentLeakAgent",
     "ImproperTLSAgent",
+    "InsecureKeystoreUsageAgent",
     "JwtWeaknessAgent",
     "LocalSocketServerAgent",
     "NotificationLeakAgent",

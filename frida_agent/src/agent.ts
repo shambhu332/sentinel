@@ -35,6 +35,7 @@ import { installRegistrationHooks } from "./hooks/registrations.js";
 import { installContentProviderHooks } from "./hooks/content_provider.js";
 import { installFileProviderHooks } from "./hooks/file_provider.js";
 import { installLocationHooks } from "./hooks/location.js";
+import { installKeystoreHooks } from "./hooks/keystore.js";
 import { emitHooksSummary } from "./hooks/diagnostics.js";
 
 // Native hooks first — independent of Java bridge readiness.
@@ -120,6 +121,9 @@ waitForJava("sentinel-agent", () => {
 
     try { installLocationHooks(); }
     catch (e) { sendError(`location: ${String(e)}`); }
+
+    try { installKeystoreHooks(); }
+    catch (e) { sendError(`keystore: ${String(e)}`); }
 
     try { emitHooksSummary(result, subclassesHooked, nativeHooks); }
     catch (e) { sendError(`summary: ${String(e)}`); }
