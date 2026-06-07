@@ -304,6 +304,7 @@ async def _run_scan(
         CookieHardeningAgent,
         DataInTransitAgent,
         DynamicCodeLoadingAgent,
+        DynamicReceiverExportAgent,
         FlagSecureMissingAgent,
         GraphqlPersistedQueryAgent,
         IapBypassAgent,
@@ -311,7 +312,9 @@ async def _run_scan(
         ImplicitIntentLeakAgent,
         ImproperTLSAgent,
         JwtWeaknessAgent,
+        LocalSocketServerAgent,
         NotificationLeakAgent,
+        PendingIntentMutableAgent,
         RaceConditionCandidateAgent,
         RuntimeCryptoAgent,
         ScreenCaptureAgent,
@@ -566,6 +569,9 @@ async def _run_scan(
             agent_list.append(AccessibilityAbuseAgent)   # D_016 (Sprint 8.8 DAST)
             agent_list.append(SmsPermissionAbuseAgent)   # D_018 (Sprint 8.9 DAST)
             agent_list.append(ScreenCaptureAgent)        # D_019 (Sprint 8.9 DAST)
+            agent_list.append(DynamicReceiverExportAgent)  # D_020 (Sprint 8.10 DAST)
+            agent_list.append(PendingIntentMutableAgent)   # D_021 (Sprint 8.10 DAST)
+            agent_list.append(LocalSocketServerAgent)      # D_022 (Sprint 8.10 DAST)
 
         if profile_name:
             from sentinel.profiles import load_profile

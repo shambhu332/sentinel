@@ -334,3 +334,38 @@ export function sendMediaRecorderVideoSource(p: {
 }): void {
     send({ kind: "screen.media_recorder_set_video_source", ...p });
 }
+
+/* ------- D_020: dynamic receiver registration ------- */
+
+export function sendDynamicReceiverRegistered(p: {
+    receiver_class?: string;
+    actions?: string[];
+    flags?: number;
+    has_explicit_export?: boolean;
+    permission?: string;
+    stack?: string;
+}): void {
+    send({ kind: "receiver.dynamic_registered", ...p });
+}
+
+/* ------- D_021: PendingIntent factory ------- */
+
+export function sendPendingIntentCreated(p: {
+    factory?: string;
+    flags?: number;
+    intent_action?: string;
+    intent_has_component?: boolean;
+    stack?: string;
+}): void {
+    send({ kind: "pending_intent.created", ...p });
+}
+
+/* ------- D_022: LocalServerSocket ------- */
+
+export function sendLocalSocketServerCreated(p: {
+    namespace?: string;
+    name?: string;
+    stack?: string;
+}): void {
+    send({ kind: "local_socket.server_created", ...p });
+}

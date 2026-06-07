@@ -38,6 +38,9 @@ Sprint 8.6 agents (token + web analysis):
 - D_017 GraphQL Persisted-Query Bypass
 - D_018 SMS Permission / Retriever-API Abuse
 - D_019 Screen Capture / MediaProjection Pipeline
+- D_020 Dynamically-Registered Receiver Implicit Export
+- D_021 PendingIntent Mutable at Runtime
+- D_022 Local-Socket Server Exposed Across App Boundary
 """
 from sentinel.agents.dynamic.cert_pinning_bypass_agent import CertPinningBypassAgent
 from sentinel.agents.dynamic.d016_accessibility_abuse_agent import (
@@ -51,6 +54,15 @@ from sentinel.agents.dynamic.d018_sms_permission_abuse_agent import (
 )
 from sentinel.agents.dynamic.d019_screen_capture_agent import (
     ScreenCaptureAgent,
+)
+from sentinel.agents.dynamic.d020_dynamic_receiver_export_agent import (
+    DynamicReceiverExportAgent,
+)
+from sentinel.agents.dynamic.d021_pending_intent_mutable_agent import (
+    PendingIntentMutableAgent,
+)
+from sentinel.agents.dynamic.d022_local_socket_server_agent import (
+    LocalSocketServerAgent,
 )
 from sentinel.agents.dynamic.d001_clipboard_leak_agent import ClipboardLeakAgent
 from sentinel.agents.dynamic.d002_flag_secure_missing_agent import (
@@ -100,6 +112,7 @@ __all__ = [
     "CookieHardeningAgent",
     "DataInTransitAgent",
     "DynamicCodeLoadingAgent",
+    "DynamicReceiverExportAgent",
     "FlagSecureMissingAgent",
     "GraphqlPersistedQueryAgent",
     "IapBypassAgent",
@@ -107,7 +120,9 @@ __all__ = [
     "ImplicitIntentLeakAgent",
     "ImproperTLSAgent",
     "JwtWeaknessAgent",
+    "LocalSocketServerAgent",
     "NotificationLeakAgent",
+    "PendingIntentMutableAgent",
     "RaceConditionCandidateAgent",
     "RuntimeCryptoAgent",
     "ScreenCaptureAgent",

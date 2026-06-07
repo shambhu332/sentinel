@@ -106,6 +106,9 @@ class FridaHookEvent:
     - "screen.virtual_display_created": MediaProjection.createVirtualDisplay (D_019)
     - "screen.image_reader_used": ImageReader.acquireLatestImage / Next (D_019)
     - "screen.media_recorder_set_video_source": MediaRecorder.setVideoSource (D_019)
+    - "receiver.dynamic_registered": Context.registerReceiver (D_020)
+    - "pending_intent.created": PendingIntent.getActivity / etc. (D_021)
+    - "local_socket.server_created": LocalServerSocket.<init> (D_022)
     - "error": something went wrong inside the script
     """
     kind: str
