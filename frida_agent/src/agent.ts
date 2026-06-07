@@ -29,6 +29,7 @@ import { installWebViewRuntimeHooks } from "./hooks/webview_runtime.js";
 import { installNotificationHooks } from "./hooks/notifications.js";
 import { installIntentDispatchHooks } from "./hooks/intent_dispatch.js";
 import { installAccessibilityHooks } from "./hooks/accessibility.js";
+import { installSmsHooks } from "./hooks/sms.js";
 import { emitHooksSummary } from "./hooks/diagnostics.js";
 
 // Native hooks first — independent of Java bridge readiness.
@@ -96,6 +97,9 @@ waitForJava("sentinel-agent", () => {
 
     try { installAccessibilityHooks(); }
     catch (e) { sendError(`accessibility: ${String(e)}`); }
+
+    try { installSmsHooks(); }
+    catch (e) { sendError(`sms: ${String(e)}`); }
 
     try { emitHooksSummary(result, subclassesHooked, nativeHooks); }
     catch (e) { sendError(`summary: ${String(e)}`); }

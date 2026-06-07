@@ -275,3 +275,29 @@ export function sendNotifListenerReceived(p: {
 }): void {
     send({ kind: "notif_listener.notification_received", ...p });
 }
+
+/* ------- D_018: SMS permission usage ------- */
+
+export function sendSmsBroadcast(p: {
+    sender?: string;
+    body_redacted?: string;
+    has_otp_shape?: boolean;
+    source_method?: string;
+    stack?: string;
+}): void {
+    send({ kind: "sms.broadcast_received", ...p });
+}
+
+export function sendSmsProviderQuery(p: {
+    uri?: string;
+    stack?: string;
+}): void {
+    send({ kind: "sms.content_provider_query", ...p });
+}
+
+export function sendSmsRetrieverStarted(p: {
+    api?: string;
+    stack?: string;
+}): void {
+    send({ kind: "sms.retriever_started", ...p });
+}

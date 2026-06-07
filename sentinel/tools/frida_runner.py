@@ -99,6 +99,9 @@ class FridaHookEvent:
     - "a11y.event_observed": AccessibilityService.onAccessibilityEvent (D_016)
     - "a11y.action_performed": AccessibilityNodeInfo.performAction (D_016)
     - "notif_listener.notification_received": NotificationListener.onNotificationPosted (D_016)
+    - "sms.broadcast_received": BroadcastReceiver.onReceive on SMS_RECEIVED (D_018)
+    - "sms.content_provider_query": ContentResolver.query on content://sms (D_018)
+    - "sms.retriever_started": SmsRetrieverClient.startSmsRetriever (D_018)
     - "error": something went wrong inside the script
     """
     kind: str
