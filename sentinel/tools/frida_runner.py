@@ -79,6 +79,13 @@ class FridaHookEvent:
     - "ui.sensitive_input_seen": EditText with password/PIN input type (D_002)
     - "ui.window_flags": Window.setFlags/addFlags with secure flag state (D_002)
     - "biometric.prompt": BiometricPrompt.Builder configuration (D_003)
+    - "tamper.root_check": File.exists/Runtime.exec for root indicators (D_004)
+    - "tamper.emulator_check": Build.* / SystemProperties.get reads (D_004)
+    - "tamper.integrity_check": PackageManager.getPackageInfo signatures (D_004)
+    - "tamper.debugger_check": Debug.isDebuggerConnected (D_004)
+    - "code_loading.dex_load": Dex/Path/InMemoryDexClassLoader (D_005)
+    - "code_loading.native_load": System.load (D_005)
+    - "code_loading.exec": Runtime.exec (D_005)
     - "error": something went wrong inside the script
     """
     kind: str

@@ -21,6 +21,8 @@ import { installNativeHooks } from "./hooks/pinning_native.js";
 import { installClipboardHooks } from "./hooks/clipboard.js";
 import { installWindowFlagHooks } from "./hooks/window_flags.js";
 import { installBiometricHooks } from "./hooks/biometric.js";
+import { installAntiTamperHooks } from "./hooks/anti_tamper.js";
+import { installCodeLoadingHooks } from "./hooks/code_loading.js";
 import { emitHooksSummary } from "./hooks/diagnostics.js";
 
 // Native hooks first — independent of Java bridge readiness.
@@ -64,6 +66,12 @@ waitForJava("sentinel-agent", () => {
 
     try { installBiometricHooks(); }
     catch (e) { sendError(`biometric: ${String(e)}`); }
+
+    try { installAntiTamperHooks(); }
+    catch (e) { sendError(`anti_tamper: ${String(e)}`); }
+
+    try { installCodeLoadingHooks(); }
+    catch (e) { sendError(`code_loading: ${String(e)}`); }
 
     try { emitHooksSummary(result, subclassesHooked, nativeHooks); }
     catch (e) { sendError(`summary: ${String(e)}`); }

@@ -110,3 +110,38 @@ export function sendBiometricPrompt(p: {
 }): void {
     send({ kind: "biometric.prompt", ...p });
 }
+
+/* ------- Sprint 8.4: anti-tamper + dynamic code loading ------- */
+
+export function sendTamperCheck(category: string, p: {
+    api: string;
+    value?: string;
+    result?: unknown;
+    stack?: string;
+}): void {
+    send({ kind: `tamper.${category}`, ...p });
+}
+
+export function sendDexLoad(p: {
+    loader_class: string;
+    path?: string;
+    stack?: string;
+}): void {
+    send({ kind: "code_loading.dex_load", ...p });
+}
+
+export function sendNativeLoad(p: {
+    loader_class: string;
+    path?: string;
+    stack?: string;
+}): void {
+    send({ kind: "code_loading.native_load", ...p });
+}
+
+export function sendRuntimeExec(p: {
+    loader_class: string;
+    path?: string;
+    stack?: string;
+}): void {
+    send({ kind: "code_loading.exec", ...p });
+}
