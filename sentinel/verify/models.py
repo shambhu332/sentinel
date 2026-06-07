@@ -127,3 +127,7 @@ class VerifierContext:
     @property
     def frida_capture(self) -> Any | None:
         return (self.scan.sources or {}).get("frida")
+
+    @property
+    def active_replay(self) -> bool:
+        return bool(getattr(self.scan, "active_replay", False))

@@ -66,6 +66,11 @@ class VerifyEngine:
         engine and add only what they need.
         """
         # Local imports keep the module's top-level cheap.
+        from sentinel.verify.verifiers.active import (
+            IdorVerifier,
+            RaceConditionVerifier,
+            ThirdPartyTokenRedactionVerifier,
+        )
         from sentinel.verify.verifiers.frida import (
             RuntimeCryptoVerifier,
             TlsPinningBypassVerifier,
@@ -86,6 +91,9 @@ class VerifyEngine:
             CleartextTrafficVerifier,
             RuntimeCryptoVerifier,
             TlsPinningBypassVerifier,
+            RaceConditionVerifier,
+            IdorVerifier,
+            ThirdPartyTokenRedactionVerifier,
         ):
             self.register(cls())
 

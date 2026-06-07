@@ -56,6 +56,13 @@ class ScanContext:
         default_factory=lambda: datetime.now(timezone.utc),
     )
 
+    # Opt-in: when True, verifiers are allowed to issue active HTTP
+    # replays against the live backend (race-condition parallel-fire,
+    # IDOR perturbation, third-party token redaction). Off by default
+    # — verifiers without this flag set return UNSUPPORTED rather than
+    # touch a live system.
+    active_replay: bool = False
+
     def __post_init__(self) -> None:
         # Path resolution prevents traversal via ../ in user input
         self.workspace = self.workspace.expanduser().resolve()
