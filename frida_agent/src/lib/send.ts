@@ -145,3 +145,24 @@ export function sendRuntimeExec(p: {
 }): void {
     send({ kind: "code_loading.exec", ...p });
 }
+
+/* ------- D_006: runtime IV / key reuse ------- */
+
+export function sendIvConstructed(p: {
+    algorithm: string;
+    iv_hex: string;
+    iv_len?: number;
+    constant_pattern?: string;
+    stack?: string;
+}): void {
+    send({ kind: "crypto.iv_constructed", ...p });
+}
+
+export function sendSecretKeyCreated(p: {
+    algorithm: string;
+    key_hex: string;
+    key_len?: number;
+    stack?: string;
+}): void {
+    send({ kind: "crypto.secret_key_created", ...p });
+}

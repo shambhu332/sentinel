@@ -86,6 +86,8 @@ class FridaHookEvent:
     - "code_loading.dex_load": Dex/Path/InMemoryDexClassLoader (D_005)
     - "code_loading.native_load": System.load (D_005)
     - "code_loading.exec": Runtime.exec (D_005)
+    - "crypto.iv_constructed": IvParameterSpec/GCMParameterSpec ctor (D_006)
+    - "crypto.secret_key_created": SecretKeySpec ctor (D_006)
     - "error": something went wrong inside the script
     """
     kind: str

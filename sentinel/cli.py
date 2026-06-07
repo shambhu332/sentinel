@@ -287,7 +287,9 @@ async def _run_scan(
         DynamicCodeLoadingAgent,
         FlagSecureMissingAgent,
         ImproperTLSAgent,
+        RaceConditionCandidateAgent,
         RuntimeCryptoAgent,
+        StaticIvReuseAgent,
     )
     from sentinel.agents.logging import InsecureLoggingAgent
     from sentinel.agents.meta import DebuggableManifestAgent, ObfuscationDetectorAgent
@@ -504,6 +506,7 @@ async def _run_scan(
             agent_list.extend([
                 ImproperTLSAgent,             # N_003 (Sprint 8.1 DAST)
                 DataInTransitAgent,           # N_004 (Sprint 8.1 DAST)
+                RaceConditionCandidateAgent,  # D_007 (Sprint 8.5 mitmproxy)
             ])
         if dynamic and frida:
             agent_list.append(RuntimeCryptoAgent)        # A_003 (Sprint 8.2A DAST)
@@ -513,6 +516,7 @@ async def _run_scan(
             agent_list.append(BiometricWeakAgent)        # D_003 (Sprint 8.3 DAST)
             agent_list.append(AntiTamperCoverageAgent)   # D_004 (Sprint 8.4 DAST)
             agent_list.append(DynamicCodeLoadingAgent)   # D_005 (Sprint 8.4 DAST)
+            agent_list.append(StaticIvReuseAgent)        # D_006 (Sprint 8.4 DAST)
 
         if profile_name:
             from sentinel.profiles import load_profile

@@ -23,6 +23,7 @@ import { installWindowFlagHooks } from "./hooks/window_flags.js";
 import { installBiometricHooks } from "./hooks/biometric.js";
 import { installAntiTamperHooks } from "./hooks/anti_tamper.js";
 import { installCodeLoadingHooks } from "./hooks/code_loading.js";
+import { installCryptoIvHooks } from "./hooks/crypto_iv.js";
 import { emitHooksSummary } from "./hooks/diagnostics.js";
 
 // Native hooks first — independent of Java bridge readiness.
@@ -72,6 +73,9 @@ waitForJava("sentinel-agent", () => {
 
     try { installCodeLoadingHooks(); }
     catch (e) { sendError(`code_loading: ${String(e)}`); }
+
+    try { installCryptoIvHooks(); }
+    catch (e) { sendError(`crypto_iv: ${String(e)}`); }
 
     try { emitHooksSummary(result, subclassesHooked, nativeHooks); }
     catch (e) { sendError(`summary: ${String(e)}`); }

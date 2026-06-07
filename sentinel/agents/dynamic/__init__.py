@@ -20,6 +20,8 @@ Sprint 8.3 agents (UX / sensitive-surface):
 Sprint 8.4 agents (resilience / runtime integrity):
 - D_004 Anti-Tamper Coverage Observer
 - D_005 Dynamic Code Loading
+- D_006 Runtime IV / Key Reuse
+- D_007 Race-Condition / TOCTOU Candidate
 """
 from sentinel.agents.dynamic.cert_pinning_bypass_agent import CertPinningBypassAgent
 from sentinel.agents.dynamic.d001_clipboard_leak_agent import ClipboardLeakAgent
@@ -32,6 +34,12 @@ from sentinel.agents.dynamic.d004_anti_tamper_agent import (
 )
 from sentinel.agents.dynamic.d005_dynamic_code_loading_agent import (
     DynamicCodeLoadingAgent,
+)
+from sentinel.agents.dynamic.d006_static_iv_reuse_agent import (
+    StaticIvReuseAgent,
+)
+from sentinel.agents.dynamic.d007_race_condition_agent import (
+    RaceConditionCandidateAgent,
 )
 from sentinel.agents.dynamic.data_in_transit_agent import DataInTransitAgent
 from sentinel.agents.dynamic.improper_tls_agent import ImproperTLSAgent
@@ -46,5 +54,7 @@ __all__ = [
     "DynamicCodeLoadingAgent",
     "FlagSecureMissingAgent",
     "ImproperTLSAgent",
+    "RaceConditionCandidateAgent",
     "RuntimeCryptoAgent",
+    "StaticIvReuseAgent",
 ]
