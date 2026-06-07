@@ -294,6 +294,7 @@ async def _run_scan(
         RaceConditionCandidateAgent,
         RuntimeCryptoAgent,
         StaticIvReuseAgent,
+        ThirdPartyPiiLeakAgent,
         WebViewRuntimeAgent,
     )
     from sentinel.agents.logging import InsecureLoggingAgent
@@ -514,6 +515,7 @@ async def _run_scan(
                 RaceConditionCandidateAgent,  # D_007 (Sprint 8.5 mitmproxy)
                 IdorCandidateAgent,           # D_009 (Sprint 8.5 mitmproxy)
                 JwtWeaknessAgent,             # D_010 (Sprint 8.6 mitmproxy)
+                ThirdPartyPiiLeakAgent,       # D_013 (Sprint 8.7 mitmproxy)
             ])
         if dynamic and frida:
             agent_list.append(RuntimeCryptoAgent)        # A_003 (Sprint 8.2A DAST)

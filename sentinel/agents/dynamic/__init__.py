@@ -31,6 +31,7 @@ Sprint 8.6 agents (token + web analysis):
 - D_010 JWT Weakness
 - D_011 Insecure WebView Runtime Configuration
 - D_012 Sensitive Lockscreen Notification
+- D_013 Third-Party PII / Credential Leak
 """
 from sentinel.agents.dynamic.cert_pinning_bypass_agent import CertPinningBypassAgent
 from sentinel.agents.dynamic.d001_clipboard_leak_agent import ClipboardLeakAgent
@@ -59,6 +60,9 @@ from sentinel.agents.dynamic.d011_webview_runtime_agent import (
 from sentinel.agents.dynamic.d012_notification_leak_agent import (
     NotificationLeakAgent,
 )
+from sentinel.agents.dynamic.d013_third_party_pii_leak_agent import (
+    ThirdPartyPiiLeakAgent,
+)
 from sentinel.agents.dynamic.data_in_transit_agent import DataInTransitAgent
 from sentinel.agents.dynamic.improper_tls_agent import ImproperTLSAgent
 from sentinel.agents.dynamic.runtime_crypto_agent import RuntimeCryptoAgent
@@ -79,5 +83,6 @@ __all__ = [
     "RaceConditionCandidateAgent",
     "RuntimeCryptoAgent",
     "StaticIvReuseAgent",
+    "ThirdPartyPiiLeakAgent",
     "WebViewRuntimeAgent",
 ]
