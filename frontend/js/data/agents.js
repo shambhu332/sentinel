@@ -1,4 +1,4 @@
-// SENTINEL — Agent catalogue (69 agents, live registry as of v0.1.0)
+// SENTINEL — Agent catalogue (live registry).
 // Auto-generated from sentinel.agents — do not edit by hand.
 
 export const AGENTS = [
@@ -622,6 +622,42 @@ export const AGENTS = [
     category: "meta",
     severities: ['info'],
     description: "Emits one informational finding to prove the pipeline runs.",
+  },
+  {
+    id: 'D_023',
+    name: "ContentProviderUriExposure",
+    vuln_class: "ContentProvider URI Exposure to Cross-UID Caller",
+    phase: "dynamic",
+    category: "platform",
+    severities: ['critical', 'high', 'medium'],
+    description: "Catches cross-UID open/read of private-dir files and _data column path leaks via ContentProvider URIs.",
+  },
+  {
+    id: 'D_024',
+    name: "FileProviderTraversal",
+    vuln_class: "FileProvider Path-Traversal / Symlink Escape",
+    phase: "dynamic",
+    category: "storage",
+    severities: ['high', 'medium'],
+    description: "Detects FileProvider.getUriForFile calls whose canonical path escapes the declared paths.xml roots via symlinks or caller-supplied .. segments.",
+  },
+  {
+    id: 'D_025',
+    name: "BackgroundLocationLeak",
+    vuln_class: "Background Location Request",
+    phase: "dynamic",
+    category: "platform",
+    severities: ['high', 'medium'],
+    description: "Flags requestLocationUpdates issued from a Service / Receiver / Worker while the process is in a non-foreground importance state.",
+  },
+  {
+    id: 'D_026',
+    name: "InsecureKeystoreUsage",
+    vuln_class: "Insecure Android-Keystore Key Generation",
+    phase: "dynamic",
+    category: "crypto",
+    severities: ['high', 'medium'],
+    description: "Audits KeyGenParameterSpec for missing user-auth, biometric-enrollment hijack, wide validity windows, and StrongBox gaps.",
   },
 ];
 
