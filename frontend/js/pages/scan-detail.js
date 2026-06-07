@@ -357,6 +357,7 @@ function renderFindingsPane(findings, status) {
     el('th', { style: 'width: 90px;' }, 'Agent'),
     el('th', {}, 'Vulnerability'),
     el('th', { style: 'width: 120px;' }, 'Triage'),
+    el('th', { style: 'width: 120px;' }, 'Verify'),
     el('th', { style: 'width: 70px;' }, 'Conf.'),
     el('th', {}, 'Recommendation'),
   )));
@@ -368,6 +369,7 @@ function renderFindingsPane(findings, status) {
       el('td', {}, el('span', { class: 'mono', style: 'font-size: 12px;' }, f.agent_id)),
       el('td', {}, f.vuln_class),
       el('td', {}, triageChip(f.triage)),
+      el('td', {}, verifyChip(f)),
       el('td', {}, el('span', { class: 'mono', style: 'font-size: 12px;' }, (f.confidence * 100).toFixed(0) + '%')),
       el('td', {}, el('span', { class: 'text-muted', style: 'font-size: 13px;' },
         f.recommendation && f.recommendation.length > 100 ? f.recommendation.slice(0, 100) + '…' : f.recommendation)),
@@ -391,6 +393,28 @@ function triageChip(t) {
   return el('span', { class: `badge ${c.cls}`, style: 'font-size: 11px;' }, c.label);
 }
 
+function verifyChip(f) {
+  // The verify engine writes its result under evidence._verify.
+  // Outcomes: verified / refuted / inconclusive / unsupported.
+  const v = (f.evidence && f.evidence._verify) || null;
+  if (!v) {
+    return el('span', { class: 'badge badge-muted', style: 'font-size: 11px;', title: 'no verifier ran' },
+      '—');
+  }
+  const out = String(v.outcome || '').toLowerCase();
+  const method = v.method || '';
+  const tooltip = method ? `${out} (${method})` : out;
+  const map = {
+    verified:     { label: '✓ verified',     cls: 'badge-success' },
+    refuted:      { label: '✗ refuted',      cls: 'badge-muted' },
+    inconclusive: { label: '? inconclusive', cls: 'badge-warning' },
+    unsupported: { label: '— unsupported',  cls: 'badge-muted' },
+  };
+  const c = map[out] || map.unsupported;
+  return el('span', { class: `badge ${c.cls}`, style: 'font-size: 11px;', title: tooltip },
+    c.label);
+}
+
 function showFindingDetail(f) {
   const ev = f.evidence || {};
   const ordered = Object.entries(ev).filter(([k]) => !k.startsWith('_'));
@@ -401,10 +425,11 @@ function showFindingDetail(f) {
   // Lightweight inline modal — reuse the existing modal helper via dynamic import
   import('../components/modal.js').then(({ openModal }) => {
     const body = el('div', {},
-      el('div', { style: 'display: flex; gap: 8px; align-items: center; margin-bottom: 12px;' },
+      el('div', { style: 'display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap;' },
         sevBadge(f.severity, f.severity_label || f.severity),
         el('span', { class: 'mono', style: 'font-size: 12px;' }, f.agent_id),
         triageChip(f.triage),
+        verifyChip(f),
         el('span', { class: 'mono text-muted', style: 'font-size: 12px;' }, (f.confidence * 100).toFixed(0) + '% confidence'),
       ),
       el('h4', { style: 'margin-bottom: 8px;' }, f.vuln_class),
@@ -412,6 +437,21 @@ function showFindingDetail(f) {
       el('h5', { style: 'margin: 12px 0 6px; text-transform: uppercase; font-size: 11px; letter-spacing: 0.05em; color: var(--text-muted);' }, 'Evidence'),
       codeBlock(evidenceText, { showLineNumbers: false }),
     );
+    // Verifier verdict block — outcome, method, notes, and any
+    // evidence the verifier captured during its run.
+    const verify = ev._verify;
+    if (verify) {
+      const verifyBody = `outcome: ${verify.outcome || '—'}\n`
+        + `method:  ${verify.method || '—'}\n`
+        + (verify.notes ? `notes:   ${verify.notes}\n` : '')
+        + (verify.evidence && Object.keys(verify.evidence).length
+            ? `evidence:\n${JSON.stringify(verify.evidence, null, 2)}`
+            : '');
+      body.appendChild(el('h5', {
+        style: 'margin: 16px 0 6px; text-transform: uppercase; font-size: 11px; letter-spacing: 0.05em; color: var(--text-muted);',
+      }, 'Verifier'));
+      body.appendChild(codeBlock(verifyBody, { showLineNumbers: false }));
+    }
     if (f.owasp || f.masvs || f.cvss_vector) {
       const tags = el('div', { style: 'display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px;' });
       if (f.owasp)        tags.appendChild(el('span', { class: 'badge' }, 'OWASP ', f.owasp));
