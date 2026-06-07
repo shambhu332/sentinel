@@ -289,6 +289,7 @@ async def _run_scan(
         IapBypassAgent,
         IdorCandidateAgent,
         ImproperTLSAgent,
+        JwtWeaknessAgent,
         RaceConditionCandidateAgent,
         RuntimeCryptoAgent,
         StaticIvReuseAgent,
@@ -510,6 +511,7 @@ async def _run_scan(
                 DataInTransitAgent,           # N_004 (Sprint 8.1 DAST)
                 RaceConditionCandidateAgent,  # D_007 (Sprint 8.5 mitmproxy)
                 IdorCandidateAgent,           # D_009 (Sprint 8.5 mitmproxy)
+                JwtWeaknessAgent,             # D_010 (Sprint 8.6 mitmproxy)
             ])
         if dynamic and frida:
             agent_list.append(RuntimeCryptoAgent)        # A_003 (Sprint 8.2A DAST)
