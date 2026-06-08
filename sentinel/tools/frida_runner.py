@@ -121,6 +121,7 @@ class FridaHookEvent:
     - "apk_install.committed": PackageInstaller$Session.commit (D_030)
     - "reflection.class_forname": Class.forName(String) (D_031)
     - "json.deserialize_called": Gson/Moshi/Jackson deserializer (D_031)
+    - "sqlite.query_executed": SQLiteDatabase.rawQuery / execSQL / query (D_032)
     - "error": something went wrong inside the script
     """
     kind: str

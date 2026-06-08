@@ -326,6 +326,7 @@ async def _run_scan(
         RuntimeCryptoAgent,
         ScreenCaptureAgent,
         SmsPermissionAbuseAgent,
+        SqliteCommandInjectionAgent,
         StaticIvReuseAgent,
         ThirdPartyPiiLeakAgent,
         UnsafeJsonDeserializationAgent,
@@ -590,6 +591,7 @@ async def _run_scan(
             agent_list.append(InsecureHostnameVerifierAgent)    # D_029 (Sprint 8.12 DAST)
             agent_list.append(InAppUpdateInsecureAgent)         # D_030 (Sprint 8.12 DAST)
             agent_list.append(UnsafeJsonDeserializationAgent)   # D_031 (Sprint 8.13 DAST)
+            agent_list.append(SqliteCommandInjectionAgent)      # D_032 (Sprint 8.13 DAST)
 
         if profile_name:
             from sentinel.profiles import load_profile

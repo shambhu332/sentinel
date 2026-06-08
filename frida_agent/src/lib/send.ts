@@ -512,3 +512,15 @@ export function sendJsonDeserializeCalled(p: {
 }): void {
     send({ kind: "json.deserialize_called", ...p });
 }
+
+/* ------- D_032: SQLite query execution ------- */
+
+export function sendSqliteQueryExecuted(p: {
+    api?: string;
+    sql?: string;
+    args_count?: number;
+    caller_class?: string;
+    stack?: string;
+}): void {
+    send({ kind: "sqlite.query_executed", ...p });
+}

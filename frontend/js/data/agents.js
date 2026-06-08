@@ -902,6 +902,15 @@ export const AGENTS = [
     severities: ['critical', 'high'],
     description: "Detects Gson / Moshi / Jackson deserializer calls with polymorphic typing, typeless targets, or dynamically-resolved Classes.",
   },
+  {
+    id: 'D_032',
+    name: "SqliteCommandInjection",
+    vuln_class: "SQLite Command Injection / Unparameterised Query",
+    phase: "dynamic",
+    category: "storage",
+    severities: ['high', 'medium'],
+    description: "Catches SQLiteDatabase queries issued without bind-args, flagging value-keyword + literal patterns, comment / terminator artefacts, and long hand-built statements.",
+  },
 ];
 
 export const CATEGORIES = [

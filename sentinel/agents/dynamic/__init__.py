@@ -50,6 +50,7 @@ Sprint 8.6 agents (token + web analysis):
 - D_029 Custom HostnameVerifier Accepts Mismatched Cert
 - D_030 In-App Update Installs Unverified APK
 - D_031 Unsafe JSON Deserialization
+- D_032 SQLite Command Injection / Unparameterised Query
 """
 from sentinel.agents.dynamic.cert_pinning_bypass_agent import CertPinningBypassAgent
 from sentinel.agents.dynamic.d016_accessibility_abuse_agent import (
@@ -99,6 +100,9 @@ from sentinel.agents.dynamic.d030_in_app_update_insecure_agent import (
 )
 from sentinel.agents.dynamic.d031_unsafe_json_deserialization_agent import (
     UnsafeJsonDeserializationAgent,
+)
+from sentinel.agents.dynamic.d032_sqlite_command_injection_agent import (
+    SqliteCommandInjectionAgent,
 )
 from sentinel.agents.dynamic.d001_clipboard_leak_agent import ClipboardLeakAgent
 from sentinel.agents.dynamic.d002_flag_secure_missing_agent import (
@@ -170,6 +174,7 @@ __all__ = [
     "RuntimeCryptoAgent",
     "ScreenCaptureAgent",
     "SmsPermissionAbuseAgent",
+    "SqliteCommandInjectionAgent",
     "StaticIvReuseAgent",
     "ThirdPartyPiiLeakAgent",
     "UnsafeJsonDeserializationAgent",
