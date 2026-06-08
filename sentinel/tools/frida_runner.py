@@ -119,6 +119,8 @@ class FridaHookEvent:
     - "random.observation": Random / Math RNG consumption (D_028)
     - "tls.hostname_verifier_invoked": custom HostnameVerifier.verify (D_029)
     - "apk_install.committed": PackageInstaller$Session.commit (D_030)
+    - "reflection.class_forname": Class.forName(String) (D_031)
+    - "json.deserialize_called": Gson/Moshi/Jackson deserializer (D_031)
     - "error": something went wrong inside the script
     """
     kind: str

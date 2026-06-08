@@ -492,3 +492,23 @@ export function sendApkInstallCommitted(p: {
 }): void {
     send({ kind: "apk_install.committed", ...p });
 }
+
+/* ------- D_031: JSON deserialization ------- */
+
+export function sendClassForname(p: {
+    name?: string;
+    caller_class?: string;
+    stack?: string;
+}): void {
+    send({ kind: "reflection.class_forname", ...p });
+}
+
+export function sendJsonDeserializeCalled(p: {
+    library?: string;
+    target_type?: string;
+    polymorphic_marker?: string;
+    caller_class?: string;
+    stack?: string;
+}): void {
+    send({ kind: "json.deserialize_called", ...p });
+}

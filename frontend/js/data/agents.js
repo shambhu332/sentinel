@@ -893,6 +893,15 @@ export const AGENTS = [
     severities: ['critical', 'high', 'medium'],
     description: "Catches PackageInstaller commits whose payload arrived over cleartext or with no observed signature comparison.",
   },
+  {
+    id: 'D_031',
+    name: "UnsafeJsonDeserialization",
+    vuln_class: "Unsafe JSON Deserialization",
+    phase: "dynamic",
+    category: "runtime",
+    severities: ['critical', 'high'],
+    description: "Detects Gson / Moshi / Jackson deserializer calls with polymorphic typing, typeless targets, or dynamically-resolved Classes.",
+  },
 ];
 
 export const CATEGORIES = [

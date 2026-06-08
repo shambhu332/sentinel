@@ -49,6 +49,7 @@ Sprint 8.6 agents (token + web analysis):
 - D_028 Insecure RNG in Security Context
 - D_029 Custom HostnameVerifier Accepts Mismatched Cert
 - D_030 In-App Update Installs Unverified APK
+- D_031 Unsafe JSON Deserialization
 """
 from sentinel.agents.dynamic.cert_pinning_bypass_agent import CertPinningBypassAgent
 from sentinel.agents.dynamic.d016_accessibility_abuse_agent import (
@@ -95,6 +96,9 @@ from sentinel.agents.dynamic.d029_insecure_hostname_verifier_agent import (
 )
 from sentinel.agents.dynamic.d030_in_app_update_insecure_agent import (
     InAppUpdateInsecureAgent,
+)
+from sentinel.agents.dynamic.d031_unsafe_json_deserialization_agent import (
+    UnsafeJsonDeserializationAgent,
 )
 from sentinel.agents.dynamic.d001_clipboard_leak_agent import ClipboardLeakAgent
 from sentinel.agents.dynamic.d002_flag_secure_missing_agent import (
@@ -168,6 +172,7 @@ __all__ = [
     "SmsPermissionAbuseAgent",
     "StaticIvReuseAgent",
     "ThirdPartyPiiLeakAgent",
+    "UnsafeJsonDeserializationAgent",
     "WebViewRuntimeAgent",
     "ZipPathTraversalAgent",
 ]
