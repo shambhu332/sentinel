@@ -524,3 +524,23 @@ export function sendSqliteQueryExecuted(p: {
 }): void {
     send({ kind: "sqlite.query_executed", ...p });
 }
+
+/* ------- D_033: reflection invocation ------- */
+
+export function sendReflectionMethodInvoked(p: {
+    target_class?: string;
+    method_name?: string;
+    declaring_class?: string;
+    caller_class?: string;
+    stack?: string;
+}): void {
+    send({ kind: "reflection.method_invoked", ...p });
+}
+
+export function sendReflectionConstructorInvoked(p: {
+    target_class?: string;
+    caller_class?: string;
+    stack?: string;
+}): void {
+    send({ kind: "reflection.constructor_invoked", ...p });
+}

@@ -51,6 +51,7 @@ Sprint 8.6 agents (token + web analysis):
 - D_030 In-App Update Installs Unverified APK
 - D_031 Unsafe JSON Deserialization
 - D_032 SQLite Command Injection / Unparameterised Query
+- D_033 Unsafe Reflection Invocation Chain
 """
 from sentinel.agents.dynamic.cert_pinning_bypass_agent import CertPinningBypassAgent
 from sentinel.agents.dynamic.d016_accessibility_abuse_agent import (
@@ -103,6 +104,9 @@ from sentinel.agents.dynamic.d031_unsafe_json_deserialization_agent import (
 )
 from sentinel.agents.dynamic.d032_sqlite_command_injection_agent import (
     SqliteCommandInjectionAgent,
+)
+from sentinel.agents.dynamic.d033_unsafe_reflection_invoke_agent import (
+    UnsafeReflectionInvokeAgent,
 )
 from sentinel.agents.dynamic.d001_clipboard_leak_agent import ClipboardLeakAgent
 from sentinel.agents.dynamic.d002_flag_secure_missing_agent import (
@@ -178,6 +182,7 @@ __all__ = [
     "StaticIvReuseAgent",
     "ThirdPartyPiiLeakAgent",
     "UnsafeJsonDeserializationAgent",
+    "UnsafeReflectionInvokeAgent",
     "WebViewRuntimeAgent",
     "ZipPathTraversalAgent",
 ]

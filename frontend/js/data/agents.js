@@ -911,6 +911,15 @@ export const AGENTS = [
     severities: ['high', 'medium'],
     description: "Catches SQLiteDatabase queries issued without bind-args, flagging value-keyword + literal patterns, comment / terminator artefacts, and long hand-built statements.",
   },
+  {
+    id: 'D_033',
+    name: "UnsafeReflectionInvoke",
+    vuln_class: "Unsafe Reflection Invocation Chain",
+    phase: "dynamic",
+    category: "runtime",
+    severities: ['critical', 'high', 'medium'],
+    description: "Correlates Class.forName + Method.invoke / Constructor.newInstance into reflection chains and flags hits on Runtime / ProcessBuilder / DexClassLoader.",
+  },
 ];
 
 export const CATEGORIES = [

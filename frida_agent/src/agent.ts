@@ -42,6 +42,7 @@ import { installHostnameVerifierHooks } from "./hooks/hostname_verifier.js";
 import { installApkInstallHooks } from "./hooks/apk_install.js";
 import { installJsonDeserializeHooks } from "./hooks/json_deserialize.js";
 import { installSqliteHooks } from "./hooks/sqlite.js";
+import { installReflectionInvokeHooks } from "./hooks/reflection_invoke.js";
 import { emitHooksSummary } from "./hooks/diagnostics.js";
 
 // Native hooks first — independent of Java bridge readiness.
@@ -148,6 +149,9 @@ waitForJava("sentinel-agent", () => {
 
     try { installSqliteHooks(); }
     catch (e) { sendError(`sqlite: ${String(e)}`); }
+
+    try { installReflectionInvokeHooks(); }
+    catch (e) { sendError(`reflection_invoke: ${String(e)}`); }
 
     try { emitHooksSummary(result, subclassesHooked, nativeHooks); }
     catch (e) { sendError(`summary: ${String(e)}`); }

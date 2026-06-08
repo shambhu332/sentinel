@@ -122,6 +122,8 @@ class FridaHookEvent:
     - "reflection.class_forname": Class.forName(String) (D_031)
     - "json.deserialize_called": Gson/Moshi/Jackson deserializer (D_031)
     - "sqlite.query_executed": SQLiteDatabase.rawQuery / execSQL / query (D_032)
+    - "reflection.method_invoked": Method.invoke (D_033)
+    - "reflection.constructor_invoked": Constructor.newInstance (D_033)
     - "error": something went wrong inside the script
     """
     kind: str
