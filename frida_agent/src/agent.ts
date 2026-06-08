@@ -37,6 +37,9 @@ import { installFileProviderHooks } from "./hooks/file_provider.js";
 import { installLocationHooks } from "./hooks/location.js";
 import { installKeystoreHooks } from "./hooks/keystore.js";
 import { installZipHooks } from "./hooks/zip.js";
+import { installRandomHooks } from "./hooks/random.js";
+import { installHostnameVerifierHooks } from "./hooks/hostname_verifier.js";
+import { installApkInstallHooks } from "./hooks/apk_install.js";
 import { emitHooksSummary } from "./hooks/diagnostics.js";
 
 // Native hooks first — independent of Java bridge readiness.
@@ -128,6 +131,15 @@ waitForJava("sentinel-agent", () => {
 
     try { installZipHooks(); }
     catch (e) { sendError(`zip: ${String(e)}`); }
+
+    try { installRandomHooks(); }
+    catch (e) { sendError(`random: ${String(e)}`); }
+
+    try { installHostnameVerifierHooks(); }
+    catch (e) { sendError(`hostname_verifier: ${String(e)}`); }
+
+    try { installApkInstallHooks(); }
+    catch (e) { sendError(`apk_install: ${String(e)}`); }
 
     try { emitHooksSummary(result, subclassesHooked, nativeHooks); }
     catch (e) { sendError(`summary: ${String(e)}`); }

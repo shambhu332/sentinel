@@ -46,6 +46,9 @@ Sprint 8.6 agents (token + web analysis):
 - D_025 Background Location Request from Non-Foreground Context
 - D_026 Insecure Android-Keystore Key Generation
 - D_027 Zip-Slip / Archive Path Traversal
+- D_028 Insecure RNG in Security Context
+- D_029 Custom HostnameVerifier Accepts Mismatched Cert
+- D_030 In-App Update Installs Unverified APK
 """
 from sentinel.agents.dynamic.cert_pinning_bypass_agent import CertPinningBypassAgent
 from sentinel.agents.dynamic.d016_accessibility_abuse_agent import (
@@ -83,6 +86,15 @@ from sentinel.agents.dynamic.d026_insecure_keystore_usage_agent import (
 )
 from sentinel.agents.dynamic.d027_zip_path_traversal_agent import (
     ZipPathTraversalAgent,
+)
+from sentinel.agents.dynamic.d028_insecure_random_runtime_agent import (
+    InsecureRandomRuntimeAgent,
+)
+from sentinel.agents.dynamic.d029_insecure_hostname_verifier_agent import (
+    InsecureHostnameVerifierAgent,
+)
+from sentinel.agents.dynamic.d030_in_app_update_insecure_agent import (
+    InAppUpdateInsecureAgent,
 )
 from sentinel.agents.dynamic.d001_clipboard_leak_agent import ClipboardLeakAgent
 from sentinel.agents.dynamic.d002_flag_secure_missing_agent import (
@@ -142,7 +154,10 @@ __all__ = [
     "IdorCandidateAgent",
     "ImplicitIntentLeakAgent",
     "ImproperTLSAgent",
+    "InAppUpdateInsecureAgent",
+    "InsecureHostnameVerifierAgent",
     "InsecureKeystoreUsageAgent",
+    "InsecureRandomRuntimeAgent",
     "JwtWeaknessAgent",
     "LocalSocketServerAgent",
     "NotificationLeakAgent",

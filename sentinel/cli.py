@@ -314,7 +314,10 @@ async def _run_scan(
         IdorCandidateAgent,
         ImplicitIntentLeakAgent,
         ImproperTLSAgent,
+        InAppUpdateInsecureAgent,
+        InsecureHostnameVerifierAgent,
         InsecureKeystoreUsageAgent,
+        InsecureRandomRuntimeAgent,
         JwtWeaknessAgent,
         LocalSocketServerAgent,
         NotificationLeakAgent,
@@ -582,6 +585,9 @@ async def _run_scan(
             agent_list.append(BackgroundLocationLeakAgent)      # D_025 (Sprint 8.11 DAST)
             agent_list.append(InsecureKeystoreUsageAgent)       # D_026 (Sprint 8.11 DAST)
             agent_list.append(ZipPathTraversalAgent)            # D_027 (Sprint 8.12 DAST)
+            agent_list.append(InsecureRandomRuntimeAgent)       # D_028 (Sprint 8.12 DAST)
+            agent_list.append(InsecureHostnameVerifierAgent)    # D_029 (Sprint 8.12 DAST)
+            agent_list.append(InAppUpdateInsecureAgent)         # D_030 (Sprint 8.12 DAST)
 
         if profile_name:
             from sentinel.profiles import load_profile

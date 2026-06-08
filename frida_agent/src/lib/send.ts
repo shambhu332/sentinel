@@ -455,3 +455,40 @@ export function sendZipEntryExtracted(p: {
 }): void {
     send({ kind: "zip.entry_extracted", ...p });
 }
+
+/* ------- D_028: RNG consumption ------- */
+
+export function sendRandomObservation(p: {
+    api?: string;
+    byte_count?: number;
+    caller_class?: string;
+    security_context_hint?: string;
+    stack?: string;
+}): void {
+    send({ kind: "random.observation", ...p });
+}
+
+/* ------- D_029: HostnameVerifier ------- */
+
+export function sendHostnameVerifierInvoked(p: {
+    verifier_class?: string;
+    hostname?: string;
+    accepted?: boolean;
+    default_would_accept?: boolean;
+    stack?: string;
+}): void {
+    send({ kind: "tls.hostname_verifier_invoked", ...p });
+}
+
+/* ------- D_030: in-app APK install ------- */
+
+export function sendApkInstallCommitted(p: {
+    session_id?: number;
+    source_scheme?: string;
+    source_url?: string;
+    signature_verified?: boolean;
+    signature_class_seen?: string;
+    stack?: string;
+}): void {
+    send({ kind: "apk_install.committed", ...p });
+}

@@ -866,6 +866,33 @@ export const AGENTS = [
     severities: ['critical', 'high', 'medium'],
     description: "Detects archive entries with .. / absolute-path names and confirms Zip-Slip by canonical-path-checking the extracted FileOutputStream.",
   },
+  {
+    id: 'D_028',
+    name: "InsecureRandomRuntime",
+    vuln_class: "Insecure RNG in Security Context",
+    phase: "dynamic",
+    category: "crypto",
+    severities: ['high', 'medium'],
+    description: "Flags java.util.Random / Math.random / seeded SecureRandom consumption on code paths whose name signals tokens, OTPs, keys, or nonces.",
+  },
+  {
+    id: 'D_029',
+    name: "InsecureHostnameVerifier",
+    vuln_class: "Custom HostnameVerifier Accepts Mismatched Cert",
+    phase: "dynamic",
+    category: "network",
+    severities: ['critical', 'high'],
+    description: "Detects HostnameVerifier implementations that accept hosts the platform-default verifier rejects against the same SSLSession.",
+  },
+  {
+    id: 'D_030',
+    name: "InAppUpdateInsecure",
+    vuln_class: "In-App Update Installs Unverified APK",
+    phase: "dynamic",
+    category: "supply-chain",
+    severities: ['critical', 'high', 'medium'],
+    description: "Catches PackageInstaller commits whose payload arrived over cleartext or with no observed signature comparison.",
+  },
 ];
 
 export const CATEGORIES = [

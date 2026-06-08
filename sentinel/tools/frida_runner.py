@@ -116,6 +116,9 @@ class FridaHookEvent:
     - "keystore.key_spec_built": KeyGenParameterSpec$Builder.build (D_026)
     - "zip.entry_observed": ZipInputStream.getNextEntry / ZipFile.getEntry (D_027)
     - "zip.entry_extracted": FileOutputStream.<init> in a Zip read stack (D_027)
+    - "random.observation": Random / Math RNG consumption (D_028)
+    - "tls.hostname_verifier_invoked": custom HostnameVerifier.verify (D_029)
+    - "apk_install.committed": PackageInstaller$Session.commit (D_030)
     - "error": something went wrong inside the script
     """
     kind: str
