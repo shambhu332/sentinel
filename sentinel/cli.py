@@ -300,13 +300,16 @@ async def _run_scan(
         AntiTamperCoverageAgent,
         BackgroundLocationLeakAgent,
         BiometricWeakAgent,
+        BroadcastWiretapAgent,
         CertPinningBypassAgent,
         ClipboardLeakAgent,
+        ClipboardListenerSnoopAgent,
         ContentProviderUriExposureAgent,
         CookieHardeningAgent,
         DataInTransitAgent,
         DynamicCodeLoadingAgent,
         DynamicReceiverExportAgent,
+        ExportedActivityResultLeakAgent,
         FileProviderTraversalAgent,
         FlagSecureMissingAgent,
         GraphqlPersistedQueryAgent,
@@ -319,6 +322,7 @@ async def _run_scan(
         InsecureKeystoreUsageAgent,
         InsecureRandomRuntimeAgent,
         JwtWeaknessAgent,
+        LocalFileLogLeakAgent,
         LocalSocketServerAgent,
         NotificationLeakAgent,
         PendingIntentMutableAgent,
@@ -594,6 +598,10 @@ async def _run_scan(
             agent_list.append(UnsafeJsonDeserializationAgent)   # D_031 (Sprint 8.13 DAST)
             agent_list.append(SqliteCommandInjectionAgent)      # D_032 (Sprint 8.13 DAST)
             agent_list.append(UnsafeReflectionInvokeAgent)      # D_033 (Sprint 8.13 DAST)
+            agent_list.append(ExportedActivityResultLeakAgent)  # D_034 (Sprint 8.14 DAST)
+            agent_list.append(LocalFileLogLeakAgent)            # D_035 (Sprint 8.14 DAST)
+            agent_list.append(ClipboardListenerSnoopAgent)      # D_036 (Sprint 8.14 DAST)
+            agent_list.append(BroadcastWiretapAgent)            # D_037 (Sprint 8.14 DAST)
 
         if profile_name:
             from sentinel.profiles import load_profile

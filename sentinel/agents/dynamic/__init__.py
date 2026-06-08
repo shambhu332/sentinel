@@ -52,6 +52,10 @@ Sprint 8.6 agents (token + web analysis):
 - D_031 Unsafe JSON Deserialization
 - D_032 SQLite Command Injection / Unparameterised Query
 - D_033 Unsafe Reflection Invocation Chain
+- D_034 Exported Activity Returns Sensitive Data Cross-App
+- D_035 Sensitive Data Emitted to Log / Local File
+- D_036 Background Clipboard Read
+- D_037 Receiver Wiretaps Sensitive System Broadcasts
 """
 from sentinel.agents.dynamic.cert_pinning_bypass_agent import CertPinningBypassAgent
 from sentinel.agents.dynamic.d016_accessibility_abuse_agent import (
@@ -108,6 +112,18 @@ from sentinel.agents.dynamic.d032_sqlite_command_injection_agent import (
 from sentinel.agents.dynamic.d033_unsafe_reflection_invoke_agent import (
     UnsafeReflectionInvokeAgent,
 )
+from sentinel.agents.dynamic.d034_exported_activity_result_leak_agent import (
+    ExportedActivityResultLeakAgent,
+)
+from sentinel.agents.dynamic.d035_local_file_log_leak_agent import (
+    LocalFileLogLeakAgent,
+)
+from sentinel.agents.dynamic.d036_clipboard_listener_snoop_agent import (
+    ClipboardListenerSnoopAgent,
+)
+from sentinel.agents.dynamic.d037_broadcast_wiretap_agent import (
+    BroadcastWiretapAgent,
+)
 from sentinel.agents.dynamic.d001_clipboard_leak_agent import ClipboardLeakAgent
 from sentinel.agents.dynamic.d002_flag_secure_missing_agent import (
     FlagSecureMissingAgent,
@@ -152,13 +168,16 @@ __all__ = [
     "AntiTamperCoverageAgent",
     "BackgroundLocationLeakAgent",
     "BiometricWeakAgent",
+    "BroadcastWiretapAgent",
     "CertPinningBypassAgent",
     "ClipboardLeakAgent",
+    "ClipboardListenerSnoopAgent",
     "ContentProviderUriExposureAgent",
     "CookieHardeningAgent",
     "DataInTransitAgent",
     "DynamicCodeLoadingAgent",
     "DynamicReceiverExportAgent",
+    "ExportedActivityResultLeakAgent",
     "FileProviderTraversalAgent",
     "FlagSecureMissingAgent",
     "GraphqlPersistedQueryAgent",
@@ -171,6 +190,7 @@ __all__ = [
     "InsecureKeystoreUsageAgent",
     "InsecureRandomRuntimeAgent",
     "JwtWeaknessAgent",
+    "LocalFileLogLeakAgent",
     "LocalSocketServerAgent",
     "NotificationLeakAgent",
     "PendingIntentMutableAgent",

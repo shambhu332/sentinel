@@ -43,6 +43,9 @@ import { installApkInstallHooks } from "./hooks/apk_install.js";
 import { installJsonDeserializeHooks } from "./hooks/json_deserialize.js";
 import { installSqliteHooks } from "./hooks/sqlite.js";
 import { installReflectionInvokeHooks } from "./hooks/reflection_invoke.js";
+import { installActivityResultHooks } from "./hooks/activity_result.js";
+import { installLogLeakHooks } from "./hooks/log_leak.js";
+import { installClipboardReadHooks } from "./hooks/clipboard_read.js";
 import { emitHooksSummary } from "./hooks/diagnostics.js";
 
 // Native hooks first — independent of Java bridge readiness.
@@ -152,6 +155,15 @@ waitForJava("sentinel-agent", () => {
 
     try { installReflectionInvokeHooks(); }
     catch (e) { sendError(`reflection_invoke: ${String(e)}`); }
+
+    try { installActivityResultHooks(); }
+    catch (e) { sendError(`activity_result: ${String(e)}`); }
+
+    try { installLogLeakHooks(); }
+    catch (e) { sendError(`log_leak: ${String(e)}`); }
+
+    try { installClipboardReadHooks(); }
+    catch (e) { sendError(`clipboard_read: ${String(e)}`); }
 
     try { emitHooksSummary(result, subclassesHooked, nativeHooks); }
     catch (e) { sendError(`summary: ${String(e)}`); }

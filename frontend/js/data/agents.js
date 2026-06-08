@@ -920,6 +920,42 @@ export const AGENTS = [
     severities: ['critical', 'high', 'medium'],
     description: "Correlates Class.forName + Method.invoke / Constructor.newInstance into reflection chains and flags hits on Runtime / ProcessBuilder / DexClassLoader.",
   },
+  {
+    id: 'D_034',
+    name: "ExportedActivityResultLeak",
+    vuln_class: "Exported Activity Returns Sensitive Data Cross-App",
+    phase: "dynamic",
+    category: "platform",
+    severities: ['high', 'medium'],
+    description: "Inspects Activity.setResult Intents whose calling package differs from the app's own, flagging sensitive-keyword extras keys returned across the boundary.",
+  },
+  {
+    id: 'D_035',
+    name: "LocalFileLogLeak",
+    vuln_class: "Sensitive Data Emitted to Log / Local File",
+    phase: "dynamic",
+    category: "logging",
+    severities: ['high', 'medium'],
+    description: "Regex-classifies android.util.Log payloads and FileOutputStream targets for JWT/bearer/PAN shapes and world-readable write paths.",
+  },
+  {
+    id: 'D_036',
+    name: "ClipboardListenerSnoop",
+    vuln_class: "Background Clipboard Read",
+    phase: "dynamic",
+    category: "platform",
+    severities: ['high', 'medium'],
+    description: "Catches ClipboardManager.getPrimaryClip / addPrimaryClipChangedListener invoked while the process importance is below foreground.",
+  },
+  {
+    id: 'D_037',
+    name: "BroadcastWiretap",
+    vuln_class: "Receiver Wiretaps Sensitive System Broadcasts",
+    phase: "dynamic",
+    category: "platform",
+    severities: ['high', 'medium'],
+    description: "Classifies dynamically-registered receivers subscribing to PHONE_STATE / NEW_OUTGOING_CALL / HEADSET_PLUG and broad device-state telemetry actions.",
+  },
 ];
 
 export const CATEGORIES = [

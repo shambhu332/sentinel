@@ -544,3 +544,43 @@ export function sendReflectionConstructorInvoked(p: {
 }): void {
     send({ kind: "reflection.constructor_invoked", ...p });
 }
+
+/* ------- D_034: Activity setResult ------- */
+
+export function sendActivitySetResult(p: {
+    activity_class?: string;
+    result_code?: number;
+    extras_keys?: string[];
+    extras_sensitive?: string[];
+    calling_package?: string;
+    own_package?: string;
+    stack?: string;
+}): void {
+    send({ kind: "activity.set_result", ...p });
+}
+
+/* ------- D_035: log / file leak ------- */
+
+export function sendLogLineEmitted(p: {
+    api?: string;
+    level?: string;
+    tag?: string;
+    message_redacted?: string;
+    sensitive_shapes?: string[];
+    target_path?: string;
+    stack?: string;
+}): void {
+    send({ kind: "log.line_emitted", ...p });
+}
+
+/* ------- D_036: clipboard read ------- */
+
+export function sendClipboardReadObserved(p: {
+    api?: string;
+    caller_class?: string;
+    importance?: number;
+    content_shape?: string;
+    stack?: string;
+}): void {
+    send({ kind: "clipboard.read_observed", ...p });
+}

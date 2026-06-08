@@ -124,6 +124,9 @@ class FridaHookEvent:
     - "sqlite.query_executed": SQLiteDatabase.rawQuery / execSQL / query (D_032)
     - "reflection.method_invoked": Method.invoke (D_033)
     - "reflection.constructor_invoked": Constructor.newInstance (D_033)
+    - "activity.set_result": Activity.setResult (D_034)
+    - "log.line_emitted": Log.* / FileOutputStream.<init> (D_035)
+    - "clipboard.read_observed": ClipboardManager.getPrimaryClip (D_036)
     - "error": something went wrong inside the script
     """
     kind: str
