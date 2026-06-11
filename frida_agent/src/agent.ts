@@ -46,6 +46,9 @@ import { installReflectionInvokeHooks } from "./hooks/reflection_invoke.js";
 import { installActivityResultHooks } from "./hooks/activity_result.js";
 import { installLogLeakHooks } from "./hooks/log_leak.js";
 import { installClipboardReadHooks } from "./hooks/clipboard_read.js";
+import { installTrustManagerHooks } from "./hooks/trust_manager.js";
+import { installOkhttpLoggingHooks } from "./hooks/okhttp_logging.js";
+import { installBiometricPromptHooks } from "./hooks/biometric_prompt.js";
 import { emitHooksSummary } from "./hooks/diagnostics.js";
 
 // Native hooks first — independent of Java bridge readiness.
@@ -164,6 +167,15 @@ waitForJava("sentinel-agent", () => {
 
     try { installClipboardReadHooks(); }
     catch (e) { sendError(`clipboard_read: ${String(e)}`); }
+
+    try { installTrustManagerHooks(); }
+    catch (e) { sendError(`trust_manager: ${String(e)}`); }
+
+    try { installOkhttpLoggingHooks(); }
+    catch (e) { sendError(`okhttp_logging: ${String(e)}`); }
+
+    try { installBiometricPromptHooks(); }
+    catch (e) { sendError(`biometric_prompt: ${String(e)}`); }
 
     try { emitHooksSummary(result, subclassesHooked, nativeHooks); }
     catch (e) { sendError(`summary: ${String(e)}`); }

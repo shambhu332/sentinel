@@ -584,3 +584,39 @@ export function sendClipboardReadObserved(p: {
 }): void {
     send({ kind: "clipboard.read_observed", ...p });
 }
+
+/* ------- D_038: TrustManager bypass ------- */
+
+export function sendTrustManagerInvoked(p: {
+    tm_class?: string;
+    chain_subject?: string;
+    auth_type?: string;
+    accepted?: boolean;
+    default_would_accept?: boolean;
+    stack?: string;
+}): void {
+    send({ kind: "tls.trust_manager_invoked", ...p });
+}
+
+/* ------- D_039: OkHttp logging level ------- */
+
+export function sendOkhttpLoggingLevel(p: {
+    level?: string;
+    interceptor_class?: string;
+    caller_class?: string;
+    stack?: string;
+}): void {
+    send({ kind: "okhttp.logging_level_observed", ...p });
+}
+
+/* ------- D_040: BiometricPrompt authenticator mask ------- */
+
+export function sendBiometricAuthenticateCalled(p: {
+    allowed_authenticators?: number;
+    has_crypto?: boolean;
+    negative_button_set?: boolean;
+    caller_class?: string;
+    stack?: string;
+}): void {
+    send({ kind: "biometric.authenticate_called", ...p });
+}

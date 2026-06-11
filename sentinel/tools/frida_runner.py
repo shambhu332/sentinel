@@ -127,6 +127,9 @@ class FridaHookEvent:
     - "activity.set_result": Activity.setResult (D_034)
     - "log.line_emitted": Log.* / FileOutputStream.<init> (D_035)
     - "clipboard.read_observed": ClipboardManager.getPrimaryClip (D_036)
+    - "tls.trust_manager_invoked": X509TrustManager.checkServerTrusted (D_038)
+    - "okhttp.logging_level_observed": HttpLoggingInterceptor.intercept (D_039)
+    - "biometric.authenticate_called": BiometricPrompt.authenticate (D_040)
     - "error": something went wrong inside the script
     """
     kind: str

@@ -5,7 +5,10 @@ import secrets
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from sentinel.core.ast_cache import AstCache
 
 from sentinel.core.finding import BountyScope
 
@@ -52,6 +55,16 @@ class ScanContext:
     # Use sources.get('androguard') etc — never assume a key is present.
     sources: dict[str, Any] = field(default_factory=dict)
 
+    # App profile populated by META_005 Profiler Agent in Phase 1.5.
+    # Keys: 'frameworks', 'native_libs_info', 'obfuscation_level',
+    #        'api_types', 'recommended_agents'.
+    app_profile: dict[str, Any] = field(default_factory=dict)
+
+    # Global AST cache shared across all agents. Populated by the
+    # orchestrator before Phase 2. Agents use
+    # `await ctx.ast_cache.get_or_parse(path)` to get cached trees.
+    ast_cache: AstCache | None = None
+
     started_at: datetime = field(
         default_factory=lambda: datetime.now(timezone.utc),
     )
@@ -91,3 +104,25 @@ class ScanContext:
     def has_apktool(self) -> bool:
         """True if apktool decoding succeeded for this scan."""
         return self.sources.get("apktool") is not None
+
+    # ---------- Profile helpers ----------
+
+    def has_profile(self) -> bool:
+        """True if the Profiler Agent has populated the app profile."""
+        return bool(self.app_profile)
+
+    def detected_frameworks(self) -> list[str]:
+        """Return list of detected frameworks (e.g. ['Flutter', 'React Native'])."""
+        return self.app_profile.get("frameworks", [])
+
+    def obfuscation_level(self) -> str:
+        """Return obfuscation tier string, e.g. 'Tier 1 (ProGuard/R8)'."""
+        return self.app_profile.get("obfuscation_level", "unknown")
+
+    def has_native_libs(self) -> bool:
+        """True if the profiler found .so libraries."""
+        return bool(self.app_profile.get("native_libs_info", {}).get("count", 0))
+
+    def detected_api_types(self) -> list[str]:
+        """Return list of detected API types (e.g. ['REST', 'GraphQL', 'gRPC'])."""
+        return self.app_profile.get("api_types", [])

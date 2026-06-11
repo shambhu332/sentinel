@@ -56,6 +56,10 @@ Sprint 8.6 agents (token + web analysis):
 - D_035 Sensitive Data Emitted to Log / Local File
 - D_036 Background Clipboard Read
 - D_037 Receiver Wiretaps Sensitive System Broadcasts
+- D_038 Custom X509TrustManager Accepts Invalid Chain
+- D_039 OkHttp HttpLoggingInterceptor Logs Body / Headers
+- D_040 Biometric Crypto Bypassable via PIN Fallback
+- D_041 Notification / Toast Flood
 """
 from sentinel.agents.dynamic.cert_pinning_bypass_agent import CertPinningBypassAgent
 from sentinel.agents.dynamic.d016_accessibility_abuse_agent import (
@@ -124,6 +128,18 @@ from sentinel.agents.dynamic.d036_clipboard_listener_snoop_agent import (
 from sentinel.agents.dynamic.d037_broadcast_wiretap_agent import (
     BroadcastWiretapAgent,
 )
+from sentinel.agents.dynamic.d038_insecure_trust_manager_runtime_agent import (
+    InsecureTrustManagerRuntimeAgent,
+)
+from sentinel.agents.dynamic.d039_okhttp_logging_runtime_agent import (
+    OkHttpLoggingRuntimeAgent,
+)
+from sentinel.agents.dynamic.d040_biometric_device_credential_fallback_agent import (
+    BiometricDeviceCredentialFallbackAgent,
+)
+from sentinel.agents.dynamic.d041_notification_flood_agent import (
+    NotificationFloodAgent,
+)
 from sentinel.agents.dynamic.d001_clipboard_leak_agent import ClipboardLeakAgent
 from sentinel.agents.dynamic.d002_flag_secure_missing_agent import (
     FlagSecureMissingAgent,
@@ -167,6 +183,7 @@ __all__ = [
     "AccessibilityAbuseAgent",
     "AntiTamperCoverageAgent",
     "BackgroundLocationLeakAgent",
+    "BiometricDeviceCredentialFallbackAgent",
     "BiometricWeakAgent",
     "BroadcastWiretapAgent",
     "CertPinningBypassAgent",
@@ -189,10 +206,13 @@ __all__ = [
     "InsecureHostnameVerifierAgent",
     "InsecureKeystoreUsageAgent",
     "InsecureRandomRuntimeAgent",
+    "InsecureTrustManagerRuntimeAgent",
     "JwtWeaknessAgent",
     "LocalFileLogLeakAgent",
     "LocalSocketServerAgent",
+    "NotificationFloodAgent",
     "NotificationLeakAgent",
+    "OkHttpLoggingRuntimeAgent",
     "PendingIntentMutableAgent",
     "RaceConditionCandidateAgent",
     "RuntimeCryptoAgent",

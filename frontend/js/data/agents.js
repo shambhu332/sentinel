@@ -956,6 +956,42 @@ export const AGENTS = [
     severities: ['high', 'medium'],
     description: "Classifies dynamically-registered receivers subscribing to PHONE_STATE / NEW_OUTGOING_CALL / HEADSET_PLUG and broad device-state telemetry actions.",
   },
+  {
+    id: 'D_038',
+    name: "InsecureTrustManagerRuntime",
+    vuln_class: "Custom X509TrustManager Accepts Invalid Chain",
+    phase: "dynamic",
+    category: "network",
+    severities: ['critical', 'high'],
+    description: "Hooks every loaded X509TrustManager and compares checkServerTrusted results against the platform default to confirm chain-validation bypass.",
+  },
+  {
+    id: 'D_039',
+    name: "OkHttpLoggingRuntime",
+    vuln_class: "OkHttp HttpLoggingInterceptor Logs Body / Headers",
+    phase: "dynamic",
+    category: "logging",
+    severities: ['high', 'medium'],
+    description: "Reads HttpLoggingInterceptor.getLevel() at intercept time and flags Level.BODY (HIGH) or Level.HEADERS (MEDIUM) shipped to release.",
+  },
+  {
+    id: 'D_040',
+    name: "BiometricDeviceCredentialFallback",
+    vuln_class: "Biometric Crypto Bypassable via PIN Fallback",
+    phase: "dynamic",
+    category: "auth",
+    severities: ['high', 'medium'],
+    description: "Inspects BiometricPrompt.authenticate calls for DEVICE_CREDENTIAL fallback alongside a bound CryptoObject and BIOMETRIC_WEAK-only authenticator masks.",
+  },
+  {
+    id: 'D_041',
+    name: "NotificationFlood",
+    vuln_class: "Notification / Toast Flood",
+    phase: "dynamic",
+    category: "platform",
+    severities: ['high', 'medium'],
+    description: "Slides a 5-second window across notification.posted events and flags >=10 (HIGH) / >=5 (MEDIUM) bursts — tap-jacking setup signal.",
+  },
 ];
 
 export const CATEGORIES = [
