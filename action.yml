@@ -1,0 +1,243 @@
+name: SENTINEL Mobile Security Diff
+description: >
+  Diff the SENTINEL SAST findings between two APK builds and post a
+  NEW-only summary as a PR comment. Fails the job when a new finding
+  at or above the configured severity is introduced — wire to a
+  required status check to gate merges on security regressions.
+
+  This action runs the full SENTINEL CLI locally inside the runner.
+  Both APKs must already exist on disk (typically the head APK is
+  built in an earlier step and the base APK is downloaded from a
+  workflow artifact uploaded by the main-branch CI run).
+author: SENTINEL
+branding:
+  icon: shield
+  color: red
+
+inputs:
+  base-apk:
+    required: true
+    description: >
+      Path to the baseline APK (older / known-good build). Typically
+      a workflow artifact downloaded from the last successful run on
+      the PR's base branch.
+  head-apk:
+    required: true
+    description: Path to the candidate APK (the build under review).
+  fail-on:
+    required: false
+    default: critical,high
+    description: >
+      Comma-separated severities that should fail the gate.
+      Values: critical | high | medium | low | info. Set to "" to
+      never fail.
+  comment-mode:
+    required: false
+    default: diff
+    description: diff (PR-only new findings) | full | off
+  python-version:
+    required: false
+    default: "3.12"
+    description: Python version to install the SENTINEL CLI under.
+  sentinel-repo:
+    required: false
+    default: shambhu33/sentinel
+    description: >
+      GitHub repository to install SENTINEL from. Default points at the
+      public SENTINEL repo. Ignored when sentinel-source is "local".
+  sentinel-ref:
+    required: false
+    default: main
+    description: >
+      Git ref (tag, branch, or commit SHA) to install. Pinning to a
+      tag is strongly recommended for CI reproducibility, e.g. "v0.7.2".
+  sentinel-source:
+    required: false
+    default: git
+    description: >
+      Where to install SENTINEL from. One of:
+        - git    (default) pip install git+https://github.com/<repo>@<ref>
+        - local  pip install . from the repo currently checked out at
+                 sentinel-local-path. Use this when running the action
+                 from inside the SENTINEL repo itself.
+        - pypi   pip install sentinel==<sentinel-ref>. Only works once
+                 the project is published; today this will 404.
+  sentinel-local-path:
+    required: false
+    default: ${{ github.workspace }}
+    description: >
+      Path to the SENTINEL source checkout when sentinel-source is
+      "local". Defaults to the runner's GITHUB_WORKSPACE.
+  workspace:
+    required: false
+    default: ${{ github.workspace }}/.sentinel-workspace
+    description: Per-scan working directory.
+  data-dir:
+    required: false
+    default: ${{ github.workspace }}/.sentinel-data
+    description: Persistent memory directory (caches between runs).
+
+outputs:
+  new-count:
+    description: Number of new findings introduced vs. the baseline.
+    value: ${{ steps.scan.outputs.new-count }}
+  fixed-count:
+    description: Number of findings fixed vs. the baseline.
+    value: ${{ steps.scan.outputs.fixed-count }}
+  diff-json:
+    description: Path to the rendered diff JSON on the runner.
+    value: ${{ steps.scan.outputs.diff-json }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install SENTINEL CLI
+      shell: bash
+      run: |
+        set -e
+        case "${{ inputs.sentinel-source }}" in
+          local)
+            if [ ! -f "${{ inputs.sentinel-local-path }}/pyproject.toml" ]; then
+              echo "::error::sentinel-source=local but no pyproject.toml at ${{ inputs.sentinel-local-path }}"
+              exit 1
+            fi
+            python -m pip install --upgrade "${{ inputs.sentinel-local-path }}"
+            ;;
+          pypi)
+            # NOTE: not yet published — this branch will 404 today.
+            python -m pip install --upgrade "sentinel==${{ inputs.sentinel-ref }}"
+            ;;
+          git|*)
+            python -m pip install --upgrade \
+              "git+https://github.com/${{ inputs.sentinel-repo }}.git@${{ inputs.sentinel-ref }}"
+            ;;
+        esac
+        sentinel --version || sentinel --help | head -1
+
+    - name: Validate inputs
+      shell: bash
+      run: |
+        for p in "${{ inputs.base-apk }}" "${{ inputs.head-apk }}"; do
+          if [ ! -f "$p" ]; then
+            echo "::error::APK not found: $p"
+            exit 1
+          fi
+        done
+
+    - name: Run sentinel diff
+      id: scan
+      shell: bash
+      run: |
+        OUT="${{ github.workspace }}/sentinel-diff.json"
+        mkdir -p "${{ inputs.workspace }}" "${{ inputs.data-dir }}"
+        # --fail-on returns non-zero on gated severity; capture status so
+        # we can post the PR comment before failing the step.
+        set +e
+        sentinel diff \
+          --base "${{ inputs.base-apk }}" \
+          --head "${{ inputs.head-apk }}" \
+          --fail-on "${{ inputs.fail-on }}" \
+          --format json \
+          --workspace "${{ inputs.workspace }}" \
+          --data-dir "${{ inputs.data-dir }}" \
+          --output "$OUT"
+        SCAN_EXIT=$?
+        set -e
+        echo "diff-json=$OUT" >> "$GITHUB_OUTPUT"
+        echo "scan-exit=$SCAN_EXIT" >> "$GITHUB_OUTPUT"
+        if [ -f "$OUT" ]; then
+          echo "new-count=$(jq -r '.summary.new // 0' "$OUT")" >> "$GITHUB_OUTPUT"
+          echo "fixed-count=$(jq -r '.summary.fixed // 0' "$OUT")" >> "$GITHUB_OUTPUT"
+        else
+          echo "new-count=0" >> "$GITHUB_OUTPUT"
+          echo "fixed-count=0" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Upload diff JSON
+      if: always() && steps.scan.outputs.diff-json != ''
+      uses: actions/upload-artifact@v4
+      with:
+        name: sentinel-diff
+        path: ${{ steps.scan.outputs.diff-json }}
+        if-no-files-found: ignore
+
+    - name: Post / update PR comment
+      if: >-
+        github.event_name == 'pull_request'
+        && inputs.comment-mode != 'off'
+        && steps.scan.outputs.diff-json != ''
+      uses: actions/github-script@v7
+      env:
+        DIFF_PATH: ${{ steps.scan.outputs.diff-json }}
+        COMMENT_MODE: ${{ inputs.comment-mode }}
+      with:
+        script: |
+          const fs = require('fs');
+          if (!fs.existsSync(process.env.DIFF_PATH)) {
+            core.warning('diff JSON missing — scan likely crashed; skipping comment');
+            return;
+          }
+          const diff = JSON.parse(fs.readFileSync(process.env.DIFF_PATH, 'utf8'));
+          const newF   = diff.new_findings   || [];
+          const fixedF = diff.fixed_findings || [];
+          const counts = diff.summary || { new: newF.length, fixed: fixedF.length, unchanged: 0 };
+          const showAll = process.env.COMMENT_MODE === 'full';
+          const bySev = newF.reduce(
+            (a, f) => (a[f.severity] = (a[f.severity] || 0) + 1, a), {},
+          );
+          const sevOrder = ['Critical', 'High', 'Medium', 'Low', 'Info'];
+          const sevLine = sevOrder
+            .filter(s => bySev[s])
+            .map(s => `${bySev[s]} ${s}`)
+            .join(' · ');
+          const interesting = showAll
+            ? newF
+            : newF.filter(f => ['Critical', 'High'].includes(f.severity));
+          const rows = interesting.slice(0, 20).map(f => {
+            const file = f.file || '—';
+            return `- **${f.severity}** \`${f.agent_id}\` ${f.vuln_class} — \`${file}\``;
+          }).join('\n');
+          const truncated = interesting.length > 20
+            ? `\n_…and ${interesting.length - 20} more._`
+            : '';
+          const marker = '<!-- sentinel-diff-comment -->';
+          const headline = counts.new === 0 && counts.fixed === 0
+            ? `### 🛡️ SENTINEL — no change (${counts.unchanged} unchanged)`
+            : `### 🛡️ SENTINEL — ${counts.new} new, ${counts.fixed} fixed, ${counts.unchanged} unchanged`;
+          const body = [
+            marker,
+            headline,
+            sevLine ? `**New severity breakdown:** ${sevLine}` : '_No new findings._',
+            rows ? `\n${rows}${truncated}\n` : '',
+          ].filter(Boolean).join('\n');
+          const { owner, repo } = context.repo;
+          const issue_number = context.issue.number;
+          const { data: comments } = await github.rest.issues.listComments({
+            owner, repo, issue_number,
+          });
+          const existing = comments.find(
+            c => c.body && c.body.includes(marker),
+          );
+          if (existing) {
+            await github.rest.issues.updateComment({
+              owner, repo, comment_id: existing.id, body,
+            });
+          } else {
+            await github.rest.issues.createComment({
+              owner, repo, issue_number, body,
+            });
+          }
+
+    - name: Enforce severity gate
+      shell: bash
+      run: |
+        EXIT=${{ steps.scan.outputs.scan-exit }}
+        if [ "$EXIT" -ne 0 ] && [ -n "${{ inputs.fail-on }}" ]; then
+          echo "::error::SENTINEL diff introduced findings at or above '${{ inputs.fail-on }}' (exit $EXIT)"
+          exit $EXIT
+        fi
