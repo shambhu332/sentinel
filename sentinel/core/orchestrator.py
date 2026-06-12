@@ -41,7 +41,9 @@ from pathlib import Path
 from typing import Any
 
 from sentinel.agents.base import BaseAgent
+from sentinel.agents.meta.meta005_profiler import ProfilerAgent
 from sentinel.agents.special import PipelineSmokeTestAgent
+from sentinel.core.ast_cache import AstCache
 from sentinel.core.dedup import dedupe
 from sentinel.core.finding import Finding
 from sentinel.core.scan_context import ScanContext
@@ -160,6 +162,14 @@ class Orchestrator:
             await self._phase1_recon(result)
             result.phase_timings["phase1"] = asyncio.get_event_loop().time() - start
 
+            # Phase 1.5: Profile + AST cache. Attaches the shared AstCache
+            # to ctx, runs META_005 (frameworks, native libs, obfuscation,
+            # API types), and narrows self._agents by the profile's
+            # skip_agents prefix list before Phase 2 fans out.
+            start = asyncio.get_event_loop().time()
+            profile_findings = await self._phase15_profile(result)
+            result.phase_timings["phase1_5"] = asyncio.get_event_loop().time() - start
+
             # Phase 4: Dynamic analysis (Sprint 8.1)
             if self._dynamic_enabled:
                 start = asyncio.get_event_loop().time()
@@ -182,6 +192,7 @@ class Orchestrator:
             # Phase 2: Run agents
             start = asyncio.get_event_loop().time()
             findings = await self._phase2_agents()
+            findings.extend(profile_findings)
             result.phase_timings["phase2"] = asyncio.get_event_loop().time() - start
 
             # Phase 2.5: dedup overlapping Semgrep / bespoke findings.
@@ -733,6 +744,109 @@ class Orchestrator:
             scan_result.warnings.append(
                 f"Phase 4.5 Frida detach failed: {detach_result.error}",
             )
+
+    # ---------- Phase 1.5: Profile + AST Cache ----------
+
+    # Prefixes that are HARD-SKIPPED when the profile says they're useless.
+    # Kept conservative: Java-source-only agents (TAINT_*) on hybrid apps
+    # whose real logic lives in libapp.so, and native-only agents (NL_*,
+    # META_006) when no .so files exist. Dynamic agents (D_*) and the rest
+    # of the catalog still run — the profile is advisory, not a kill switch.
+    _HARD_SKIP_HYBRID = ("TAINT_",)
+    _HARD_SKIP_NO_NATIVE = ("NL_", "META_006")
+
+    async def _phase15_profile(self, scan_result: ScanResult) -> list[Finding]:
+        """Attach the shared AstCache and run the META_005 profiler.
+
+        The profiler populates ctx.app_profile. We then narrow self._agents
+        by intersecting against the hard-skip prefix lists derived from the
+        profile. Returns the profiler's own findings (one INFO record).
+        """
+        logger.info("[%s] Phase 1.5: Profile + AST cache",
+                    self._context.session_id)
+        await self._memory.publish_event(
+            self._context.session_id, "phase.started", {"phase": 1.5},
+        )
+
+        # Attach shared AST cache to context so Phase 2 agents reuse trees.
+        if self._context.ast_cache is None:
+            self._context.ast_cache = AstCache()
+
+        # Run the profiler through the normal BaseAgent lifecycle so its
+        # INFO finding gets persisted and events get emitted for free.
+        profile_findings: list[Finding] = []
+        try:
+            profiler = ProfilerAgent(
+                context=self._context, memory=self._memory,
+            )
+            profile_findings = await profiler.run()
+        except Exception as e:  # noqa: BLE001
+            logger.exception("[%s] Phase 1.5 profiler failed",
+                             self._context.session_id)
+            scan_result.warnings.append(f"Phase 1.5 profiler failed: {str(e)[:200]}")
+            # Profiler is advisory — keep the full agent list and continue.
+            await self._memory.publish_event(
+                self._context.session_id, "phase.completed",
+                {"phase": 1.5, "skipped_agents": 0, "profile": "unavailable"},
+            )
+            return profile_findings
+
+        # Apply skip-list. Profile may carry "skip_agents" prefixes
+        # plus context flags we re-derive defensively.
+        skip_prefixes = self._resolve_skip_prefixes()
+        if skip_prefixes:
+            before = len(self._agents)
+            kept = [
+                cls for cls in self._agents
+                if not any(
+                    getattr(cls, "AGENT_ID", "").startswith(p)
+                    for p in skip_prefixes
+                )
+            ]
+            dropped = before - len(kept)
+            if dropped:
+                logger.info(
+                    "[%s] Phase 1.5: profile dropped %d/%d agents "
+                    "(skip prefixes: %s)",
+                    self._context.session_id, dropped, before,
+                    list(skip_prefixes),
+                )
+                self._agents = kept
+
+        await self._memory.publish_event(
+            self._context.session_id, "phase.completed",
+            {
+                "phase": 1.5,
+                "frameworks": self._context.detected_frameworks(),
+                "obfuscation": self._context.obfuscation_level(),
+                "api_types": self._context.detected_api_types(),
+                "remaining_agents": len(self._agents),
+                "skip_prefixes": list(skip_prefixes),
+                "ast_cache_attached": self._context.ast_cache is not None,
+            },
+        )
+        return profile_findings
+
+    def _resolve_skip_prefixes(self) -> tuple[str, ...]:
+        """Derive the narrowed hard-skip prefix list from the app profile.
+
+        Deliberately ignores any prefix suggested by the profiler that
+        isn't on this orchestrator's hard-skip allow-list — the profiler
+        can recommend whatever, but only the curated subset takes effect.
+        """
+        profile = self._context.app_profile or {}
+        prefixes: set[str] = set()
+
+        # Hybrid framework dominant? skip Java-taint agents.
+        dominant_hybrids = {"Flutter", "React Native", "Xamarin/.NET", "Unity"}
+        if set(profile.get("frameworks", [])) & dominant_hybrids:
+            prefixes.update(self._HARD_SKIP_HYBRID)
+
+        # No native libs? skip native-only agents.
+        if profile.get("native_libs_info", {}).get("count", 0) == 0:
+            prefixes.update(self._HARD_SKIP_NO_NATIVE)
+
+        return tuple(sorted(prefixes))
 
     # ---------- Phase 2: Agents ----------
 
