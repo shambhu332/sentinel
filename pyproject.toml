@@ -35,6 +35,13 @@ passlib = {extras = ["bcrypt"], version = "^1.7.4"}
 packaging = "^24.0"
 tree-sitter-java = "^0.23.5"
 unidiff = "^0.7.5"
+pyyaml = "^6.0.2"
+# Production memory backend — optional, only installed with the
+# `production` extra so the OSS / CLI install stays light.
+redis = {version = "^5.0.0", optional = true}
+
+[tool.poetry.extras]
+production = ["redis"]
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.3"
@@ -43,6 +50,7 @@ pytest-cov = "^5.0.0"
 ruff = "^0.7.0"
 mypy = "^1.13.0"
 pre-commit = "^4.0.0"
+fakeredis = "^2.26.0"
 
 [tool.poetry.scripts]
 sentinel = "sentinel.cli:main"
