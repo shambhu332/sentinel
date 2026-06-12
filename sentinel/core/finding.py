@@ -52,6 +52,12 @@ class Finding(BaseModel):
     poc: str | None = None
     recommendation: str = Field(..., min_length=1)
     session_id: str
+    # Multi-tenant SaaS field. None for OSS / local CLI runs; set by the
+    # API ingest layer from the JWT before persisting. The Postgres RLS
+    # policy refuses INSERT/UPDATE when this disagrees with the
+    # session-set `sentinel.tenant_id` GUC, so the value is enforced
+    # by the database, not by application code.
+    tenant_id: str | None = Field(default=None, max_length=64)
     triage: TriageState = TriageState.UNREVIEWED
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
