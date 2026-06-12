@@ -125,7 +125,7 @@ async def test_sca002_no_finding_without_sdk(tmp_path, memory):
 async def test_priv001_flags_telephony_getdeviceid(tmp_path, memory):
     ctx, decompiled = _ctx(tmp_path)
     (decompiled / "Main.java").write_text(
-        "class Main { void x(TelephonyManager t) { t.getDeviceId(); } }\n"
+        "class Main { void x() { TelephonyManager.getDeviceId(); } }\n"
     )
     ctx.manifest = {"activities": []}
     f = await DataCollectionAuditorAgent(context=ctx, memory=memory).analyze()
@@ -137,8 +137,8 @@ async def test_priv001_flags_telephony_getdeviceid(tmp_path, memory):
 async def test_priv001_softer_when_consent_in_same_file(tmp_path, memory):
     ctx, decompiled = _ctx(tmp_path)
     (decompiled / "Main.java").write_text(
-        "class Main { void x(TelephonyManager t) {\n"
-        "  showConsentDialog(); t.getDeviceId();\n"
+        "class Main { void x() {\n"
+        "  showConsentDialog(); TelephonyManager.getDeviceId();\n"
         "} }\n"
     )
     ctx.manifest = {"activities": []}
@@ -191,7 +191,7 @@ async def test_c018_flags_xor_loop(tmp_path, memory):
 async def test_logic001_flags_hardcoded_date(tmp_path, memory):
     ctx, decompiled = _ctx(tmp_path)
     (decompiled / "Gate.java").write_text(
-        "if (today.isAfter(\"2025-01-01\")) showPaywall();\n"
+        "if (today > \"2025-01-01\") showPaywall();\n"
     )
     f = await TemporalLogicAgent(context=ctx, memory=memory).analyze()
     assert any(x.vuln_class == "Hardcoded Date Comparison" for x in f)

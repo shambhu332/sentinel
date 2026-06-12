@@ -134,9 +134,9 @@ async def test_tier2_tier3_raise_not_implemented(memory):
 async def test_unconnected_operations_raise_memory_error():
     m = ProductionMemory()
     with pytest.raises(MemoryError):
-        await m.publish_event("s", "e", {})
+        await m.publish_event("sess_unconnec", "e", {})
     with pytest.raises(MemoryError):
-        await m.save_finding(_finding("s"))
+        await m.save_finding(_finding("sess_unconnec"))
 
 
 @pytest.mark.asyncio
