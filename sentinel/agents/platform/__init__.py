@@ -9,8 +9,10 @@ from sentinel.agents.platform.p007_activity_result_leak import ActivityResultLea
 from sentinel.agents.platform.p011_receiver_chain_hijack import ReceiverChainHijackAgent
 from sentinel.agents.platform.p012_mutable_pending_intent import MutablePendingIntentAgent
 from sentinel.agents.platform.i001_component_cross_ref import ComponentCrossRefAgent
+from sentinel.agents.platform.ui001_activity_graph import ActivityGraphAgent
 
 __all__ = [
+    "ActivityGraphAgent",
     "ActivityResultLeakAgent",
     "ComponentCrossRefAgent",
     "ContentProviderIDORAgent",
