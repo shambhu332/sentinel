@@ -1074,6 +1074,52 @@ export const AGENTS = [
     severities: ['medium', 'low'],
     description: "RFC1918 IP / *.corp / *.local / *.internal / *.staging / *.dev hostname matches in code and resources — leaks backend topology and staging interfaces.",
   },
+  // ---- SAST gaps batch (June 2026) ----
+  {
+    id: 'UI_001',
+    name: "ActivityGraph",
+    vuln_class: "Activity Auth-Bypass Path",
+    phase: "Phase 2",
+    category: "platform",
+    severities: ['high'],
+    description: "Builds a NetworkX DiGraph of startActivity() transitions, finds simple paths from LAUNCHER to sensitive sinks (admin/payment/transfer) that pass through zero auth-gated activities.",
+  },
+  {
+    id: 'REFL_001',
+    name: "ReflectionResolver",
+    vuln_class: "Unsafe Reflection",
+    phase: "Phase 2",
+    category: "reflection",
+    severities: ['high', 'medium', 'low'],
+    description: "Resolves Class.forName / Method.invoke / Constructor.newInstance arguments via intra-procedural constant propagation. Unresolvable targets are forwarded as Dynamic Testing Targets to Frida.",
+  },
+  {
+    id: 'RN_002',
+    name: "ReactNativeBridgeTaint",
+    vuln_class: "React Native Bridge Taint Surface",
+    phase: "Phase 2",
+    category: "crossplatform",
+    severities: ['high', 'medium', 'low', 'info'],
+    description: "Scans the JS bundle (index.android.bundle / Hermes) for eval/Function/setTimeout(string) primitives and enumerates NativeModules.X.method() bridge calls, flagging dangerous-method-name hits.",
+  },
+  {
+    id: 'FL_002',
+    name: "FlutterMethodChannelTracker",
+    vuln_class: "Flutter MethodChannel Surface",
+    phase: "Phase 2",
+    category: "crossplatform",
+    severities: ['high', 'medium', 'low', 'info'],
+    description: "Enumerates Flutter MethodChannels declared on the Android side, cross-references with Dart-side callers in flutter_assets/, flags handlers missing call.method validation and open channel names.",
+  },
+  {
+    id: 'GESTURE_001',
+    name: "PatternLockWeakness",
+    vuln_class: "Custom Pattern-Lock Weakness",
+    phase: "Phase 2",
+    category: "platform",
+    severities: ['high', 'medium'],
+    description: "Audits hand-rolled pattern-lock screens for plaintext SharedPreferences storage, unsalted MD5/SHA-1 hashing, and missing attempt-limit lockout logic.",
+  },
 ];
 
 export const CATEGORIES = [

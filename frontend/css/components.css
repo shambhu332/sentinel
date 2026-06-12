@@ -1019,3 +1019,110 @@ code.inline {
 }
 .badge.status-running   { background: var(--info-bg);    color: var(--info);    border-color: rgba(48, 176, 255, 0.3); }
 .badge.status-cancelled { background: var(--sev-info-bg);color: var(--sev-info); border-color: rgba(142, 146, 160, 0.3); }
+
+/* ============================================================
+   SAST overhaul (June 2026) — Profile card + Compliance + Dynamic Target
+   ============================================================ */
+
+/* Profile summary card on scan-detail */
+.profile-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 16px 20px;
+  margin: 16px 0;
+}
+.profile-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.profile-card-head h3 {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.profile-card-head h3 i {
+  width: 16px; height: 16px;
+  color: var(--accent-primary);
+}
+.profile-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 16px;
+}
+.profile-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.profile-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+}
+.profile-value {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+/* Compliance citations inside finding detail */
+.compliance-section .compliance-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+.compliance-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.compliance-badge {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.compliance-ref {
+  font-weight: 600;
+  color: var(--text-primary);
+  flex-shrink: 0;
+}
+.compliance-note {
+  font-size: 12px;
+}
+
+/* Inline compliance pill in finding rows */
+.compliance-inline {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+/* Dynamic Testing Target badge — purple to match Frida brand */
+.badge.dynamic-target {
+  display: inline-block;
+  vertical-align: middle;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}

@@ -3,6 +3,7 @@ import { el, refreshIcons, escape } from '../utils.js';
 import { sevBadge, triageBadge } from './severity-badge.js';
 import { codeBlock } from './code-block.js';
 import { getAgentById } from '../data/agents.js';
+import { renderCompliancePanel, complianceInlinePill } from './compliance-panel.js';
 
 export function renderFindingsTable(container, findings) {
   container.innerHTML = '';
@@ -38,11 +39,25 @@ export function renderFindingsTable(container, findings) {
   sorted.forEach((finding) => {
     const agent = getAgentById(finding.agentId);
 
+    // Inline badges: Dynamic Testing Target + Compliance pill, when applicable.
+    const inlineBadges = [];
+    if (finding.evidence?.dynamic_target === true) {
+      inlineBadges.push(el('span', {
+        class: 'badge dynamic-target',
+        title: 'Forwarded to Frida agent as a runtime bypass target',
+        style: 'background:#7c3aed22;color:#a78bfa;border:1px solid #7c3aed55;font-size:10px;margin-left:6px;',
+      }, '⚡ Dynamic Target'));
+    }
+    const cPill = complianceInlinePill(finding);
+    if (cPill) inlineBadges.push(cPill);
+
+    const vulnCell = el('td', {}, finding.vulnClass, ...inlineBadges);
+
     const row = el('tr', { class: 'finding-row clickable', 'data-fid': finding.id },
       el('td', {}, el('i', { 'data-lucide': 'chevron-right', class: 'chev' })),
       el('td', {}, sevBadge(finding.severity)),
       el('td', {}, el('span', { class: 'mono', style: 'color: var(--accent-primary); font-size: 12px;' }, finding.agentId)),
-      el('td', {}, finding.vulnClass),
+      vulnCell,
       el('td', {}, triageBadge(finding.triage)),
       el('td', {}, el('span', { class: 'mono text-muted', style: 'font-size: 12px;' },
         (finding.confidence * 100).toFixed(0) + '%')),
@@ -112,6 +127,9 @@ function buildFindingDetail(finding, agent) {
     el('h4', {}, 'Recommendation'),
     el('p', {}, finding.recommendation || '—'),
   ));
+
+  const compliance = renderCompliancePanel(finding);
+  if (compliance) right.appendChild(compliance);
 
   detail.append(left, right);
   return detail;
