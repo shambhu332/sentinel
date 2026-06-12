@@ -11,9 +11,8 @@ The endpoints are intentionally minimal:
 * ``GET /reports/{session_id}/{fmt}`` — stream the requested artifact
   (``markdown`` / ``html`` / ``json``).
 
-Auth is not required — the gateway binds to ``127.0.0.1`` by default
-and reports never leave the workspace volume. If the deployment wants
-auth they can apply ``Depends(get_current_active_user)`` later.
+Auth is required because reports contain confidential APK/package
+metadata and vulnerability evidence.
 """
 from __future__ import annotations
 
@@ -22,9 +21,10 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse, JSONResponse
 
+from sentinel.auth.jwt_auth import get_current_active_user
 from sentinel.core.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -42,7 +42,7 @@ _FORMATS: dict[str, dict[str, str]] = {
 
 
 @router.get("")
-def list_reports() -> JSONResponse:
+def list_reports(current_user=Depends(get_current_active_user)) -> JSONResponse:
     """Return every VAPT report on disk in the workspace, newest first."""
     settings = get_settings()
     workspace_root = Path(settings.workspace)
@@ -96,7 +96,11 @@ def list_reports() -> JSONResponse:
 
 
 @router.get("/{session_id}/{fmt}")
-def get_report(session_id: str, fmt: str) -> FileResponse:
+def get_report(
+    session_id: str,
+    fmt: str,
+    current_user=Depends(get_current_active_user),
+) -> FileResponse:
     """Stream a single VAPT-report artifact."""
     if not _SESSION_ID.match(session_id):
         raise HTTPException(
@@ -121,10 +125,17 @@ def get_report(session_id: str, fmt: str) -> FileResponse:
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"no {fmt} report for session {session_id}",
         )
+    workspace_root = Path(settings.workspace).resolve()
+    resolved = candidate.resolve()
+    if not resolved.is_relative_to(workspace_root):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="invalid report path",
+        )
     # FileResponse handles range requests + correct content-type +
     # last-modified for free.
     return FileResponse(
-        path=str(candidate),
+        path=str(resolved),
         media_type=meta["mime"],
         filename=candidate.name,
     )

@@ -65,6 +65,30 @@ def _parse_options(options: str | None) -> dict[str, Any]:
         ) from e
 
 
+def _bounded_int_option(
+    opts: dict[str, Any],
+    name: str,
+    default: int,
+    minimum: int,
+    maximum: int,
+) -> int:
+    raw = opts.get(name, default)
+    try:
+        value = int(raw)
+    except (TypeError, ValueError) as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"{name} must be an integer",
+        ) from e
+    if value < minimum or value > maximum:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"{name} must be between {minimum} and {maximum}",
+        )
+    opts[name] = value
+    return value
+
+
 @router.post("", status_code=status.HTTP_202_ACCEPTED)
 async def create_scan(
     apk: UploadFile = File(..., description="APK/AAB file"),
@@ -135,6 +159,8 @@ async def create_scan(
         )
 
     opts = _parse_options(options)
+    _bounded_int_option(opts, "dynamic_duration", 30, 1, 300)
+    _bounded_int_option(opts, "frida_duration", 30, 1, 300)
     job = await launch_scan(
         apk_path=stored_path,
         apk_filename=safe_name,

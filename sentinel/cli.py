@@ -314,7 +314,6 @@ async def _run_scan(
         FileProviderTraversalAgent,
         FlagSecureMissingAgent,
         GraphqlPersistedQueryAgent,
-        IapBypassAgent,
         IdorCandidateAgent,
         ImplicitIntentLeakAgent,
         ImproperTLSAgent,
@@ -341,6 +340,9 @@ async def _run_scan(
         UnsafeReflectionInvokeAgent,
         WebViewRuntimeAgent,
         ZipPathTraversalAgent,
+    )
+    from sentinel.agents.dynamic import (
+        IapBypassAgent as DynamicIapBypassAgent,
     )
     from sentinel.agents.logging import InsecureLoggingAgent
     from sentinel.agents.meta import DebuggableManifestAgent, ObfuscationDetectorAgent
@@ -472,6 +474,7 @@ async def _run_scan(
             apk_path=apk_path,
             workspace=workspace,
             scope=scope,
+            data_sensitivity="private" if private else "public",
             active_replay=active_replay,
         )
 
@@ -581,7 +584,7 @@ async def _run_scan(
             agent_list.append(AntiTamperCoverageAgent)   # D_004 (Sprint 8.4 DAST)
             agent_list.append(DynamicCodeLoadingAgent)   # D_005 (Sprint 8.4 DAST)
             agent_list.append(StaticIvReuseAgent)        # D_006 (Sprint 8.4 DAST)
-            agent_list.append(IapBypassAgent)            # D_008 (Sprint 8.5 DAST)
+            agent_list.append(DynamicIapBypassAgent)     # D_008 (Sprint 8.5 DAST)
             agent_list.append(WebViewRuntimeAgent)       # D_011 (Sprint 8.6 DAST)
             agent_list.append(NotificationLeakAgent)     # D_012 (Sprint 8.6 DAST)
             agent_list.append(ImplicitIntentLeakAgent)   # D_015 (Sprint 8.8 DAST)

@@ -63,21 +63,13 @@ def create_app() -> FastAPI:
         ],
     )
 
-    # CORS — SENTINEL is a single-user self-hosted tool that binds to
-    # 127.0.0.1 by default. The threat model for CORS here is "another
-    # process on the same machine snooping requests" — not a meaningful
-    # boundary. Use a wildcard to sidestep the recurring traps:
-    #
-    #   - localhost vs 127.0.0.1 are different CORS origins
-    #   - file:// pages send Origin: null
-    #   - some browsers send Origin with a trailing slash
-    #
-    # NOTE: ``allow_origins=["*"]`` and ``allow_credentials=True`` are
-    # mutually exclusive per the CORS spec, so we drop credentials.
-    # JWT goes in the Authorization header anyway, not cookies.
+    # CORS — keep browser access scoped to configured local origins
+    # rather than allowing arbitrary websites to drive the local scanner
+    # API from a victim browser.
+    settings = get_settings()
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=settings.parsed_cors_origins(),
         allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],

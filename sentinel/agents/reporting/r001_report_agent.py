@@ -86,7 +86,7 @@ class ReportGeneratorAgent(BaseAgent):
         """Build a FreeProviderRouter, or return None if unavailable."""
         try:
             from sentinel.llm.router import FreeProviderRouter
-            return FreeProviderRouter()
+            return FreeProviderRouter(force_local=self.context.is_private)
         except Exception as exc:  # noqa: BLE001
             logger.info(
                 "R_001: free LLM router unavailable, using boilerplate (%s)",

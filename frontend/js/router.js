@@ -1,4 +1,5 @@
 // Hash-based router
+import { el } from './utils.js';
 import { setActiveSidebarLink } from './components/sidebar.js';
 import { setBreadcrumb } from './components/topbar.js';
 
@@ -48,7 +49,11 @@ function dispatch() {
   setBreadcrumb(crumbs);
 
   if (!handler) {
-    main.innerHTML = `<div class="card"><h2>Not found</h2><p>Route <code class="inline">${name}</code> is not registered.</p></div>`;
+    main.innerHTML = '';
+    main.appendChild(el('div', { class: 'card' },
+      el('h2', {}, 'Not found'),
+      el('p', {}, 'Route ', el('code', { class: 'inline' }, name), ' is not registered.'),
+    ));
     return;
   }
 

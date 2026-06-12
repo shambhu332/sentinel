@@ -10,11 +10,13 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 
+from sentinel.core.config import get_settings
+
 if TYPE_CHECKING:
     from .models import User
 
 # JWT configuration
-SECRET_KEY = secrets.token_urlsafe(32)  # In production, load from env
+_PROCESS_SECRET_KEY = secrets.token_urlsafe(32)
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
@@ -26,6 +28,11 @@ security = HTTPBearer(auto_error=False)
 
 # In-memory user store (replace with database in production)
 _users_db: dict[str, dict] = {}
+
+
+def _secret_key() -> str:
+    configured = get_settings().jwt_secret.get_secret_value().strip()
+    return configured or _PROCESS_SECRET_KEY
 
 
 def hash_password(password: str) -> str:
@@ -47,14 +54,14 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None) -> s
         expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
 
     to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    encoded_jwt = jwt.encode(to_encode, _secret_key(), algorithm=ALGORITHM)
     return encoded_jwt
 
 
 def decode_token(token: str) -> dict:
     """Decode and validate a JWT token."""
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, _secret_key(), algorithms=[ALGORITHM])
         return payload
     except JWTError as e:
         raise HTTPException(
@@ -71,7 +78,12 @@ async def get_current_user(
     from .models import User
 
     if credentials is None:
-        # Fallback to local dev user if no authorization header is sent (e.g. from local dashboard)
+        if not get_settings().dev_auth_bypass:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authentication required",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
         return User(
             id="local-dev-user",
             email="local-dev@example.com",

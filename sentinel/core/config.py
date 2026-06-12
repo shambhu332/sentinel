@@ -27,6 +27,12 @@ class Settings(BaseSettings):
     ollama_host: str = Field(default="http://localhost:11434", alias="OLLAMA_HOST")
 
     # Runtime
+    jwt_secret: SecretStr = Field(default=SecretStr(""), alias="SENTINEL_JWT_SECRET")
+    dev_auth_bypass: bool = Field(default=False, alias="SENTINEL_DEV_AUTH_BYPASS")
+    cors_origins: str = Field(
+        default="http://127.0.0.1:8000,http://localhost:8000,null",
+        alias="SENTINEL_CORS_ORIGINS",
+    )
     log_level: str = Field(default="INFO", alias="SENTINEL_LOG_LEVEL")
     workspace: Path = Field(default=Path("./workspace"), alias="SENTINEL_WORKSPACE")
     max_apk_size_mb: int = Field(default=500, alias="SENTINEL_MAX_APK_SIZE_MB", ge=1, le=2048)
@@ -51,6 +57,13 @@ class Settings(BaseSettings):
 
     def has_cerebras_key(self) -> bool:
         return bool(self.cerebras_api_key.get_secret_value().strip())
+
+    def parsed_cors_origins(self) -> list[str]:
+        return [
+            origin.strip().rstrip("/")
+            for origin in self.cors_origins.split(",")
+            if origin.strip()
+        ]
 
 
 _settings: Settings | None = None

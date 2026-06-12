@@ -18,9 +18,11 @@ scope text. The paste approach works 100% of the time as a last resort.
 """
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
 import re
+import socket
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -98,9 +100,13 @@ class ScopeParser:
 
         return self._parse_text(text, platform=platform, source_url=url)
 
-    def from_file(self, path: Path) -> BountyScope:
+    def from_file(self, path: Path, allowed_root: Path | None = None) -> BountyScope:
         """Parse scope from a local file. Auto-detects JSON vs plain text."""
         path = path.expanduser().resolve()
+        if allowed_root is not None:
+            root = allowed_root.expanduser().resolve()
+            if not path.is_relative_to(root):
+                raise ScopeSourceError(f"Scope file outside allowed root: {path}")
         if not path.exists():
             raise ScopeSourceError(f"Scope file not found: {path}")
         if not path.is_file():
@@ -145,10 +151,38 @@ class ScopeParser:
         host = (parsed.hostname or "").lower()
         if not host:
             return False
-        if host in {"localhost", "127.0.0.1", "::1", "0.0.0.0"}:
+        if host == "localhost":
             return False
-        if host.startswith("192.168.") or host.startswith("10.") or host.startswith("172."):
+        try:
+            return self._is_public_ip(ipaddress.ip_address(host))
+        except ValueError:
+            return self._hostname_resolves_public(host)
+
+    @staticmethod
+    def _is_public_ip(ip: ipaddress._BaseAddress) -> bool:
+        return not (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_multicast
+            or ip.is_reserved
+            or ip.is_unspecified
+        )
+
+    def _hostname_resolves_public(self, host: str) -> bool:
+        try:
+            infos = socket.getaddrinfo(host, None)
+        except socket.gaierror:
             return False
+        addresses = {info[4][0] for info in infos if info and info[4]}
+        if not addresses:
+            return False
+        for address in addresses:
+            try:
+                if not self._is_public_ip(ipaddress.ip_address(address)):
+                    return False
+            except ValueError:
+                return False
         return True
 
     # ---------- Fetch ----------
@@ -157,10 +191,16 @@ class ScopeParser:
         """Fetch URL content with size limit and proper user agent."""
         with httpx.Client(
             timeout=self._timeout,
-            follow_redirects=True,
+            follow_redirects=False,
             headers={"User-Agent": USER_AGENT},
         ) as client:
             resp = client.get(url)
+            if resp.is_redirect:
+                location = resp.headers.get("location", "")
+                redirected = str(resp.url.join(location)) if location else ""
+                if not redirected or not self._is_safe_url(redirected):
+                    raise httpx.HTTPError("unsafe redirect blocked")
+                resp = client.get(redirected)
             resp.raise_for_status()
             text = resp.text
             if len(text) > MAX_SCOPE_SIZE:

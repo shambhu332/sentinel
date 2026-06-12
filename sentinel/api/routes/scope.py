@@ -5,9 +5,11 @@ import logging
 from pathlib import Path
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
+from sentinel.auth.jwt_auth import get_current_active_user
+from sentinel.core.config import get_settings
 from sentinel.core.finding import BountyScope
 from sentinel.scope.scope_parser import ScopeParser, ScopeSourceError
 
@@ -27,14 +29,17 @@ class ScopeParseResponse(BaseModel):
 
 
 @router.post("/parse", response_model=ScopeParseResponse)
-def parse_scope_endpoint(req: ScopeParseRequest) -> ScopeParseResponse:
+def parse_scope_endpoint(
+    req: ScopeParseRequest,
+    current_user=Depends(get_current_active_user),
+) -> ScopeParseResponse:
     """Parse scope from URL, file path, or pasted text. Returns structured BountyScope."""
     parser = ScopeParser()
     try:
         if req.mode == "url":
             scope = parser.from_url(req.value)
         elif req.mode == "file":
-            scope = parser.from_file(Path(req.value))
+            scope = parser.from_file(Path(req.value), allowed_root=get_settings().workspace)
         else:
             scope = parser.from_text(req.value)
     except ScopeSourceError as e:

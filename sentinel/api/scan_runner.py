@@ -13,16 +13,45 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from sentinel.agents.auth import HardcodedSecretsAgent
+from sentinel.agents.auth import (
+    BiometricBypassAgent,
+    HardcodedSecretsAgent,
+    MagicLinkTokenAgent,
+    RefreshTokenReuseAgent,
+    SessionFixationAgent,
+    SessionTokenInUrlAgent,
+    TapJackingAgent,
+)
 from sentinel.agents.auth_storage import InsecureAuthStorageAgent
 from sentinel.agents.backup import InsecureBackupAgent
+from sentinel.agents.business import (
+    ClientSideAuthzAgent,
+    IapBypassAgent,
+    OAuthRedirectUriAgent,
+    RaceConditionAgent,
+    RestIdorAgent,
+    UnsignedUpdateAgent,
+)
 from sentinel.agents.cert_pinning import MissingCertPinningAgent
-from sentinel.agents.cloud import FirebaseMisconfigAgent
-from sentinel.agents.crypto import WeakCryptoAgent
+from sentinel.agents.cloud import FcmTokenDisclosureAgent, FirebaseMisconfigAgent
+from sentinel.agents.crossplatform import FlutterAgent, ReactNativeAgent
+from sentinel.agents.crypto import (
+    AesGcmNonceReuseAgent,
+    CbcPredictableIvAgent,
+    EcbModeAgent,
+    HardcodedCryptoKeysAgent,
+    HashKdfAgent,
+    JavaSerializationAgent,
+    KeystoreMisuseAgent,
+    SQLCipherKeyDerivationAgent,
+    WeakCryptoAgent,
+    WeakPrngSeedAgent,
+)
 from sentinel.agents.data_storage import WorldReadableStorageAgent
 from sentinel.agents.dynamic import (
     CertPinningBypassAgent,
@@ -31,16 +60,45 @@ from sentinel.agents.dynamic import (
     RuntimeCryptoAgent,
 )
 from sentinel.agents.logging import InsecureLoggingAgent
-from sentinel.agents.meta import ObfuscationDetectorAgent
-from sentinel.agents.network import CleartextTrafficAgent
+from sentinel.agents.meta import DebuggableManifestAgent, ObfuscationDetectorAgent
+from sentinel.agents.native import LoadLibraryTaintAgent, NativeLibraryAgent
+from sentinel.agents.network import (
+    ApiKeyLeakageAgent,
+    CleartextTrafficAgent,
+    DnsLeakAgent,
+    GraphqlFuzzerAgent,
+    GraphqlIntrospectionAgent,
+    HardcodedMtlsKeyAgent,
+    InsecureTrustManagerAgent,
+    InsecureWebSocketAgent,
+    OkHttpLoggingAgent,
+    WebViewDebugFlagAgent,
+)
 from sentinel.agents.platform import (
+    ActivityResultLeakAgent,
     ContentProviderIDORAgent,
     DeepLinkHijackAgent,
+    ExcessivePermissionsAgent,
     IntentRedirectAgent,
+    IpcExposureAgent,
+    MutablePendingIntentAgent,
+    ReceiverChainHijackAgent,
+    UnprotectedBroadcastAgent,
 )
 from sentinel.agents.random_gen import InsecureRandomAgent
-from sentinel.agents.shared_prefs import InsecureSharedPrefsAgent
+from sentinel.agents.resilience import AntiTamperAgent
+from sentinel.agents.semgrep import SemgrepAgent
+from sentinel.agents.shared_prefs import (
+    BackupRulesAgent,
+    ExternalStorageCredentialAgent,
+    InsecureFileProviderAgent,
+    InsecureSharedPrefsAgent,
+    PlaintextPasswordFileAgent,
+    SqliteWalLeakAgent,
+)
 from sentinel.agents.special import PipelineSmokeTestAgent
+from sentinel.agents.supply_chain import SCAAgent
+from sentinel.agents.taint import TaintAgent
 from sentinel.agents.webview import InsecureWebViewAgent
 from sentinel.core.config import get_settings
 from sentinel.core.finding import BountyScope, Finding
@@ -55,22 +113,73 @@ logger = logging.getLogger(__name__)
 
 SAST_AGENTS = [
     ObfuscationDetectorAgent,
+    DebuggableManifestAgent,
     PipelineSmokeTestAgent,
     InsecureAuthStorageAgent,
     HardcodedSecretsAgent,
     InsecureLoggingAgent,
+    BiometricBypassAgent,
+    TapJackingAgent,
+    SessionTokenInUrlAgent,
+    RefreshTokenReuseAgent,
+    SessionFixationAgent,
+    MagicLinkTokenAgent,
+    RestIdorAgent,
     InsecureRandomAgent,
+    RaceConditionAgent,
+    IapBypassAgent,
+    OAuthRedirectUriAgent,
+    UnsignedUpdateAgent,
+    ClientSideAuthzAgent,
     InsecureBackupAgent,
     WorldReadableStorageAgent,
     InsecureWebViewAgent,
-    InsecureSharedPrefsAgent,
+    HardcodedCryptoKeysAgent,
+    EcbModeAgent,
     WeakCryptoAgent,
+    SQLCipherKeyDerivationAgent,
+    KeystoreMisuseAgent,
+    AesGcmNonceReuseAgent,
+    JavaSerializationAgent,
+    CbcPredictableIvAgent,
+    WeakPrngSeedAgent,
+    HashKdfAgent,
     FirebaseMisconfigAgent,
+    FcmTokenDisclosureAgent,
     MissingCertPinningAgent,
     CleartextTrafficAgent,
+    ApiKeyLeakageAgent,
+    GraphqlIntrospectionAgent,
+    InsecureTrustManagerAgent,
+    WebViewDebugFlagAgent,
+    OkHttpLoggingAgent,
+    GraphqlFuzzerAgent,
+    DnsLeakAgent,
+    InsecureWebSocketAgent,
+    HardcodedMtlsKeyAgent,
     DeepLinkHijackAgent,
+    ExcessivePermissionsAgent,
+    UnprotectedBroadcastAgent,
+    ActivityResultLeakAgent,
     ContentProviderIDORAgent,
     IntentRedirectAgent,
+    ReceiverChainHijackAgent,
+    MutablePendingIntentAgent,
+    IpcExposureAgent,
+    NativeLibraryAgent,
+    LoadLibraryTaintAgent,
+    AntiTamperAgent,
+    SCAAgent,
+    TaintAgent,
+    ReactNativeAgent,
+    FlutterAgent,
+    SemgrepAgent,
+    InsecureSharedPrefsAgent,
+    InsecureFileProviderAgent,
+    ExternalStorageCredentialAgent,
+    BackupRulesAgent,
+    PlaintextPasswordFileAgent,
+    SqliteWalLeakAgent,
 ]
 
 
@@ -261,6 +370,7 @@ async def _run_job(job: ScanJob) -> None:
     memory = LightweightMemory(data_dir=settings.workspace.parent / "data")
     router: FreeProviderRouter | None = None
     triager: LLMTriager | None = None
+    ctx: ScanContext | None = None
 
     try:
         await memory.connect()
@@ -292,6 +402,7 @@ async def _run_job(job: ScanJob) -> None:
             apk_path=job.apk_path,
             workspace=settings.workspace,
             scope=scope,
+            data_sensitivity="private" if bool(job.options.get("privacy", False)) else "public",
         )
 
         dynamic = bool(job.options.get("dynamic", False))
@@ -359,3 +470,26 @@ async def _run_job(job: ScanJob) -> None:
             await memory.close()
         except Exception:  # noqa: BLE001
             pass
+        if ctx is not None and not bool(job.options.get("keep_workspace", False)):
+            _cleanup_web_scan_artifacts(ctx.workspace, job.apk_path)
+
+
+def _cleanup_web_scan_artifacts(session_workspace: Path, uploaded_apk: Path) -> None:
+    """Remove bulky web-scan artifacts while preserving generated reports."""
+    try:
+        uploaded_apk.unlink(missing_ok=True)
+    except OSError:
+        logger.warning("Could not remove uploaded APK: %s", uploaded_apk)
+
+    if not session_workspace.exists():
+        return
+    for child in session_workspace.iterdir():
+        if child.name == "reports":
+            continue
+        try:
+            if child.is_dir():
+                shutil.rmtree(child, ignore_errors=True)
+            else:
+                child.unlink(missing_ok=True)
+        except OSError:
+            logger.warning("Could not remove scan artifact: %s", child)

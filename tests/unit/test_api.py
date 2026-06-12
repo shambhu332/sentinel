@@ -163,6 +163,11 @@ def test_create_scan_returns_session_id(scans_api):
     assert body["apk_size_bytes"] == len(_FAKE_APK_BYTES)
 
 
+def test_scans_require_auth():
+    r = _client().get("/scans")
+    assert r.status_code == 401
+
+
 def test_list_scans_contains_created(scans_api):
     sid = _post_apk(scans_api, "a.apk").json()["session_id"]
     list_resp = scans_api.get("/scans")
@@ -210,7 +215,7 @@ def test_create_scan_rejects_unsupported_extension(scans_api):
 # ---------- Scope endpoints ----------
 
 def test_scope_parse_text():
-    r = _client().post("/scope/parse", json={
+    r = _authed_client().post("/scope/parse", json={
         "mode": "text",
         "value": "In scope: com.example.app. Out of scope: com.example.test",
     })
@@ -221,10 +226,32 @@ def test_scope_parse_text():
 
 
 def test_scope_parse_invalid_mode():
-    r = _client().post("/scope/parse", json={"mode": "invalid", "value": "x"})
+    r = _authed_client().post("/scope/parse", json={"mode": "invalid", "value": "x"})
     assert r.status_code == 422
 
 
 def test_scope_parse_empty_value():
-    r = _client().post("/scope/parse", json={"mode": "text", "value": ""})
+    r = _authed_client().post("/scope/parse", json={"mode": "text", "value": ""})
     assert r.status_code == 422
+
+
+def test_scope_parse_requires_auth():
+    r = _client().post("/scope/parse", json={"mode": "text", "value": "In scope: com.x"})
+    assert r.status_code == 401
+
+
+# ---------- Reports endpoints ----------
+
+def test_reports_require_auth():
+    r = _client().get("/reports")
+    assert r.status_code == 401
+
+
+def test_api_sast_roster_uses_full_static_catalog():
+    from sentinel.api.scan_runner import SAST_AGENTS
+
+    agent_ids = [agent.AGENT_ID for agent in SAST_AGENTS]
+    assert len(agent_ids) >= 60
+    assert len(agent_ids) == len(set(agent_ids))
+    for required in ("META_002", "A_013", "B_007", "C_016", "N_014", "P_012", "SCA_001", "TAINT_001", "SG_001"):
+        assert required in agent_ids

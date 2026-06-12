@@ -95,6 +95,7 @@ def _parser_with_fixture(html: str, status: int = 200) -> ScopeParser:
             raise httpx.HTTPError(f"mock {status}")
         return html
     parser._fetch = _mock_fetch  # type: ignore
+    parser._hostname_resolves_public = lambda host: True  # type: ignore
     return parser
 
 
