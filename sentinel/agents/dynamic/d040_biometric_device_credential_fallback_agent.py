@@ -98,9 +98,14 @@ class BiometricDeviceCredentialFallbackAgent(BaseAgent):
                 "stack": payload.get("stack"),
             }
             has_credential = bool(mask & DEVICE_CREDENTIAL)
+            # Android's BIOMETRIC_WEAK constant is a superset mask that
+            # includes the BIOMETRIC_STRONG bits. A check like
+            # ``mask & BIOMETRIC_STRONG`` therefore also matches WEAK and
+            # hides weak-only prompts. Treat the full WEAK mask, without
+            # device credential fallback, as the Class-2-only case.
             only_weak = (
                 (mask & BIOMETRIC_WEAK) == BIOMETRIC_WEAK
-                and (mask & BIOMETRIC_STRONG) != BIOMETRIC_STRONG
+                and not has_credential
             )
 
             if has_crypto and has_credential:
@@ -244,10 +249,10 @@ def _coerce_int(value: Any) -> int | None:
 
 def _decode_authenticators(mask: int) -> list[str]:
     decoded: list[str] = []
-    if mask & BIOMETRIC_STRONG == BIOMETRIC_STRONG:
-        decoded.append("BIOMETRIC_STRONG")
-    elif mask & BIOMETRIC_WEAK == BIOMETRIC_WEAK:
+    if mask & BIOMETRIC_WEAK == BIOMETRIC_WEAK:
         decoded.append("BIOMETRIC_WEAK")
+    elif mask & BIOMETRIC_STRONG == BIOMETRIC_STRONG:
+        decoded.append("BIOMETRIC_STRONG")
     if mask & DEVICE_CREDENTIAL:
         decoded.append("DEVICE_CREDENTIAL")
     return decoded
