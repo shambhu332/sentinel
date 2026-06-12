@@ -1,0 +1,105 @@
+# SENTINEL compliance mappings — agent_id / vuln_class → regulation citations.
+#
+# This is a hand-curated table. Reviewers should consult the underlying
+# regulation text; this mapping is a starting point, not legal advice.
+#
+# Schema:
+#   <agent_id_or_glob>:
+#     citations:
+#       - { framework: GDPR,    article: "Art. 32(1)(a)", note: "..." }
+#       - { framework: HIPAA,   rule:    "164.312(a)(2)(iv)", note: "..." }
+#       - { framework: PCI-DSS, requirement: "3.4",          note: "..." }
+#
+# Glob support is intentional simple: trailing "*" only.
+
+# -----------------------------------------------------------------
+# Secret leakage / key material
+# -----------------------------------------------------------------
+A_004:
+  citations:
+    - { framework: PCI-DSS, requirement: "3.4",   note: "Cardholder data must not be stored in cleartext; embedded API keys for payment infrastructure violate this." }
+    - { framework: PCI-DSS, requirement: "3.5.1", note: "Cryptographic keys must be protected against disclosure and misuse." }
+    - { framework: GDPR,    article: "Art. 32(1)(a)", note: "Pseudonymisation and encryption keys must be protected as part of appropriate technical measures." }
+    - { framework: HIPAA,   rule: "164.312(a)(2)(iv)", note: "Encryption and decryption keys must be safeguarded." }
+
+C_005:   # hardcoded crypto keys
+  citations:
+    - { framework: PCI-DSS, requirement: "3.5.1", note: "Cryptographic keys must be protected." }
+    - { framework: GDPR,    article: "Art. 32(1)(a)" }
+
+C_017:   # hardcoded certificate / private-key files
+  citations:
+    - { framework: PCI-DSS, requirement: "3.5.1" }
+    - { framework: PCI-DSS, requirement: "4.2",   note: "Strong cryptography during transmission depends on key secrecy." }
+
+# -----------------------------------------------------------------
+# Transport security
+# -----------------------------------------------------------------
+N_001:   # cleartext traffic
+  citations:
+    - { framework: PCI-DSS, requirement: "4.1",   note: "Strong cryptography and security protocols must be used during transmission over open networks." }
+    - { framework: HIPAA,   rule: "164.312(e)(1)", note: "Implement technical security measures to guard against unauthorized access to ePHI in transit." }
+    - { framework: GDPR,    article: "Art. 32(1)(a)" }
+
+N_008:   # insecure TrustManager
+  citations:
+    - { framework: PCI-DSS, requirement: "4.1.1" }
+    - { framework: HIPAA,   rule: "164.312(e)(2)(ii)", note: "Encryption of transmitted ePHI." }
+
+# -----------------------------------------------------------------
+# Component / authorisation
+# -----------------------------------------------------------------
+I_001:   # unprotected exported component
+  citations:
+    - { framework: GDPR,    article: "Art. 32(1)(b)", note: "Ensure ongoing confidentiality and integrity of processing systems." }
+    - { framework: HIPAA,   rule: "164.312(a)(1)",    note: "Access controls must restrict to authorized users." }
+
+B_008:   # client-side trust / role checks
+  citations:
+    - { framework: PCI-DSS, requirement: "7.1",   note: "Restrict access to system components on a need-to-know basis — client-side enforcement is not sufficient." }
+
+# -----------------------------------------------------------------
+# Privacy / consent
+# -----------------------------------------------------------------
+PRIV_001:
+  citations:
+    - { framework: GDPR,    article: "Art. 6(1)(a)", note: "Lawful basis: explicit consent must precede collection." }
+    - { framework: GDPR,    article: "Art. 7",        note: "Conditions for consent." }
+    - { framework: GDPR,    article: "Art. 5(1)(c)",  note: "Data minimisation." }
+    - { framework: DPDP,    section: "6(1)",          note: "Consent must be free, specific, informed and unambiguous." }
+    - { framework: CCPA,    section: "1798.100(b)" }
+
+SCA_002:
+  citations:
+    - { framework: GDPR,    article: "Art. 28",   note: "Processor obligations: third-party SDKs act as processors and must be contractually bound." }
+    - { framework: GDPR,    article: "Art. 5(1)(c)", note: "Data minimisation — SDK permission scope must match purpose." }
+
+# -----------------------------------------------------------------
+# Crypto integrity
+# -----------------------------------------------------------------
+C_006:    # ECB mode
+  citations:
+    - { framework: PCI-DSS, requirement: "3.4.1", note: "Cryptographic primitives must be strong and used correctly." }
+    - { framework: HIPAA,   rule: "164.312(a)(2)(iv)" }
+
+C_018:    # roll-your-own crypto / hardcoded IV / XOR loops
+  citations:
+    - { framework: PCI-DSS, requirement: "3.4",   note: "Cardholder data rendered unreadable requires industry-standard cryptography." }
+    - { framework: HIPAA,   rule: "164.312(e)(2)(ii)" }
+    - { framework: GDPR,    article: "Art. 32(1)(a)" }
+
+# -----------------------------------------------------------------
+# Logging / pre-shipped backdoors
+# -----------------------------------------------------------------
+LOGIC_001:
+  citations:
+    - { framework: PCI-DSS, requirement: "6.4.4", note: "Test data and accounts must be removed before production release." }
+    - { framework: GDPR,    article: "Art. 32(1)(b)" }
+
+# -----------------------------------------------------------------
+# Resource availability / DoS
+# -----------------------------------------------------------------
+RES_002:
+  citations:
+    - { framework: PCI-DSS, requirement: "10.6", note: "Detect and respond to anomalies; resource exhaustion masks attack." }
+    - { framework: HIPAA,   rule: "164.308(a)(1)(ii)(B)", note: "Risk management — availability of ePHI." }
