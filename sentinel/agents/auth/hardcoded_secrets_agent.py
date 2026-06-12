@@ -26,8 +26,25 @@ from typing import Any
 
 from sentinel.agents.base.base_agent import BaseAgent
 from sentinel.core.finding import Finding, Severity
+from sentinel.tools.native_analyzer import shannon_entropy
 
 logger = logging.getLogger(__name__)
+
+# Shannon entropy floor for the matched secret value. Anything below this
+# is almost certainly a placeholder, a regex false-positive that happened
+# to satisfy the character class, or a value with too few unique chars to
+# be a real key (e.g. "AKIAAAAAAAAAAAAAAAA"). 3.5 is the standard cutoff
+# used by truffleHog / gitleaks; below that, real keys are vanishingly
+# rare and false-positive rate explodes.
+_ENTROPY_FLOOR = 3.5
+
+# Providers whose match is a fixed-prefix structural token, not a random
+# string — entropy filtering would drop real hits. PEM blocks are header
+# strings; JWT structure has known low-entropy headers. Skip them.
+_ENTROPY_EXEMPT_PROVIDERS = frozenset({
+    "PEM Private Key",
+    "JSON Web Token",
+})
 
 
 # Each detector is a tuple: (provider name, regex, severity, confidence)
@@ -224,6 +241,15 @@ class HardcodedSecretsAgent(BaseAgent):
                     if any(hint in line_lower for hint in _FALSE_POSITIVE_HINTS):
                         continue
 
+                    # Entropy filter: real keys are high-entropy. Drop
+                    # low-entropy matches before they reach the LLM
+                    # triager — saves tokens and FP rate.
+                    if (
+                        provider not in _ENTROPY_EXEMPT_PROVIDERS
+                        and shannon_entropy(matched) < _ENTROPY_FLOOR
+                    ):
+                        continue
+
                     rel = str(path.relative_to(root))
                     if provider not in hits:
                         hits[provider] = []
@@ -280,6 +306,13 @@ class HardcodedSecretsAgent(BaseAgent):
                 # (since we don't have a "line" here)
                 s_lower = s.lower()
                 if any(hint in s_lower for hint in _FALSE_POSITIVE_HINTS):
+                    continue
+
+                # Entropy filter (same rule as the file-scan path)
+                if (
+                    provider not in _ENTROPY_EXEMPT_PROVIDERS
+                    and shannon_entropy(matched) < _ENTROPY_FLOOR
+                ):
                     continue
 
                 # Dedupe: same key value from same provider counts once

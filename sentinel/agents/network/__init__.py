@@ -15,12 +15,16 @@ from sentinel.agents.network.n011_graphql_fuzzer import GraphqlFuzzerAgent
 from sentinel.agents.network.n012_dns_leak import DnsLeakAgent
 from sentinel.agents.network.n013_insecure_websocket import InsecureWebSocketAgent
 from sentinel.agents.network.n014_hardcoded_mtls_key import HardcodedMtlsKeyAgent
+from sentinel.agents.network.k001_graphql_grpc_analyzer import (
+    GraphQLGrpcAnalyzerAgent,
+)
 
 __all__ = [
     "CleartextTrafficAgent",
     "ApiKeyLeakageAgent",
     "DnsLeakAgent",
     "GraphqlIntrospectionAgent",
+    "GraphQLGrpcAnalyzerAgent",
     "HardcodedMtlsKeyAgent",
     "InsecureTrustManagerAgent",
     "InsecureWebSocketAgent",
