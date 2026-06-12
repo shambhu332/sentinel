@@ -8,9 +8,11 @@ from sentinel.agents.platform.p006_unprotected_broadcast import UnprotectedBroad
 from sentinel.agents.platform.p007_activity_result_leak import ActivityResultLeakAgent
 from sentinel.agents.platform.p011_receiver_chain_hijack import ReceiverChainHijackAgent
 from sentinel.agents.platform.p012_mutable_pending_intent import MutablePendingIntentAgent
+from sentinel.agents.platform.i001_component_cross_ref import ComponentCrossRefAgent
 
 __all__ = [
     "ActivityResultLeakAgent",
+    "ComponentCrossRefAgent",
     "ContentProviderIDORAgent",
     "DeepLinkHijackAgent",
     "ExcessivePermissionsAgent",
