@@ -65,6 +65,17 @@ class ScanContext:
     # `await ctx.ast_cache.get_or_parse(path)` to get cached trees.
     ast_cache: AstCache | None = None
 
+    # Delta scanning (CI). When set, agents that operate per-file may
+    # consult sentinel.core.delta.should_skip(ctx.changed_files, rel)
+    # to early-skip files unchanged since the baseline. None means
+    # "full scan" — no skipping. Populated by the orchestrator from
+    # the baseline scan_file rows when --base-scan-id is in play.
+    changed_files: set[str] | None = None
+    # Raw current-scan file → sha256 map, kept so the post-phase 2
+    # writer can persist a scan_file table row per file. Populated
+    # only when delta scanning is active.
+    file_hashes: dict[str, str] = field(default_factory=dict)
+
     started_at: datetime = field(
         default_factory=lambda: datetime.now(timezone.utc),
     )
