@@ -1167,6 +1167,25 @@ export const AGENTS = [
     severities: ['high'],
     description: "Identifies updateBalance / claimReward / withdraw-style methods with read-modify-write state and no visible synchronisation. Emits ready-to-fire Frida TypeScript trigger payload for the DAST phase to race-test (N=10 default).",
   },
+  // ---- Experimental tier (June 2026) ----
+  {
+    id: 'D_063',
+    name: "ProviderSqli",
+    vuln_class: "ContentProvider SQLi (Dynamic Testing Target)",
+    phase: "Phase 2",
+    category: "dynamic",
+    severities: ['high', 'medium'],
+    description: "Identifies exported ContentProviders routing selection/projection into raw SQL sinks without binding. Emits a Frida payload that fires 5 curated SQLi probes through ContentResolver.query() and flags distinct row counts as the confirmation signal. SafetyBudget: 50 probes max, 5/s.",
+  },
+  {
+    id: 'D_065',
+    name: "FileProviderFuzzer",
+    vuln_class: "FileProvider Active Traversal Probe (Dynamic Testing Target)",
+    phase: "Phase 2",
+    category: "dynamic",
+    severities: ['medium'],
+    description: "Complement to D_024 (passive observer). Parses res/xml/paths.xml + manifest, emits Frida payload that fires curated traversal probes (`../`, URL-encoded, ZWSP, NUL, symlink names) through FileProvider.getUriForFile + ContentResolver.openInputStream. SafetyBudget: 40 probes max, 5/s.",
+  },
 ];
 
 export const CATEGORIES = [

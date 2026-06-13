@@ -183,6 +183,11 @@ from sentinel.agents.dynamic.d046_race_condition_target import (
     RaceConditionTargetAgent,
 )
 from sentinel.agents.dynamic.d052_symbolic_intent import SymbolicIntentAgent
+# Experimental tier batch
+from sentinel.agents.dynamic.d063_provider_sqli import ProviderSqliAgent
+from sentinel.agents.dynamic.d065_file_provider_fuzzer import (
+    FileProviderFuzzerAgent,
+)
 
 __all__ = [
     "AccessibilityAbuseAgent",
@@ -219,6 +224,8 @@ __all__ = [
     "NotificationLeakAgent",
     "OkHttpLoggingRuntimeAgent",
     "PendingIntentMutableAgent",
+    "FileProviderFuzzerAgent",
+    "ProviderSqliAgent",
     "RaceConditionCandidateAgent",
     "RaceConditionTargetAgent",
     "RuntimeCryptoAgent",
