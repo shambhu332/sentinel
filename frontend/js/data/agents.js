@@ -1148,6 +1148,25 @@ export const AGENTS = [
     severities: ['info'],
     description: "Opt-in LLM swarm for High/Critical findings: Red agent generates a theoretical PoC, Blue agent generates Semgrep/WAF/log-signature detection rules. Privacy-sanitised before LLM call; cached per finding fingerprint.",
   },
+  // ---- God Mode batch (June 2026) ----
+  {
+    id: 'D_052',
+    name: "SymbolicIntent",
+    vuln_class: "Reachable Intent Auth-Bypass Path",
+    phase: "Phase 2",
+    category: "dynamic",
+    severities: ['high'],
+    description: "z3-solver-driven symbolic execution over onReceive / onStartCommand bodies. Mathematically proves which Intent extras values reach guarded sinks (grantPremium, startActivity admin, exec). Emits the satisfying assignment as a Dynamic Testing Target for Frida to fire.",
+  },
+  {
+    id: 'D_046',
+    name: "RaceConditionTarget",
+    vuln_class: "Race-Condition Candidate (Dynamic Testing Target)",
+    phase: "Phase 2",
+    category: "dynamic",
+    severities: ['high'],
+    description: "Identifies updateBalance / claimReward / withdraw-style methods with read-modify-write state and no visible synchronisation. Emits ready-to-fire Frida TypeScript trigger payload for the DAST phase to race-test (N=10 default).",
+  },
 ];
 
 export const CATEGORIES = [
