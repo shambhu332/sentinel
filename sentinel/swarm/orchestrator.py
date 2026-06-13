@@ -66,23 +66,42 @@ class BlueAgentOutput:
 
 
 @dataclass(frozen=True)
+class PurpleAgentOutput:
+    """Business-impact narrative from the Purple agent.
+
+    Complements the deterministic IMPACT_001 score with a one-paragraph
+    narrative an executive can read directly. The Purple agent is run
+    AFTER Red + Blue so it can reason about both attack and defence.
+    """
+
+    business_narrative: str
+    affected_stakeholders: list[str]
+    estimated_blast_radius: str
+    raw_response: str
+
+
+@dataclass(frozen=True)
 class SwarmResult:
-    """Combined Red + Blue output for one finding."""
+    """Combined Red + Blue (+ optional Purple) output for one finding."""
 
     finding_id: str
     cache_key: str
     red: RedAgentOutput | None
     blue: BlueAgentOutput | None
+    purple: PurpleAgentOutput | None = None
     cached: bool = False
     error: str | None = None
 
     def to_evidence_block(self) -> dict[str, Any]:
-        return {
+        block = {
             "cached": self.cached,
             "red": _red_to_dict(self.red) if self.red else None,
             "blue": _blue_to_dict(self.blue) if self.blue else None,
             "error": self.error,
         }
+        if self.purple is not None:
+            block["purple"] = _purple_to_dict(self.purple)
+        return block
 
 
 def _red_to_dict(r: RedAgentOutput) -> dict[str, Any]:
@@ -98,6 +117,14 @@ def _blue_to_dict(b: BlueAgentOutput) -> dict[str, Any]:
         "semgrep_rule": b.semgrep_rule[:2000],
         "waf_rule": b.waf_rule[:1000],
         "log_signature": b.log_signature[:500],
+    }
+
+
+def _purple_to_dict(p: PurpleAgentOutput) -> dict[str, Any]:
+    return {
+        "business_narrative": p.business_narrative[:2000],
+        "affected_stakeholders": p.affected_stakeholders[:10],
+        "estimated_blast_radius": p.estimated_blast_radius[:500],
     }
 
 
@@ -124,6 +151,18 @@ _BLUE_SYSTEM = (
     "specific instance — generalise. Return valid JSON with keys: "
     "semgrep_rule (string), waf_rule (string), log_signature (string)."
 )
+_PURPLE_SYSTEM = (
+    "You are the Purple Agent of a security swarm — a senior risk "
+    "officer translating technical findings into business consequences "
+    "for the C-suite. Given a vulnerability, the Red team's PoC, the "
+    "Blue team's detection plan, and a deterministic loss estimate, "
+    "write a one-paragraph business narrative (3–5 sentences, no "
+    "jargon), list 3–7 affected stakeholders (e.g. customers, "
+    "merchants, regulators), and a one-line blast-radius summary "
+    "(scope of compromise). Return valid JSON with keys: "
+    "business_narrative (string), affected_stakeholders (array of "
+    "strings), estimated_blast_radius (string)."
+)
 
 
 def _red_user_prompt(finding: Finding, sanitized_evidence: dict[str, Any]) -> str:
@@ -145,6 +184,24 @@ def _blue_user_prompt(finding: Finding, sanitized_evidence: dict[str, Any],
     }, sort_keys=True)
 
 
+def _purple_user_prompt(
+    finding: Finding, sanitized_evidence: dict[str, Any],
+    red_pseudocode: str, blue_summary: str,
+) -> str:
+    deterministic_estimate = (
+        f"${finding.financial_impact_score:,.0f}"
+        if finding.financial_impact_score else "unknown"
+    )
+    return json.dumps({
+        "vuln_class": sanitize_text(finding.vuln_class),
+        "severity": finding.severity.value,
+        "deterministic_loss_estimate_usd": deterministic_estimate,
+        "evidence": sanitized_evidence,
+        "red_poc_summary": red_pseudocode[:1000],
+        "blue_detection_summary": blue_summary[:1000],
+    }, sort_keys=True)
+
+
 # ============================================================
 # Orchestrator
 # ============================================================
@@ -156,10 +213,15 @@ LLMQueryFn = Callable[..., Awaitable[dict[str, Any]]]
 
 @dataclass
 class SwarmOrchestrator:
-    """Runs Red+Blue chain per applicable finding, with caching."""
+    """Runs Red+Blue (+ optional Purple) chain per applicable finding."""
 
     llm_query: LLMQueryFn
     severity_floor: set[Severity] = field(default_factory=lambda: set(_DEFAULT_FLOOR))
+    # Purple agent is off by default — it's a 3rd LLM call per finding
+    # and IMPACT_001 already gives you a deterministic dollar figure.
+    # Enable explicitly when you want a narrative for an executive
+    # readout.
+    purple_enabled: bool = False
     _cache: dict[str, SwarmResult] = field(default_factory=dict)
     _max_tokens: int = 1024
     _temperature: float = 0.2
@@ -213,10 +275,17 @@ class SwarmOrchestrator:
             self._cache[cache_key] = result
             return result
 
+        purple: PurpleAgentOutput | None = None
+        if self.purple_enabled:
+            try:
+                purple = await self._run_purple(finding, sanitized, red, blue)
+            except Exception as e:  # noqa: BLE001
+                logger.exception("Purple agent failed (continuing without)")
+
         result = SwarmResult(
             finding_id=finding.finding_id,
             cache_key=cache_key,
-            red=red, blue=blue,
+            red=red, blue=blue, purple=purple,
         )
         self._cache[cache_key] = result
         return result
@@ -285,6 +354,33 @@ class SwarmOrchestrator:
             semgrep_rule=str(parsed.get("semgrep_rule", ""))[:4000],
             waf_rule=str(parsed.get("waf_rule", ""))[:2000],
             log_signature=str(parsed.get("log_signature", ""))[:1000],
+            raw_response=content[:8000],
+        )
+
+    async def _run_purple(
+        self, finding: Finding, sanitized_evidence: dict[str, Any],
+        red: RedAgentOutput, blue: BlueAgentOutput,
+    ) -> PurpleAgentOutput:
+        raw = await self.llm_query(
+            messages=[
+                {"role": "system", "content": _PURPLE_SYSTEM},
+                {"role": "user",   "content": _purple_user_prompt(
+                    finding, sanitized_evidence,
+                    red.poc_pseudocode, blue.semgrep_rule + " " + blue.waf_rule,
+                )},
+            ],
+            temperature=self._temperature,
+            max_tokens=self._max_tokens,
+            json_mode=True,
+        )
+        content = raw.get("content", "")
+        parsed = _safe_json(content)
+        return PurpleAgentOutput(
+            business_narrative=str(parsed.get("business_narrative", ""))[:4000],
+            affected_stakeholders=[
+                str(s) for s in (parsed.get("affected_stakeholders") or [])[:10]
+            ],
+            estimated_blast_radius=str(parsed.get("estimated_blast_radius", ""))[:1000],
             raw_response=content[:8000],
         )
 
