@@ -1,0 +1,165 @@
+# SENTINEL — Loss schedule for IMPACT_001 economic calculator.
+#
+# Single-incident base loss estimates (USD), keyed by canonical
+# vuln_class category. These are conservative central-tendency figures
+# drawn from public incident-cost surveys (IBM Cost of a Data Breach,
+# Verizon DBIR) and adjusted toward the mobile-app threat surface.
+# The number is multiplied by severity, asset-category, and tenant-plan
+# multipliers at scoring time — see sentinel/impact/calculator.py.
+#
+# Reviewable on purpose. A vuln category that should be re-priced gets
+# a PR against this file, not a code change.
+
+defaults:
+  # Used when no specific category matches
+  base_loss_usd: 5000
+  # Severity multiplier — applied to the base loss for the matched class
+  severity_multiplier:
+    Critical: 4.0
+    High:     2.0
+    Medium:   1.0
+    Low:      0.3
+    Info:     0.0
+  # Asset-category multiplier — applied when the evidence file/path
+  # matches a high-value-target regex
+  asset_category_multiplier:
+    payment:    3.0
+    admin:      2.5
+    kyc:        2.5
+    wallet:     2.5
+    vault:      2.5
+    transfer:   2.0
+    auth:       2.0
+    api:        1.5
+    default:    1.0
+  # Tenant plan multiplier (set by SaaS API ingest layer; OSS uses 1.0)
+  tenant_plan_multiplier:
+    enterprise: 1.5
+    pro:        1.2
+    free:       1.0
+
+# Per-vuln-class loss schedule. Keys map to the canonical categories
+# the dedup module already maintains; we add a few more for IMPACT
+# coverage. Matching is substring-on-vuln-class-lower.
+classes:
+  hardcoded_secret:
+    base_loss_usd: 40000
+    needles:
+      - "hardcoded secret"
+      - "hardcoded key"
+      - "hardcoded api key"
+      - "private key"
+      - "bearer token"
+    rationale: |
+      Direct credential exposure. Median post-disclosure remediation
+      cost is ~$40k including rotation, audit, and customer notification.
+      Goes much higher when the key authorises payment infrastructure.
+
+  weak_crypto:
+    base_loss_usd: 30000
+    needles:
+      - "weak crypto"
+      - "weak hash"
+      - "ecb mode"
+      - "broken crypto"
+      - "insecure crypto"
+      - "roll-your-own crypto"
+    rationale: |
+      Cryptographic primitives that can be broken passively. Cost driven
+      by post-incident re-encryption + customer-data exposure liability.
+
+  cleartext_traffic:
+    base_loss_usd: 15000
+    needles:
+      - "cleartext traffic"
+      - "cleartext http"
+    rationale: |
+      Adversary-in-the-middle exposure. Loss scales with volume of
+      sensitive data in transit.
+
+  missing_cert_pinning:
+    base_loss_usd: 12000
+    needles:
+      - "missing certificate pinning"
+      - "no certificate pinning"
+    rationale: |
+      Easier-than-textbook MITM. Material risk only when combined with
+      a TLS-vulnerable PKI or an attacker-controlled CA.
+
+  insecure_webview:
+    base_loss_usd: 35000
+    needles:
+      - "insecure webview"
+      - "webview javascriptinterface"
+      - "addjavascriptinterface"
+    rationale: |
+      JS-to-native bridge with attacker-controlled URL is a remote
+      code-execution primitive on the device.
+
+  unprotected_exported_component:
+    base_loss_usd: 25000
+    needles:
+      - "unprotected exported component"
+      - "exported activity"
+    rationale: |
+      Inter-app attack surface. Material when the exported component
+      drives sensitive state changes.
+
+  pre_consent_collection:
+    base_loss_usd: 75000
+    needles:
+      - "pre-consent sensitive data collection"
+      - "data collection without consent"
+    rationale: |
+      GDPR Article 6 violation. Median fine for mid-cap is $50–$150k;
+      we centre at $75k. Scales with EU user volume.
+
+  pii_leak_to_log:
+    base_loss_usd: 18000
+    needles:
+      - "insecure logging"
+      - "sensitive data in log"
+    rationale: |
+      Logs aggregate centrally; one compromise reveals all sessions.
+
+  insecure_random:
+    base_loss_usd: 20000
+    needles:
+      - "insecure random"
+      - "weak prng"
+    rationale: |
+      Token guessability. Loss tracks the value of the token (session,
+      OTP, password-reset).
+
+  reflection_unsafe:
+    base_loss_usd: 22000
+    needles:
+      - "unresolved reflection target"
+      - "reflection loads dangerous class"
+    rationale: |
+      Reflection-driven dynamic class loading is the most common path
+      to runtime code injection on Android.
+
+  rn_eval_primitive:
+    base_loss_usd: 80000
+    needles:
+      - "eval-family primitive in rn bundle"
+    rationale: |
+      Direct RCE primitive shipped in production. Highest base loss in
+      the catalog.
+
+  activity_auth_bypass:
+    base_loss_usd: 55000
+    needles:
+      - "activity auth-bypass path"
+    rationale: |
+      Authentication failure in a graph-reachable path to an admin or
+      payment screen.
+
+  pattern_lock_plaintext:
+    base_loss_usd: 18000
+    needles:
+      - "pattern lock stored in plaintext"
+    rationale: |
+      Local lock-screen bypass for any actor with adb/root access to
+      the device.
