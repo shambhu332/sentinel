@@ -1037,16 +1037,12 @@ def _write_json_output(output: Path, ctx, result) -> None:
         "started_at": result.started_at.isoformat() if result.started_at else None,
         "completed_at": result.completed_at.isoformat() if result.completed_at else None,
         "error": result.error,
+        "warnings": result.warnings,
         "triage_breakdown": _count_triage_outcomes(result.findings),
         "findings": [
             {
                 "finding_id": f.finding_id,
-                "agent_id": f.agent_id,
-                "vuln_class": f.vuln_class,
-                "severity": f.severity.value,
-                "confidence": f.confidence,
-                "recommendation": f.recommendation,
-                "evidence": f.evidence,
+                **f.model_dump(mode="json"),
             }
             for f in result.findings
         ],

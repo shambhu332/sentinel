@@ -58,6 +58,7 @@ from sentinel.tools.mitmproxy_runner import MitmproxyRunner
 from sentinel.triage import LLMTriager
 
 logger = logging.getLogger(__name__)
+_REPORT_TIMEOUT_SECONDS = 120.0
 
 
 class OrchestratorError(Exception):
@@ -237,12 +238,14 @@ class Orchestrator:
                 asyncio.get_event_loop().time() - start
             )
             result.findings = findings
+            await self._persist_findings(result.findings)
 
             # Phase 3: LLM triage (optional)
             if self._triager is not None and findings:
                 start = asyncio.get_event_loop().time()
                 try:
                     result.findings = await self._phase3_triage(findings)
+                    await self._persist_findings(result.findings)
                 except Exception as e:  # noqa: BLE001
                     logger.exception("[%s] Phase 3 triage failed",
                                      self._context.session_id)
@@ -276,8 +279,31 @@ class Orchestrator:
             if result.findings:
                 start = asyncio.get_event_loop().time()
                 try:
-                    report_findings = await self._phase8_report()
+                    report_findings = await asyncio.wait_for(
+                        self._phase8_report(),
+                        timeout=_REPORT_TIMEOUT_SECONDS,
+                    )
                     result.findings.extend(report_findings)
+                except TimeoutError:
+                    logger.warning(
+                        "[%s] Phase 8 report generation timed out after %.0fs",
+                        self._context.session_id,
+                        _REPORT_TIMEOUT_SECONDS,
+                    )
+                    result.warnings.append(
+                        f"Phase 8 report generation timed out after "
+                        f"{_REPORT_TIMEOUT_SECONDS:.0f}s",
+                    )
+                    await self._memory.publish_event(
+                        self._context.session_id, "phase.failed",
+                        {
+                            "phase": 8,
+                            "error": (
+                                "report generation timed out after "
+                                f"{_REPORT_TIMEOUT_SECONDS:.0f}s"
+                            ),
+                        },
+                    )
                 except Exception as e:  # noqa: BLE001
                     logger.exception("[%s] Phase 8 report generation failed",
                                      self._context.session_id)
@@ -1137,6 +1163,18 @@ class Orchestrator:
         return meta_findings
 
     # ---------- Helpers ----------
+
+    async def _persist_findings(self, findings: list[Finding]) -> None:
+        for finding in findings:
+            try:
+                await self._memory.save_finding(finding)
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    "[%s] could not persist finding %s: %s",
+                    self._context.session_id,
+                    finding.finding_id,
+                    e,
+                )
 
     async def cleanup(self, keep_workspace: bool = False) -> None:
         """Clean up session workspace unless --keep-workspace was passed."""
