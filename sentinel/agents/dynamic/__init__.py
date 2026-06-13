@@ -178,6 +178,11 @@ from sentinel.agents.dynamic.d015_implicit_intent_leak_agent import (
 from sentinel.agents.dynamic.data_in_transit_agent import DataInTransitAgent
 from sentinel.agents.dynamic.improper_tls_agent import ImproperTLSAgent
 from sentinel.agents.dynamic.runtime_crypto_agent import RuntimeCryptoAgent
+# God Mode batch — see God_Mode.md
+from sentinel.agents.dynamic.d046_race_condition_target import (
+    RaceConditionTargetAgent,
+)
+from sentinel.agents.dynamic.d052_symbolic_intent import SymbolicIntentAgent
 
 __all__ = [
     "AccessibilityAbuseAgent",
@@ -215,11 +220,13 @@ __all__ = [
     "OkHttpLoggingRuntimeAgent",
     "PendingIntentMutableAgent",
     "RaceConditionCandidateAgent",
+    "RaceConditionTargetAgent",
     "RuntimeCryptoAgent",
     "ScreenCaptureAgent",
     "SmsPermissionAbuseAgent",
     "SqliteCommandInjectionAgent",
     "StaticIvReuseAgent",
+    "SymbolicIntentAgent",
     "ThirdPartyPiiLeakAgent",
     "UnsafeJsonDeserializationAgent",
     "UnsafeReflectionInvokeAgent",
