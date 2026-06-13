@@ -164,6 +164,29 @@ def serve(host: str, port: int, reload: bool) -> None:
               help="Directory to write suggested patches into when "
                    "--generate-patch is set. One .diff file per "
                    "VERIFIED finding.")
+# ---- Visionary tier ----
+@click.option("--no-impact", "no_impact", is_flag=True,
+              help="Disable IMPACT_001 economic scoring of findings. "
+                   "By default every finding gets a financial_impact_score "
+                   "attached at Phase 2.6 (deterministic, no LLM).")
+@click.option("--no-compliance-tags", "no_compliance_tags", is_flag=True,
+              help="Disable COMPLIANCE_001 citation tagging at Phase 2.6. "
+                   "Tags come from the curated YAML — no LLM, no cost.")
+@click.option("--learning-dir", "learning_dir",
+              type=click.Path(path_type=Path), default=None,
+              help="Enable LEARN_001 per-app profile under this directory. "
+                   "Loads the profile at Phase 0; subsequent verify runs "
+                   "with --learning-dir on the same directory close the "
+                   "FEEDBACK_001 loop.")
+@click.option("--tenant-plan", "tenant_plan",
+              type=click.Choice(["free", "pro", "enterprise"]),
+              default="free", show_default=True,
+              help="Tenant plan multiplier for IMPACT_001 loss estimates.")
+@click.option("--swarm", "swarm_enabled", is_flag=True,
+              help="EXPENSIVE: invoke SWARM_001 (Red + Blue LLM chain) on "
+                   "every High/Critical finding at Phase 2.6. 2 LLM calls "
+                   "per finding × N findings. Cached per-finding-fingerprint "
+                   "so re-runs are free.")
 def scan(
     apk_path: Path,
     scope_url: str | None,
@@ -189,6 +212,11 @@ def scan(
     active_replay: bool,
     generate_patch: bool,
     patches_dir: Path,
+    no_impact: bool,
+    no_compliance_tags: bool,
+    learning_dir: Path | None,
+    tenant_plan: str,
+    swarm_enabled: bool,
 ) -> None:
     """Run a security scan against an APK file."""
     if static_only and (dynamic or frida or frida_spawn):
@@ -231,6 +259,11 @@ def scan(
         active_replay=active_replay,
         generate_patch=generate_patch,
         patches_dir=patches_dir,
+        no_impact=no_impact,
+        no_compliance_tags=no_compliance_tags,
+        learning_dir=learning_dir,
+        tenant_plan=tenant_plan,
+        swarm_enabled=swarm_enabled,
     ))
 
 
@@ -258,6 +291,11 @@ async def _run_scan(
     generate_patch: bool = False,
     patches_dir: Path = Path("./output/patches"),
     no_rag: bool = False,
+    no_impact: bool = False,
+    no_compliance_tags: bool = False,
+    learning_dir: Path | None = None,
+    tenant_plan: str = "free",
+    swarm_enabled: bool = False,
 ) -> None:
     """Async implementation of the scan command."""
     from sentinel.agents.auth import (
@@ -632,6 +670,20 @@ async def _run_scan(
                     f"roster: {', '.join(missing)}[/]",
                 )
 
+        # Build the swarm LLM callable when --swarm is set so the
+        # orchestrator can stay router-agnostic.
+        swarm_llm_query = None
+        if swarm_enabled and router is not None:
+            async def _swarm_query(messages, **kw):  # noqa: ANN001
+                return await router.query(messages, **kw)
+            swarm_llm_query = _swarm_query
+        elif swarm_enabled and router is None:
+            console.print(
+                "[yellow]⚠[/] --swarm requested but no LLM router was "
+                "configured (set CEREBRAS_API_KEY / GROQ_API_KEY or use "
+                "--private with Ollama). Swarm will not run.",
+            )
+
         orch = Orchestrator(
             context=ctx,
             memory=memory,
@@ -644,6 +696,12 @@ async def _run_scan(
             frida_duration_seconds=frida_duration,
             frida_spawn=frida_spawn,
             proxy_enabled=not no_proxy,
+            impact_enabled=not no_impact,
+            compliance_tags_enabled=not no_compliance_tags,
+            learning_dir=learning_dir,
+            tenant_plan=tenant_plan,
+            swarm_enabled=swarm_enabled and swarm_llm_query is not None,
+            swarm_llm_query=swarm_llm_query,
         )
 
         # Status message reflects which optional phases are enabled
@@ -1515,7 +1573,18 @@ def rag_stats(workspace: Path) -> None:
     default=None,
     help="Write the verified findings JSON to this path (default: stdout).",
 )
-def verify_cmd(findings_json: Path, workspace: Path, output: Path | None) -> None:
+@click.option(
+    "--learning-dir",
+    "learning_dir",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Persist verify outcomes into the per-app learning profile "
+         "under this directory (FEEDBACK_001). Defaults to off.",
+)
+def verify_cmd(
+    findings_json: Path, workspace: Path, output: Path | None,
+    learning_dir: Path | None,
+) -> None:
     """Run per-finding-class verifiers against a JSON findings file.
 
     The input is the JSON produced by ``sentinel scan --output``.
@@ -1561,6 +1630,38 @@ def verify_cmd(findings_json: Path, workspace: Path, output: Path | None) -> Non
             counts[r.outcome.value] = counts.get(r.outcome.value, 0) + 1
         for outcome, n in sorted(counts.items()):
             console.print(f"  [bold]{outcome:12s}[/] {n}")
+
+        # FEEDBACK_001 — persist outcomes into the per-app learning
+        # profile when --learning-dir is set. Keyed by the apk_sha256
+        # carried in the input JSON when available, otherwise by the
+        # manifest package as a fallback.
+        if learning_dir is not None:
+            try:
+                from sentinel.learning import AppProfileStore, FeedbackLoop
+                apk_sha = raw.get("apk_sha256") or raw.get("apk_hash") or ""
+                if not apk_sha:
+                    pkg = (raw.get("manifest") or {}).get("package", "")
+                    # 64-char hex shim derived from pkg so the file key
+                    # is well-formed; collisions are fine — multiple
+                    # scans of the same package merge.
+                    import hashlib
+                    apk_sha = hashlib.sha256(
+                        f"pkg:{pkg}".encode("utf-8"),
+                    ).hexdigest()
+                store = AppProfileStore(root=Path(learning_dir))
+                profile = store.load(apk_sha)
+                loop = FeedbackLoop(profile=profile)
+                for f, r in results:
+                    loop.record_outcome(f, r.outcome.value)
+                store.save(profile)
+                console.print(
+                    f"[green]✓[/] FEEDBACK_001 persisted {len(results)} "
+                    f"outcome(s) into {learning_dir}",
+                )
+            except Exception as e:  # noqa: BLE001
+                console.print(
+                    f"[yellow]⚠[/] FEEDBACK_001 persistence failed: {e}",
+                )
 
         if output is not None:
             output.parent.mkdir(parents=True, exist_ok=True)
