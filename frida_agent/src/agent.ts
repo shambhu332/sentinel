@@ -50,6 +50,7 @@ import { installTrustManagerHooks } from "./hooks/trust_manager.js";
 import { installOkhttpLoggingHooks } from "./hooks/okhttp_logging.js";
 import { installBiometricPromptHooks } from "./hooks/biometric_prompt.js";
 import { emitHooksSummary } from "./hooks/diagnostics.js";
+import "./hooks/biometric_unwrapper.js";
 import "./hooks/pending_intent_esc.js";
 import "./hooks/scheme_confuser.js";
 

@@ -223,6 +223,10 @@ from sentinel.agents.dynamic.d073_pending_intent_esc import (
     PendingIntentEscalationAgent,
 )
 from sentinel.agents.dynamic.d074_scheme_confuser import SchemeConfuserAgent
+from sentinel.agents.dynamic.d078_biometric_unwrapper import (
+    BiometricCryptoUnwrapperAgent,
+)
+from sentinel.agents.dynamic.d081_backup_extractor import BackupDataExtractorAgent
 from sentinel.agents.dynamic.data_in_transit_agent import DataInTransitAgent
 from sentinel.agents.dynamic.improper_tls_agent import ImproperTLSAgent
 from sentinel.agents.dynamic.runtime_crypto_agent import RuntimeCryptoAgent
@@ -231,6 +235,8 @@ __all__ = [
     "AccessibilityAbuseAgent",
     "AntiTamperCoverageAgent",
     "BackgroundLocationLeakAgent",
+    "BackupDataExtractorAgent",
+    "BiometricCryptoUnwrapperAgent",
     "BiometricDeviceCredentialFallbackAgent",
     "BiometricWeakAgent",
     "BroadcastWiretapAgent",
