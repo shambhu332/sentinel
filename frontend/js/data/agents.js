@@ -1186,6 +1186,43 @@ export const AGENTS = [
     severities: ['medium'],
     description: "Complement to D_024 (passive observer). Parses res/xml/paths.xml + manifest, emits Frida payload that fires curated traversal probes (`../`, URL-encoded, ZWSP, NUL, symlink names) through FileProvider.getUriForFile + ContentResolver.openInputStream. SafetyBudget: 40 probes max, 5/s.",
   },
+  // ---- God Mode batch 2 (June 2026) ----
+  {
+    id: 'D_042',
+    name: "DeepLinkBomb",
+    vuln_class: "Deep-Link Crash / Bypass Fuzz (Dynamic Testing Target)",
+    phase: "Phase 2",
+    category: "dynamic",
+    severities: ['medium'],
+    description: "Enumerates VIEW-action activities + emits 50 curated malformed deep-link probes (oversized strings, SQLi shapes, XSS, traversal, RTL override, NUL, schema confusion, recursive). Frida hook fires through Intent.setData under SafetyBudget (50 / 5/s / 60s / 5 crashes).",
+  },
+  {
+    id: 'D_043',
+    name: "HiddenApiHunter",
+    vuln_class: "Hidden Internal Endpoint (Dynamic Testing Target)",
+    phase: "Phase 2",
+    category: "dynamic",
+    severities: ['high'],
+    description: "Walks OkHttp/Retrofit/HttpURLConnection construction sites and extracts URL literals matching internal/debug/admin paths, staging.* / dev.* hosts, or ?debug= queries. Emits a Frida payload to re-fire each with the live user token captured from the same client.",
+  },
+  {
+    id: 'D_050',
+    name: "PinningStressTest",
+    vuln_class: "TLS Pinning Defense-in-Depth Map (Dynamic Testing Target)",
+    phase: "Phase 2",
+    category: "dynamic",
+    severities: ['medium', 'low', 'info'],
+    description: "Maps the pinning posture (TrustManager, OkHttp CertificatePinner, Conscrypt, TrustKit, WebViewClient.onReceivedSslError, Network Security Config pin-set) and emits a Frida script that disables each layer in turn, fires a canary GET to gstatic.com/generate_204, and records the result.",
+  },
+  {
+    id: 'D_051',
+    name: "ServiceLeaker",
+    vuln_class: "Exported Service Bind / Probe (Dynamic Testing Target)",
+    phase: "Phase 2",
+    category: "dynamic",
+    severities: ['high', 'medium'],
+    description: "Enumerates exported services without permission attributes, cross-references with Service / IntentService / JobIntentService / AccessibilityService implementations, and emits a Frida payload that bindService() the service with 6 crafted extras + enumerates AIDL methods via reflection. SafetyBudget: 15 binds / 1 per sec / 30s.",
+  },
 ];
 
 export const CATEGORIES = [

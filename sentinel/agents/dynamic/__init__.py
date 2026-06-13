@@ -179,9 +179,15 @@ from sentinel.agents.dynamic.data_in_transit_agent import DataInTransitAgent
 from sentinel.agents.dynamic.improper_tls_agent import ImproperTLSAgent
 from sentinel.agents.dynamic.runtime_crypto_agent import RuntimeCryptoAgent
 # God Mode batch — see God_Mode.md
+from sentinel.agents.dynamic.d042_deep_link_bomb import DeepLinkBombAgent
+from sentinel.agents.dynamic.d043_hidden_api_hunter import HiddenApiHunterAgent
 from sentinel.agents.dynamic.d046_race_condition_target import (
     RaceConditionTargetAgent,
 )
+from sentinel.agents.dynamic.d050_pinning_stress_test import (
+    PinningStressTestAgent,
+)
+from sentinel.agents.dynamic.d051_service_leaker import ServiceLeakerAgent
 from sentinel.agents.dynamic.d052_symbolic_intent import SymbolicIntentAgent
 # Experimental tier batch
 from sentinel.agents.dynamic.d063_provider_sqli import ProviderSqliAgent
@@ -224,10 +230,14 @@ __all__ = [
     "NotificationLeakAgent",
     "OkHttpLoggingRuntimeAgent",
     "PendingIntentMutableAgent",
+    "DeepLinkBombAgent",
     "FileProviderFuzzerAgent",
+    "HiddenApiHunterAgent",
+    "PinningStressTestAgent",
     "ProviderSqliAgent",
     "RaceConditionCandidateAgent",
     "RaceConditionTargetAgent",
+    "ServiceLeakerAgent",
     "RuntimeCryptoAgent",
     "ScreenCaptureAgent",
     "SmsPermissionAbuseAgent",
