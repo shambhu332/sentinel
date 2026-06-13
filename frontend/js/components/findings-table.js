@@ -4,6 +4,8 @@ import { sevBadge, triageBadge } from './severity-badge.js';
 import { codeBlock } from './code-block.js';
 import { getAgentById } from '../data/agents.js';
 import { renderCompliancePanel, complianceInlinePill } from './compliance-panel.js';
+import { impactBadge, renderImpactCard } from './impact-badge.js';
+import { renderSwarmPanel } from './swarm-panel.js';
 
 export function renderFindingsTable(container, findings) {
   container.innerHTML = '';
@@ -50,6 +52,8 @@ export function renderFindingsTable(container, findings) {
     }
     const cPill = complianceInlinePill(finding);
     if (cPill) inlineBadges.push(cPill);
+    const iPill = impactBadge(finding);
+    if (iPill) inlineBadges.push(iPill);
 
     const vulnCell = el('td', {}, finding.vulnClass, ...inlineBadges);
 
@@ -130,6 +134,12 @@ function buildFindingDetail(finding, agent) {
 
   const compliance = renderCompliancePanel(finding);
   if (compliance) right.appendChild(compliance);
+
+  const impactCard = renderImpactCard(finding);
+  if (impactCard) right.appendChild(impactCard);
+
+  const swarmPanel = renderSwarmPanel(finding);
+  if (swarmPanel) right.appendChild(swarmPanel);
 
   detail.append(left, right);
   return detail;

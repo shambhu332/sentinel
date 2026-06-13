@@ -1120,6 +1120,34 @@ export const AGENTS = [
     severities: ['high', 'medium'],
     description: "Audits hand-rolled pattern-lock screens for plaintext SharedPreferences storage, unsalted MD5/SHA-1 hashing, and missing attempt-limit lockout logic.",
   },
+  // ---- Visionary tier (June 2026) ----
+  {
+    id: 'SCA_004',
+    name: "MaliciousLibDetector",
+    vuln_class: "Suspicious Third-Party Library Behavior",
+    phase: "Phase 2",
+    category: "supply-chain",
+    severities: ['high', 'medium', 'low'],
+    description: "Behavior-based scan of third-party packages for mission creep (utility libs making HTTP/reflection/dex-loader calls) and dangerous primitives (Runtime.exec, getDeviceId, ContactsContract, LocationManager).",
+  },
+  {
+    id: 'IMPACT_001',
+    name: "EconomicCalculator",
+    vuln_class: "Financial Impact Score",
+    phase: "Phase 2.5",
+    category: "meta",
+    severities: ['info'],
+    description: "Deterministic single-incident loss estimate per finding. Multiplies a per-vuln-class base loss by severity, asset-category (payment/admin/kyc/wallet/auth), and tenant-plan multipliers. Surfaces as 💰 badge on each finding.",
+  },
+  {
+    id: 'SWARM_001',
+    name: "AdversarialSwarm",
+    vuln_class: "Red/Blue Agent Analysis",
+    phase: "Phase 2.5",
+    category: "meta",
+    severities: ['info'],
+    description: "Opt-in LLM swarm for High/Critical findings: Red agent generates a theoretical PoC, Blue agent generates Semgrep/WAF/log-signature detection rules. Privacy-sanitised before LLM call; cached per finding fingerprint.",
+  },
 ];
 
 export const CATEGORIES = [
