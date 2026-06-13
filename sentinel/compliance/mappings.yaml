@@ -103,3 +103,45 @@ RES_002:
   citations:
     - { framework: PCI-DSS, requirement: "10.6", note: "Detect and respond to anomalies; resource exhaustion masks attack." }
     - { framework: HIPAA,   rule: "164.308(a)(1)(ii)(B)", note: "Risk management — availability of ePHI." }
+    - { framework: SOC2,    section: "A1.1",          note: "Availability — system processing capacity." }
+
+# -----------------------------------------------------------------
+# SOC2 — Trust Service Criteria cross-cutting additions.
+# Most agents already mapped above pick up SOC2 here via prefix globs.
+# -----------------------------------------------------------------
+A_004:
+  citations:
+    - { framework: PCI-DSS, requirement: "3.4" }
+    - { framework: PCI-DSS, requirement: "3.5.1" }
+    - { framework: GDPR,    article: "Art. 32(1)(a)" }
+    - { framework: HIPAA,   rule: "164.312(a)(2)(iv)" }
+    - { framework: SOC2,    section: "CC6.1",         note: "Logical access — restrict access to system credentials." }
+    - { framework: SOC2,    section: "CC6.7",         note: "Restrict the transmission, movement, and removal of information." }
+
+N_001:
+  citations:
+    - { framework: PCI-DSS, requirement: "4.1" }
+    - { framework: HIPAA,   rule: "164.312(e)(1)" }
+    - { framework: GDPR,    article: "Art. 32(1)(a)" }
+    - { framework: SOC2,    section: "CC6.6",         note: "Restrict and monitor logical access via network boundaries." }
+
+I_001:
+  citations:
+    - { framework: GDPR,    article: "Art. 32(1)(b)" }
+    - { framework: HIPAA,   rule: "164.312(a)(1)" }
+    - { framework: SOC2,    section: "CC6.1",         note: "Logical access controls restrict to authorised users." }
+
+PRIV_001:
+  citations:
+    - { framework: GDPR,    article: "Art. 6(1)(a)" }
+    - { framework: GDPR,    article: "Art. 7" }
+    - { framework: GDPR,    article: "Art. 5(1)(c)" }
+    - { framework: DPDP,    section: "6(1)" }
+    - { framework: CCPA,    section: "1798.100(b)" }
+    - { framework: SOC2,    section: "P1.1",          note: "Privacy — provide notice about collection use disclosure retention." }
+    - { framework: SOC2,    section: "P3.1",          note: "Privacy — collect personal information consistent with notice." }
+
+SCA_004:
+  citations:
+    - { framework: SOC2,    section: "CC7.1",         note: "Detect anomalies — third-party library behaviour outside expected norm." }
+    - { framework: GDPR,    article: "Art. 28",       note: "Processor obligations — third-party SDKs are processors." }

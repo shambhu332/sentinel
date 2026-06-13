@@ -1,13 +1,22 @@
-"""Compliance citation mapping.
-
-Loads the curated YAML and exposes `cite(finding) -> list[Citation]`
-for downstream report renderers. Stateless and import-cheap.
-"""
+"""Compliance citation mapping + auditor report rendering."""
 from sentinel.compliance.mapper import (
     Citation,
     ComplianceMapper,
     cite,
     default_mapper,
 )
+from sentinel.compliance.reporter import (
+    attach_compliance_tags,
+    render_markdown,
+    render_to_file,
+)
 
-__all__ = ["Citation", "ComplianceMapper", "cite", "default_mapper"]
+__all__ = [
+    "Citation",
+    "ComplianceMapper",
+    "attach_compliance_tags",
+    "cite",
+    "default_mapper",
+    "render_markdown",
+    "render_to_file",
+]
