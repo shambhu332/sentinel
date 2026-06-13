@@ -76,6 +76,12 @@ class ScanContext:
     # only when delta scanning is active.
     file_hashes: dict[str, str] = field(default_factory=dict)
 
+    # Per-app learning profile (LEARN_001). Populated by the orchestrator
+    # at Phase 0 when learning is enabled. Agents read it via
+    # ctx.learning_profile and adjust confidence / auto-triage. None
+    # means learning is disabled for this scan.
+    learning_profile: Any = None
+
     started_at: datetime = field(
         default_factory=lambda: datetime.now(timezone.utc),
     )

@@ -45,7 +45,7 @@ from sentinel.agents.meta.meta005_profiler import ProfilerAgent
 from sentinel.agents.special import PipelineSmokeTestAgent
 from sentinel.core.ast_cache import AstCache
 from sentinel.core.dedup import dedupe
-from sentinel.core.finding import Finding
+from sentinel.core.finding import Finding, Severity
 from sentinel.core.scan_context import ScanContext
 from sentinel.memory.interface import MemoryInterface
 from sentinel.tools.adb_runner import AdbRunner
@@ -106,6 +106,15 @@ class Orchestrator:
         frida_duration_seconds: int = 20,
         frida_spawn: bool = False,
         proxy_enabled: bool = True,
+        # Visionary tier — all default off so existing scans are
+        # bit-for-bit unchanged.
+        impact_enabled: bool = True,
+        compliance_tags_enabled: bool = True,
+        learning_dir: Any = None,
+        tenant_plan: str = "free",
+        swarm_enabled: bool = False,
+        swarm_llm_query: Any = None,
+        swarm_max_concurrency: int = 4,
     ) -> None:
         self._context = context
         self._memory = memory
@@ -119,6 +128,13 @@ class Orchestrator:
         self._frida_duration_seconds = frida_duration_seconds
         self._frida_spawn = frida_spawn
         self._proxy_enabled = proxy_enabled
+        self._impact_enabled = impact_enabled
+        self._compliance_tags_enabled = compliance_tags_enabled
+        self._learning_dir = learning_dir
+        self._tenant_plan = tenant_plan
+        self._swarm_enabled = swarm_enabled
+        self._swarm_llm_query = swarm_llm_query
+        self._swarm_max_concurrency = swarm_max_concurrency
 
     @staticmethod
     def _assert_unique_agent_ids(agents: list[type[BaseAgent]]) -> None:
@@ -155,6 +171,9 @@ class Orchestrator:
             # Phase 0: Ingestion
             start = asyncio.get_event_loop().time()
             await self._phase0_ingestion()
+            # Phase 0.5: load the per-app learning profile (LEARN_001)
+            # so Phase 2 agents and the verify hook can read priors.
+            self._maybe_load_learning_profile()
             result.phase_timings["phase0"] = asyncio.get_event_loop().time() - start
 
             # Phase 1: Recon (parallel, crash-proof)
@@ -208,6 +227,15 @@ class Orchestrator:
                     self._context.session_id, pre_dedup, post_dedup,
                     pre_dedup - post_dedup,
                 )
+
+            # Phase 2.6: enrichment chain — IMPACT + COMPLIANCE + SWARM.
+            # All three are best-effort: any failure logs and continues
+            # rather than killing the scan.
+            start = asyncio.get_event_loop().time()
+            findings = await self._phase26_enrich(findings, result)
+            result.phase_timings["phase2_6"] = (
+                asyncio.get_event_loop().time() - start
+            )
             result.findings = findings
 
             # Phase 3: LLM triage (optional)
@@ -744,6 +772,124 @@ class Orchestrator:
             scan_result.warnings.append(
                 f"Phase 4.5 Frida detach failed: {detach_result.error}",
             )
+
+    # ---------- LEARN_001 — per-app profile load ----------
+
+    def _maybe_load_learning_profile(self) -> None:
+        """Load the per-APK learning profile when enabled."""
+        if not self._learning_dir:
+            return
+        try:
+            from sentinel.learning import AppProfileStore
+            store = AppProfileStore(root=Path(self._learning_dir))
+            profile = store.record_scan_start(
+                apk_sha256=self._context.apk_sha256,
+                package=(self._context.manifest or {}).get("package", "") or "",
+            )
+            self._context.learning_profile = profile
+            logger.info(
+                "[%s] Learning profile loaded (scans_count=%d)",
+                self._context.session_id, profile.scans_count,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "[%s] Learning profile load failed: %s",
+                self._context.session_id, e,
+            )
+
+    # ---------- Phase 2.6 — Enrichment (IMPACT + COMPLIANCE + SWARM) ----------
+
+    async def _phase26_enrich(
+        self, findings: list[Finding], scan_result: ScanResult,
+    ) -> list[Finding]:
+        """Attach impact scores, compliance tags, and optional swarm output."""
+        if not findings:
+            return findings
+
+        await self._memory.publish_event(
+            self._context.session_id, "phase.started", {"phase": 2.6},
+        )
+
+        # 1) IMPACT_001 — deterministic, cheap.
+        # Pull HVT endpoints from strings.xml once and pass them to
+        # every per-finding score call (free path-string augmentation).
+        if self._impact_enabled:
+            try:
+                from sentinel.impact import (
+                    attach_impact,
+                    extract_hvt_endpoints_from_strings_xml,
+                )
+                hvt: set[str] = set()
+                if self._context.resources_dir:
+                    sx = (self._context.resources_dir / "res" / "values"
+                          / "strings.xml")
+                    hvt = extract_hvt_endpoints_from_strings_xml(sx)
+                findings = [
+                    attach_impact(f, tenant_plan=self._tenant_plan,
+                                  hvt_endpoints=hvt)
+                    for f in findings
+                ]
+            except Exception as e:  # noqa: BLE001
+                logger.exception("[%s] IMPACT_001 enrich failed",
+                                 self._context.session_id)
+                scan_result.warnings.append(
+                    f"IMPACT enrichment failed: {str(e)[:200]}",
+                )
+
+        # 2) COMPLIANCE_001 — pure YAML lookup
+        if self._compliance_tags_enabled:
+            try:
+                from sentinel.compliance import attach_compliance_tags
+                findings = attach_compliance_tags(findings)
+            except Exception as e:  # noqa: BLE001
+                logger.exception("[%s] COMPLIANCE tag attach failed",
+                                 self._context.session_id)
+                scan_result.warnings.append(
+                    f"Compliance tag attach failed: {str(e)[:200]}",
+                )
+
+        # 3) SWARM_001 — opt-in only, severity-gated, LLM-expensive
+        if self._swarm_enabled and self._swarm_llm_query is not None:
+            try:
+                from sentinel.swarm import SwarmOrchestrator
+                swarm = SwarmOrchestrator(llm_query=self._swarm_llm_query)
+                applicable = [
+                    f for f in findings
+                    if f.severity in {Severity.HIGH, Severity.CRITICAL}
+                ]
+                if applicable:
+                    logger.info(
+                        "[%s] SWARM_001: running on %d High/Critical findings",
+                        self._context.session_id, len(applicable),
+                    )
+                    results = await swarm.run_many(
+                        applicable,
+                        max_concurrency=self._swarm_max_concurrency,
+                    )
+                    by_fid = {r.finding_id: r for r in results}
+                    findings = [
+                        swarm.attach(f, by_fid[f.finding_id])
+                        if f.finding_id in by_fid else f
+                        for f in findings
+                    ]
+            except Exception as e:  # noqa: BLE001
+                logger.exception("[%s] SWARM_001 failed",
+                                 self._context.session_id)
+                scan_result.warnings.append(
+                    f"Swarm enrichment failed: {str(e)[:200]}",
+                )
+
+        await self._memory.publish_event(
+            self._context.session_id, "phase.completed",
+            {
+                "phase": 2.6,
+                "impact_enabled": self._impact_enabled,
+                "compliance_tags_enabled": self._compliance_tags_enabled,
+                "swarm_enabled": self._swarm_enabled,
+                "findings_count": len(findings),
+            },
+        )
+        return findings
 
     # ---------- Phase 1.5: Profile + AST Cache ----------
 
