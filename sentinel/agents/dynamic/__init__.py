@@ -190,10 +190,36 @@ from sentinel.agents.dynamic.d050_pinning_stress_test import (
 from sentinel.agents.dynamic.d051_service_leaker import ServiceLeakerAgent
 from sentinel.agents.dynamic.d052_symbolic_intent import SymbolicIntentAgent
 # Experimental tier batch
+from sentinel.agents.dynamic.d044_biometric_replay import BiometricReplayAgent
+from sentinel.agents.dynamic.d045_sqlite_prober import SqliteProberAgent
+from sentinel.agents.dynamic.d047_memory_dump import MemoryDumpTargetAgent
+from sentinel.agents.dynamic.d048_webview_xss import WebViewXssAgent
+from sentinel.agents.dynamic.d049_notification_snoop import (
+    NotificationSnoopAgent,
+)
+from sentinel.agents.dynamic.d053_side_channel import SideChannelAgent
+from sentinel.agents.dynamic.d054_graphql_fuzzer import GraphqlFuzzerAgent
+from sentinel.agents.dynamic.d055_native_heap import NativeHeapAgent
+from sentinel.agents.dynamic.d056_biometric_timing import BiometricTimingAgent
+from sentinel.agents.dynamic.d057_state_poisoner import StatePoisonerAgent
+from sentinel.agents.dynamic.d058_websocket_injector import (
+    WebSocketInjectorAgent,
+)
+from sentinel.agents.dynamic.d059_clipboard_hijack import ClipboardHijackAgent
+from sentinel.agents.dynamic.d060_sensor_spoofing import SensorSpoofingAgent
+from sentinel.agents.dynamic.d061_key_extractor import KeyExtractorAgent
+from sentinel.agents.dynamic.d062_binder_bomb import BinderBombAgent
 from sentinel.agents.dynamic.d063_provider_sqli import ProviderSqliAgent
+from sentinel.agents.dynamic.d064_job_hijacker import JobHijackerAgent
 from sentinel.agents.dynamic.d065_file_provider_fuzzer import (
     FileProviderFuzzerAgent,
 )
+from sentinel.agents.dynamic.d066_a11y_abuser import A11yAbuserAgent
+from sentinel.agents.dynamic.d067_split_apk import SplitApkAgent
+from sentinel.agents.dynamic.d068_wearable_bridge import WearableBridgeAgent
+from sentinel.agents.dynamic.d069_autofill_sniffer import AutofillSnifferAgent
+from sentinel.agents.dynamic.d070_pip_spy import PipSpyAgent
+from sentinel.agents.dynamic.d071_twa_breaker import TwaBreakerAgent
 
 __all__ = [
     "AccessibilityAbuseAgent",
@@ -230,14 +256,36 @@ __all__ = [
     "NotificationLeakAgent",
     "OkHttpLoggingRuntimeAgent",
     "PendingIntentMutableAgent",
+    "A11yAbuserAgent",
+    "AutofillSnifferAgent",
+    "BinderBombAgent",
+    "BiometricReplayAgent",
+    "BiometricTimingAgent",
+    "ClipboardHijackAgent",
     "DeepLinkBombAgent",
     "FileProviderFuzzerAgent",
+    "GraphqlFuzzerAgent",
     "HiddenApiHunterAgent",
+    "JobHijackerAgent",
+    "KeyExtractorAgent",
+    "MemoryDumpTargetAgent",
+    "NativeHeapAgent",
+    "NotificationSnoopAgent",
     "PinningStressTestAgent",
+    "PipSpyAgent",
     "ProviderSqliAgent",
     "RaceConditionCandidateAgent",
     "RaceConditionTargetAgent",
+    "SensorSpoofingAgent",
     "ServiceLeakerAgent",
+    "SideChannelAgent",
+    "SplitApkAgent",
+    "SqliteProberAgent",
+    "StatePoisonerAgent",
+    "TwaBreakerAgent",
+    "WearableBridgeAgent",
+    "WebSocketInjectorAgent",
+    "WebViewXssAgent",
     "RuntimeCryptoAgent",
     "ScreenCaptureAgent",
     "SmsPermissionAbuseAgent",
