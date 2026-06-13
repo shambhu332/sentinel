@@ -145,3 +145,67 @@ SCA_004:
   citations:
     - { framework: SOC2,    section: "CC7.1",         note: "Detect anomalies — third-party library behaviour outside expected norm." }
     - { framework: GDPR,    article: "Art. 28",       note: "Processor obligations — third-party SDKs are processors." }
+    - { framework: ISO27001, section: "A.14.2.5",     note: "Secure system engineering principles — verify behaviour of third-party components." }
+
+# -----------------------------------------------------------------
+# ISO 27001 Annex A — cross-cutting additions for the agents most
+# commonly cited in ISO audits. We attach ISO refs in addition to
+# the framework-specific clauses already mapped above.
+# -----------------------------------------------------------------
+A_004:
+  citations:
+    - { framework: PCI-DSS, requirement: "3.4" }
+    - { framework: PCI-DSS, requirement: "3.5.1" }
+    - { framework: GDPR,    article: "Art. 32(1)(a)" }
+    - { framework: HIPAA,   rule: "164.312(a)(2)(iv)" }
+    - { framework: SOC2,    section: "CC6.1" }
+    - { framework: SOC2,    section: "CC6.7" }
+    - { framework: ISO27001, section: "A.8.24",       note: "Use of cryptography — keys must be managed throughout their lifecycle." }
+    - { framework: ISO27001, section: "A.5.10",       note: "Acceptable use of information — credentials are information assets." }
+
+N_001:
+  citations:
+    - { framework: PCI-DSS, requirement: "4.1" }
+    - { framework: HIPAA,   rule: "164.312(e)(1)" }
+    - { framework: GDPR,    article: "Art. 32(1)(a)" }
+    - { framework: SOC2,    section: "CC6.6" }
+    - { framework: ISO27001, section: "A.8.20",       note: "Network security — controls to secure information in networks." }
+    - { framework: ISO27001, section: "A.8.21",       note: "Security of network services — service-level security requirements." }
+
+I_001:
+  citations:
+    - { framework: GDPR,    article: "Art. 32(1)(b)" }
+    - { framework: HIPAA,   rule: "164.312(a)(1)" }
+    - { framework: SOC2,    section: "CC6.1" }
+    - { framework: ISO27001, section: "A.8.3",        note: "Information access restriction — restrict access to information and other assets." }
+
+PRIV_001:
+  citations:
+    - { framework: GDPR,    article: "Art. 6(1)(a)" }
+    - { framework: GDPR,    article: "Art. 7" }
+    - { framework: GDPR,    article: "Art. 5(1)(c)" }
+    - { framework: DPDP,    section: "6(1)" }
+    - { framework: CCPA,    section: "1798.100(b)" }
+    - { framework: SOC2,    section: "P1.1" }
+    - { framework: SOC2,    section: "P3.1" }
+    - { framework: ISO27001, section: "A.5.34",       note: "Privacy and protection of PII — privacy by design and default." }
+
+C_018:
+  citations:
+    - { framework: PCI-DSS, requirement: "3.4" }
+    - { framework: HIPAA,   rule: "164.312(e)(2)(ii)" }
+    - { framework: GDPR,    article: "Art. 32(1)(a)" }
+    - { framework: ISO27001, section: "A.8.24",       note: "Use of cryptography — only vetted algorithms and implementations." }
+
+LOGIC_001:
+  citations:
+    - { framework: PCI-DSS, requirement: "6.4.4" }
+    - { framework: GDPR,    article: "Art. 32(1)(b)" }
+    - { framework: ISO27001, section: "A.8.32",       note: "Change management — test and debug code must be removed before production release." }
+
+RES_002:
+  citations:
+    - { framework: PCI-DSS, requirement: "10.6" }
+    - { framework: HIPAA,   rule: "164.308(a)(1)(ii)(B)" }
+    - { framework: SOC2,    section: "A1.1" }
+    - { framework: ISO27001, section: "A.8.6",        note: "Capacity management — monitor and control resource use." }

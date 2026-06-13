@@ -50,6 +50,42 @@ _ASSET_BANDS: list[tuple[str, re.Pattern]] = [
 ]
 
 
+def extract_hvt_endpoints_from_strings_xml(strings_xml: Path) -> set[str]:
+    """Pull High-Value-Target endpoint strings from a Resources strings.xml.
+
+    Targets are HTTP/HTTPS URLs and `/api/...` path literals whose
+    lowercased form matches any HVT keyword (payment, admin, kyc,
+    wallet, vault, transfer, auth, api). The returned set is consumed
+    by `EconomicCalculator._match_asset_category` as additional
+    candidate text for the asset-band regexes.
+
+    Returns an empty set on any failure — the call is best-effort
+    enrichment, not a correctness invariant.
+    """
+    if not strings_xml.is_file():
+        return set()
+    try:
+        text = strings_xml.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return set()
+    # Cheap regex extraction — avoids an XML parser dependency. The
+    # only thing we need is the URL/path substring inside <string>...
+    url_re = re.compile(
+        r'>(https?://[^\s<>"]+|/api/[^\s<>"]+)<',
+        re.IGNORECASE,
+    )
+    out: set[str] = set()
+    hvt_words = {
+        "payment", "payout", "admin", "kyc", "wallet", "vault",
+        "transfer", "remit", "auth", "login", "checkout",
+    }
+    for m in url_re.finditer(text):
+        url = m.group(1).lower()
+        if any(w in url for w in hvt_words):
+            out.add(url)
+    return out
+
+
 @dataclass(frozen=True)
 class ImpactResult:
     """One score per finding."""
@@ -109,6 +145,7 @@ class EconomicCalculator:
         self,
         finding: Finding,
         tenant_plan: str = "free",
+        hvt_endpoints: set[str] | None = None,
     ) -> ImpactResult:
         klass, klass_body = self._match_class(finding.vuln_class)
         base = float(klass_body.get("base_loss_usd",
@@ -116,7 +153,7 @@ class EconomicCalculator:
         sev_mult = float(self._defaults
                           .get("severity_multiplier", {})
                           .get(finding.severity.value, 1.0))
-        asset = self._match_asset_category(finding)
+        asset = self._match_asset_category(finding, hvt_endpoints=hvt_endpoints)
         asset_mult = float(self._defaults
                             .get("asset_category_multiplier", {})
                             .get(asset, 1.0))
@@ -150,8 +187,19 @@ class EconomicCalculator:
         return "default", {}
 
     @staticmethod
-    def _match_asset_category(finding: Finding) -> str:
-        """Inspect every string-valued evidence key for HVT keywords."""
+    def _match_asset_category(
+        finding: Finding,
+        hvt_endpoints: set[str] | None = None,
+    ) -> str:
+        """Inspect every string-valued evidence key for HVT keywords.
+
+        When `hvt_endpoints` is provided (a set of URL strings extracted
+        from strings.xml), a finding whose evidence file/path is
+        referenced *by* any HVT URL gets escalated to that URL's
+        category. This catches the case where a vuln lives in a
+        generic-named file (`NetworkClient.java`) that's only invoked
+        from `/api/payments`.
+        """
         ev = finding.evidence or {}
         candidates: list[str] = []
         for key in ("file", "path", "url", "endpoint", "snippet", "context"):
@@ -168,6 +216,10 @@ class EconomicCalculator:
                             s = entry.get(k)
                             if isinstance(s, str):
                                 candidates.append(s.lower())
+        # strings.xml HVT augmentation — add every HVT URL to the
+        # candidate text so the regex bands can match them too.
+        if hvt_endpoints:
+            candidates.extend(hvt_endpoints)
         joined = " ".join(candidates)
         for label, pattern in _ASSET_BANDS:
             if pattern.search(joined):
@@ -180,18 +232,26 @@ class EconomicCalculator:
 default_calculator = EconomicCalculator()
 
 
-def score(finding: Finding, tenant_plan: str = "free") -> ImpactResult:
+def score(
+    finding: Finding, tenant_plan: str = "free",
+    hvt_endpoints: set[str] | None = None,
+) -> ImpactResult:
     """Module-level convenience."""
-    return default_calculator.score_finding(finding, tenant_plan=tenant_plan)
+    return default_calculator.score_finding(
+        finding, tenant_plan=tenant_plan, hvt_endpoints=hvt_endpoints,
+    )
 
 
-def attach_impact(finding: Finding, tenant_plan: str = "free") -> Finding:
+def attach_impact(
+    finding: Finding, tenant_plan: str = "free",
+    hvt_endpoints: set[str] | None = None,
+) -> Finding:
     """Score a finding and return a copy with the score attached.
 
     Sets `Finding.financial_impact_score` to the USD estimate and
     appends the rationale to evidence['_impact'].
     """
-    result = score(finding, tenant_plan=tenant_plan)
+    result = score(finding, tenant_plan=tenant_plan, hvt_endpoints=hvt_endpoints)
     new_evidence = dict(finding.evidence or {})
     new_evidence["_impact"] = result.to_evidence_block()
     return finding.model_copy(update={

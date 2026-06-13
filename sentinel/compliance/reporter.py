@@ -23,7 +23,7 @@ from typing import Iterable
 from sentinel.compliance.mapper import Citation, default_mapper
 from sentinel.core.finding import Finding, Severity
 
-_FRAMEWORK_ORDER = ("GDPR", "HIPAA", "PCI-DSS", "SOC2", "DPDP", "CCPA")
+_FRAMEWORK_ORDER = ("GDPR", "HIPAA", "PCI-DSS", "SOC2", "ISO27001", "DPDP", "CCPA")
 _SEV_ORDER = (Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM,
               Severity.LOW, Severity.INFO)
 

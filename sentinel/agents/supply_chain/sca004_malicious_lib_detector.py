@@ -107,6 +107,12 @@ class MaliciousLibDetectorAgent(BaseAgent):
             return []
 
         findings: list[Finding] = []
+        # NetworkX behaviour graph: each library -> each dangerous
+        # primitive it exercises. Node attributes carry the severity
+        # and utility flag so the renderer can colour edges.
+        graph_nodes: list[dict[str, Any]] = []
+        graph_edges: list[dict[str, Any]] = []
+
         for lib_root, lib_name in lib_roots[:_MAX_LIBS_REPORTED]:
             primitives_found = self._scan_lib(lib_root)
             if not primitives_found:
@@ -115,13 +121,62 @@ class MaliciousLibDetectorAgent(BaseAgent):
             is_utility = any(
                 hint in lib_name.lower() for hint in _UTILITY_NAME_HINTS
             )
+            graph_nodes.append({
+                "id": f"lib:{lib_name}",
+                "label": lib_name,
+                "type": "library",
+                "is_utility": is_utility,
+                "primitive_count": len(primitives_found),
+            })
             for primitive, hits, sev in primitives_found:
                 # Utility lib + dangerous primitive => escalate one tier
+                escalated_sev = sev
                 if is_utility and sev == Severity.LOW:
-                    sev = Severity.MEDIUM
+                    escalated_sev = Severity.MEDIUM
                 elif is_utility and sev == Severity.MEDIUM:
-                    sev = Severity.HIGH
-                findings.append(self._emit(lib_name, primitive, hits, sev, is_utility))
+                    escalated_sev = Severity.HIGH
+                findings.append(self._emit(
+                    lib_name, primitive, hits, escalated_sev, is_utility,
+                ))
+                graph_edges.append({
+                    "source": f"lib:{lib_name}",
+                    "target": f"prim:{primitive}",
+                    "severity": escalated_sev.value,
+                    "hit_count": len(hits),
+                })
+
+        if graph_nodes and graph_edges:
+            # Emit a single INFO finding that carries the graph payload.
+            # Frontend renders it as a force-directed view.
+            primitive_node_ids: set[str] = set()
+            for e in graph_edges:
+                primitive_node_ids.add(e["target"])
+            for nid in sorted(primitive_node_ids):
+                graph_nodes.append({
+                    "id": nid,
+                    "label": nid.split(":", 1)[1],
+                    "type": "primitive",
+                })
+            findings.append(self._make_finding(
+                vuln_class="Third-Party Library Behaviour Graph",
+                severity=Severity.INFO,
+                confidence=0.95,
+                recommendation=(
+                    "Aggregated NetworkX-style graph of every third-party "
+                    "library and the dangerous primitives it touches. "
+                    "Surface this to reviewers as a single visualisation."
+                ),
+                evidence={
+                    "graph": {
+                        "nodes": graph_nodes,
+                        "edges": graph_edges,
+                        "library_count": sum(
+                            1 for n in graph_nodes if n.get("type") == "library"
+                        ),
+                        "primitive_count": len(primitive_node_ids),
+                    },
+                },
+            ))
         return findings
 
     # ---------- enumeration ----------

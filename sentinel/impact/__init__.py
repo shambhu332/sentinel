@@ -4,6 +4,7 @@ from sentinel.impact.calculator import (
     ImpactResult,
     attach_impact,
     default_calculator,
+    extract_hvt_endpoints_from_strings_xml,
     score,
 )
 
@@ -12,5 +13,6 @@ __all__ = [
     "ImpactResult",
     "attach_impact",
     "default_calculator",
+    "extract_hvt_endpoints_from_strings_xml",
     "score",
 ]
