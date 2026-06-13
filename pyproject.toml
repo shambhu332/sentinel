@@ -39,9 +39,13 @@ pyyaml = "^6.0.2"
 # Production memory backend — optional, only installed with the
 # `production` extra so the OSS / CLI install stays light.
 redis = {version = "^5.0.0", optional = true}
+# Symbolic execution for D_052 SymbolicIntentAgent — optional, ~80MB.
+# Agent degrades gracefully when missing.
+z3-solver = {version = "^4.13.0", optional = true}
 
 [tool.poetry.extras]
 production = ["redis"]
+symbolic = ["z3-solver"]
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.3"
