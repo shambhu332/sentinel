@@ -62,6 +62,41 @@ Sprint 8.6 agents (token + web analysis):
 - D_041 Notification / Toast Flood
 """
 from sentinel.agents.dynamic.cert_pinning_bypass_agent import CertPinningBypassAgent
+from sentinel.agents.dynamic.d001_clipboard_leak_agent import ClipboardLeakAgent
+from sentinel.agents.dynamic.d002_flag_secure_missing_agent import (
+    FlagSecureMissingAgent,
+)
+from sentinel.agents.dynamic.d003_biometric_weak_agent import BiometricWeakAgent
+from sentinel.agents.dynamic.d004_anti_tamper_agent import (
+    AntiTamperCoverageAgent,
+)
+from sentinel.agents.dynamic.d005_dynamic_code_loading_agent import (
+    DynamicCodeLoadingAgent,
+)
+from sentinel.agents.dynamic.d006_static_iv_reuse_agent import (
+    StaticIvReuseAgent,
+)
+from sentinel.agents.dynamic.d007_race_condition_agent import (
+    RaceConditionCandidateAgent,
+)
+from sentinel.agents.dynamic.d008_iap_bypass_agent import IapBypassAgent
+from sentinel.agents.dynamic.d009_idor_candidate_agent import IdorCandidateAgent
+from sentinel.agents.dynamic.d010_jwt_weakness_agent import JwtWeaknessAgent
+from sentinel.agents.dynamic.d011_webview_runtime_agent import (
+    WebViewRuntimeAgent,
+)
+from sentinel.agents.dynamic.d012_notification_leak_agent import (
+    NotificationLeakAgent,
+)
+from sentinel.agents.dynamic.d013_third_party_pii_leak_agent import (
+    ThirdPartyPiiLeakAgent,
+)
+from sentinel.agents.dynamic.d014_cookie_hardening_agent import (
+    CookieHardeningAgent,
+)
+from sentinel.agents.dynamic.d015_implicit_intent_leak_agent import (
+    ImplicitIntentLeakAgent,
+)
 from sentinel.agents.dynamic.d016_accessibility_abuse_agent import (
     AccessibilityAbuseAgent,
 )
@@ -140,63 +175,27 @@ from sentinel.agents.dynamic.d040_biometric_device_credential_fallback_agent imp
 from sentinel.agents.dynamic.d041_notification_flood_agent import (
     NotificationFloodAgent,
 )
-from sentinel.agents.dynamic.d001_clipboard_leak_agent import ClipboardLeakAgent
-from sentinel.agents.dynamic.d002_flag_secure_missing_agent import (
-    FlagSecureMissingAgent,
-)
-from sentinel.agents.dynamic.d003_biometric_weak_agent import BiometricWeakAgent
-from sentinel.agents.dynamic.d004_anti_tamper_agent import (
-    AntiTamperCoverageAgent,
-)
-from sentinel.agents.dynamic.d005_dynamic_code_loading_agent import (
-    DynamicCodeLoadingAgent,
-)
-from sentinel.agents.dynamic.d006_static_iv_reuse_agent import (
-    StaticIvReuseAgent,
-)
-from sentinel.agents.dynamic.d007_race_condition_agent import (
-    RaceConditionCandidateAgent,
-)
-from sentinel.agents.dynamic.d008_iap_bypass_agent import IapBypassAgent
-from sentinel.agents.dynamic.d009_idor_candidate_agent import IdorCandidateAgent
-from sentinel.agents.dynamic.d010_jwt_weakness_agent import JwtWeaknessAgent
-from sentinel.agents.dynamic.d011_webview_runtime_agent import (
-    WebViewRuntimeAgent,
-)
-from sentinel.agents.dynamic.d012_notification_leak_agent import (
-    NotificationLeakAgent,
-)
-from sentinel.agents.dynamic.d013_third_party_pii_leak_agent import (
-    ThirdPartyPiiLeakAgent,
-)
-from sentinel.agents.dynamic.d014_cookie_hardening_agent import (
-    CookieHardeningAgent,
-)
-from sentinel.agents.dynamic.d015_implicit_intent_leak_agent import (
-    ImplicitIntentLeakAgent,
-)
-from sentinel.agents.dynamic.data_in_transit_agent import DataInTransitAgent
-from sentinel.agents.dynamic.improper_tls_agent import ImproperTLSAgent
-from sentinel.agents.dynamic.runtime_crypto_agent import RuntimeCryptoAgent
+
 # God Mode batch — see God_Mode.md
 from sentinel.agents.dynamic.d042_deep_link_bomb import DeepLinkBombAgent
 from sentinel.agents.dynamic.d043_hidden_api_hunter import HiddenApiHunterAgent
+
+# Experimental tier batch
+from sentinel.agents.dynamic.d044_biometric_replay import BiometricReplayAgent
+from sentinel.agents.dynamic.d045_sqlite_prober import SqliteProberAgent
 from sentinel.agents.dynamic.d046_race_condition_target import (
     RaceConditionTargetAgent,
+)
+from sentinel.agents.dynamic.d047_memory_dump import MemoryDumpTargetAgent
+from sentinel.agents.dynamic.d048_webview_xss import WebViewXssAgent
+from sentinel.agents.dynamic.d049_notification_snoop import (
+    NotificationSnoopAgent,
 )
 from sentinel.agents.dynamic.d050_pinning_stress_test import (
     PinningStressTestAgent,
 )
 from sentinel.agents.dynamic.d051_service_leaker import ServiceLeakerAgent
 from sentinel.agents.dynamic.d052_symbolic_intent import SymbolicIntentAgent
-# Experimental tier batch
-from sentinel.agents.dynamic.d044_biometric_replay import BiometricReplayAgent
-from sentinel.agents.dynamic.d045_sqlite_prober import SqliteProberAgent
-from sentinel.agents.dynamic.d047_memory_dump import MemoryDumpTargetAgent
-from sentinel.agents.dynamic.d048_webview_xss import WebViewXssAgent
-from sentinel.agents.dynamic.d049_notification_snoop import (
-    NotificationSnoopAgent,
-)
 from sentinel.agents.dynamic.d053_side_channel import SideChannelAgent
 from sentinel.agents.dynamic.d054_graphql_fuzzer import GraphqlFuzzerAgent
 from sentinel.agents.dynamic.d055_native_heap import NativeHeapAgent
@@ -220,6 +219,13 @@ from sentinel.agents.dynamic.d068_wearable_bridge import WearableBridgeAgent
 from sentinel.agents.dynamic.d069_autofill_sniffer import AutofillSnifferAgent
 from sentinel.agents.dynamic.d070_pip_spy import PipSpyAgent
 from sentinel.agents.dynamic.d071_twa_breaker import TwaBreakerAgent
+from sentinel.agents.dynamic.d073_pending_intent_esc import (
+    PendingIntentEscalationAgent,
+)
+from sentinel.agents.dynamic.d074_scheme_confuser import SchemeConfuserAgent
+from sentinel.agents.dynamic.data_in_transit_agent import DataInTransitAgent
+from sentinel.agents.dynamic.improper_tls_agent import ImproperTLSAgent
+from sentinel.agents.dynamic.runtime_crypto_agent import RuntimeCryptoAgent
 
 __all__ = [
     "AccessibilityAbuseAgent",
@@ -256,6 +262,7 @@ __all__ = [
     "NotificationLeakAgent",
     "OkHttpLoggingRuntimeAgent",
     "PendingIntentMutableAgent",
+    "PendingIntentEscalationAgent",
     "A11yAbuserAgent",
     "AutofillSnifferAgent",
     "BinderBombAgent",
@@ -288,6 +295,7 @@ __all__ = [
     "WebViewXssAgent",
     "RuntimeCryptoAgent",
     "ScreenCaptureAgent",
+    "SchemeConfuserAgent",
     "SmsPermissionAbuseAgent",
     "SqliteCommandInjectionAgent",
     "StaticIvReuseAgent",
