@@ -1194,3 +1194,31 @@ code.inline {
   font-size:10px;text-transform:uppercase;letter-spacing:0.5px;
   color: var(--text-muted);margin-top:8px;margin-bottom:2px;
 }
+
+/* Purple agent row in swarm panel */
+.swarm-purple {
+  margin-top: 12px;
+  padding: 12px;
+  background: linear-gradient(135deg, #a855f722, #6366f122);
+  border-left: 3px solid #a855f7;
+  border-radius: var(--radius-sm);
+}
+.swarm-purple h5 {
+  margin: 0 0 8px 0;font-size:12px;font-weight:600;
+  text-transform: uppercase;letter-spacing:0.5px;
+  color: #c084fc;
+}
+.swarm-purple p { margin: 4px 0; font-size: 13px; line-height: 1.5; }
+.swarm-stakeholders {
+  display:flex;flex-direction:column;gap:4px;margin-top:8px;
+}
+.swarm-stakeholder-chip {
+  display:inline-block;
+  font-size:11px;
+  padding:2px 8px;
+  margin:2px 4px 2px 0;
+  background: rgba(168, 85, 247, 0.15);
+  color: #c084fc;
+  border:1px solid rgba(168, 85, 247, 0.3);
+  border-radius:12px;
+}

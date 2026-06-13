@@ -70,5 +70,29 @@ export function renderSwarmPanel(finding) {
   }
 
   panel.appendChild(cols);
+
+  // Purple row — business narrative spans full width below the cols.
+  if (swarm.purple) {
+    panel.appendChild(el('div', { class: 'swarm-purple' },
+      el('h5', {}, '💼 Business Impact (Purple)'),
+      swarm.purple.business_narrative
+        ? el('p', {}, swarm.purple.business_narrative)
+        : null,
+      swarm.purple.estimated_blast_radius
+        ? el('p', { class: 'text-muted', style: 'font-size:12px;' },
+            el('strong', {}, 'Blast radius: '),
+            swarm.purple.estimated_blast_radius)
+        : null,
+      Array.isArray(swarm.purple.affected_stakeholders)
+       && swarm.purple.affected_stakeholders.length
+        ? el('div', { class: 'swarm-stakeholders' },
+            el('span', { class: 'swarm-label' }, 'Affected stakeholders'),
+            el('div', {},
+              ...swarm.purple.affected_stakeholders.map(s =>
+                el('span', { class: 'swarm-stakeholder-chip' }, s))))
+        : null,
+    ));
+  }
+
   return panel;
 }
