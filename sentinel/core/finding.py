@@ -58,6 +58,15 @@ class Finding(BaseModel):
     # session-set `sentinel.tenant_id` GUC, so the value is enforced
     # by the database, not by application code.
     tenant_id: str | None = Field(default=None, max_length=64)
+    # Estimated single-incident financial impact in USD as populated by
+    # IMPACT_001. None means "not scored yet" — every consumer treats
+    # None as "unknown" rather than zero. Negative values rejected.
+    financial_impact_score: float | None = Field(default=None, ge=0.0)
+    # Regulatory citations attached by COMPLIANCE_001 (e.g.
+    # ["GDPR Art. 32(1)(a)", "PCI-DSS 3.4", "SOC2 CC6.1"]). Each entry
+    # is a free-form "framework reference" string; rendering happens in
+    # the report layer.
+    compliance_tags: list[str] = Field(default_factory=list, max_length=50)
     triage: TriageState = TriageState.UNREVIEWED
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
