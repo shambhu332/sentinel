@@ -90,6 +90,9 @@ import "./hooks/d071_twa_breaker.js";
 import "./hooks/d072_jni_shadow.js";
 import "./hooks/d082_iap_spoofing.js";
 import "./hooks/d083_mobile_ssrf.js";
+import "./hooks/d084_webview_xss_universal.js";
+import "./hooks/d085_provider_lfi.js";
+import "./hooks/d086_intent_xss.js";
 
 // Native hooks first — independent of Java bridge readiness.
 let nativeHooks = 0;
