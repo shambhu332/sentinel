@@ -152,6 +152,23 @@ async function jnishadow(payload: JniShadowPayload): Promise<JniShadowResult> {
     return new Promise((resolve) => {
         Java.perform(() => {
             try {
+                // Declare the finish helper first so the early-exit
+                // branches below can call it without TDZ trouble.
+                const finish = () => {
+                    try { interceptor?.detach(); } catch (_) { /* ignore */ }
+                    try { MemoryAccessMonitor.disable(); } catch (_) { /* ignore */ }
+                    resolve({
+                        symbol: payload.jni_symbol,
+                        module,
+                        address: address!.toString(),
+                        probes_fired: results.length,
+                        results,
+                        tripped: tripReason !== undefined,
+                        trip_reason: tripReason,
+                        duration_ms: Date.now() - start,
+                    });
+                };
+
                 // The agent payload includes class + method; we recover
                 // both from the JNI symbol (Java_<pkg>_<class>_<method>).
                 const { className, methodName } = parseJniSymbol(payload.jni_symbol);
@@ -205,21 +222,6 @@ async function jnishadow(payload: JniShadowPayload): Promise<JniShadowResult> {
                         results.push(result);
                         fire();
                     }, wait);
-                };
-
-                const finish = () => {
-                    try { interceptor?.detach(); } catch (_) { /* ignore */ }
-                    try { MemoryAccessMonitor.disable(); } catch (_) { /* ignore */ }
-                    resolve({
-                        symbol: payload.jni_symbol,
-                        module,
-                        address: address!.toString(),
-                        probes_fired: results.length,
-                        results,
-                        tripped: tripReason !== undefined,
-                        trip_reason: tripReason,
-                        duration_ms: Date.now() - start,
-                    });
                 };
 
                 fire();
