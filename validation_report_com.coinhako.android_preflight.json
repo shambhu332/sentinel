@@ -1,0 +1,175 @@
+{
+  "package": "com.coinhako.android",
+  "started_at": "2026-06-14T14:39:31.596087+00:00",
+  "finished_at": "2026-06-14T14:39:31.830236+00:00",
+  "duration_seconds": 0.23,
+  "scan_status": "preflight_failed",
+  "preflight": {
+    "adb_connected": false,
+    "root_access": true,
+    "package_installed": false,
+    "frida_server_reachable": false,
+    "frida_version_match": null,
+    "package_paths": [],
+    "apk_path": "",
+    "notes": [],
+    "unsupported_requested_flags": {
+      "--dynamic-timeout": "--dynamic-duration and --frida-duration",
+      "--no-active-replay": "default behavior; --active-replay is not passed",
+      "--agents": "not available in current CLI; full dynamic roster is used"
+    },
+    "adb_devices_output": "List of devices attached\nR9ZR900AEJT            device usb:1-1.3 product:a03snnxx model:SM_A037F device:a03s transport_id:2",
+    "adb_whoami": "shell",
+    "adb_su_whoami": "root",
+    "frida_client_version": "",
+    "frida_server_version": "",
+    "frida_error": "python frida import failed: No module named 'frida'",
+    "overall_ok": false
+  },
+  "stability": {
+    "pid_before": "",
+    "pid_after": "",
+    "app_crashed": false,
+    "rasp_detected": false
+  },
+  "artifacts": {
+    "apk_path": "",
+    "workspace_root": "/home/shambhu/Desktop/project/sentinel/workspace/realworld-validation",
+    "session_workspace": "",
+    "scan_output": "",
+    "scan_log": "",
+    "frida_event_files": [],
+    "mitm_flow_files": [],
+    "report_path": "validation_report_com.coinhako.android_preflight.json"
+  },
+  "traffic": {
+    "mitmproxy_flow_count": 0,
+    "captured": false
+  },
+  "hook_fire_rate": {},
+  "agent_health": [
+    {
+      "agent_id": "D_063",
+      "hook_fired": null,
+      "hook_event_count": 0,
+      "traffic_captured": false,
+      "app_crashed": false,
+      "notes": [
+        "No persisted Frida event file available.",
+        "No matching SAST target emitted in this run."
+      ],
+      "rpc_summary": {},
+      "sast_findings": 0
+    },
+    {
+      "agent_id": "D_065",
+      "hook_fired": null,
+      "hook_event_count": 0,
+      "traffic_captured": null,
+      "app_crashed": false,
+      "notes": [
+        "No persisted Frida event file available.",
+        "No matching SAST target emitted in this run."
+      ],
+      "rpc_summary": {},
+      "sast_findings": 0
+    },
+    {
+      "agent_id": "D_073",
+      "hook_fired": null,
+      "hook_event_count": 0,
+      "traffic_captured": null,
+      "app_crashed": false,
+      "notes": [
+        "No persisted Frida event file available.",
+        "No matching SAST target emitted in this run."
+      ],
+      "rpc_summary": {},
+      "sast_findings": 0
+    },
+    {
+      "agent_id": "D_074",
+      "hook_fired": null,
+      "hook_event_count": 0,
+      "traffic_captured": null,
+      "app_crashed": false,
+      "notes": [
+        "No persisted Frida event file available.",
+        "No matching SAST target emitted in this run."
+      ],
+      "rpc_summary": {},
+      "sast_findings": 0
+    },
+    {
+      "agent_id": "D_084",
+      "hook_fired": null,
+      "hook_event_count": 0,
+      "traffic_captured": false,
+      "app_crashed": false,
+      "notes": [
+        "No persisted Frida event file available.",
+        "No matching SAST target emitted in this run."
+      ],
+      "rpc_summary": {},
+      "sast_findings": 0
+    },
+    {
+      "agent_id": "D_087",
+      "hook_fired": null,
+      "hook_event_count": 0,
+      "traffic_captured": null,
+      "app_crashed": false,
+      "notes": [
+        "No persisted Frida event file available.",
+        "D_087 is not present in this repository checkout."
+      ],
+      "rpc_summary": {},
+      "sast_findings": 0
+    }
+  ],
+  "scan_warnings": [],
+  "notes": [
+    "No frida_events.jsonl file found. Current SENTINEL keeps Frida events in memory; hook fire rate is inferred only from any persisted JSONL files or RPC summaries.",
+    "No mitmproxy flows captured. Causes: no app interaction, pinning/bypass failure, proxy refusal, or app blocked traffic."
+  ],
+  "cleanup": [
+    {
+      "action": "force_stop",
+      "returncode": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "action": "clear_proxy_put",
+      "returncode": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "action": "clear_proxy_delete",
+      "returncode": 0,
+      "stdout": "Deleted 1 rows",
+      "stderr": ""
+    },
+    {
+      "action": "clear_proxy_host",
+      "returncode": 0,
+      "stdout": "Deleted 1 rows",
+      "stderr": ""
+    },
+    {
+      "action": "clear_proxy_port",
+      "returncode": 0,
+      "stdout": "Deleted 1 rows",
+      "stderr": ""
+    },
+    {
+      "action": "frida_kill_package",
+      "returncode": 0,
+      "stdout": "unable to find process: com.coinhako.android",
+      "stderr": ""
+    }
+  ],
+  "stdout_tail": "",
+  "stderr_tail": ""
+}

@@ -1,0 +1,188 @@
+{
+  "package": "com.coinhako",
+  "started_at": "2026-06-14T14:46:07.851742+00:00",
+  "finished_at": "2026-06-14T14:59:39.661431+00:00",
+  "duration_seconds": 811.81,
+  "scan_status": "completed",
+  "preflight": {
+    "adb_connected": true,
+    "root_access": true,
+    "package_installed": true,
+    "frida_server_reachable": true,
+    "frida_version_match": true,
+    "package_paths": [
+      "/data/app/~~6rp2RiGb2GkZlwLZ4DV0MA==/com.coinhako-H2IZs34uvI6gxdjDb-rjgQ==/base.apk",
+      "/data/app/~~6rp2RiGb2GkZlwLZ4DV0MA==/com.coinhako-H2IZs34uvI6gxdjDb-rjgQ==/split_config.arm64_v8a.apk",
+      "/data/app/~~6rp2RiGb2GkZlwLZ4DV0MA==/com.coinhako-H2IZs34uvI6gxdjDb-rjgQ==/split_config.en.apk",
+      "/data/app/~~6rp2RiGb2GkZlwLZ4DV0MA==/com.coinhako-H2IZs34uvI6gxdjDb-rjgQ==/split_config.xhdpi.apk"
+    ],
+    "apk_path": "/home/shambhu/Desktop/project/sentinel/workspace/realworld-validation/com.coinhako/pulled_apk/base.apk",
+    "notes": [],
+    "unsupported_requested_flags": {
+      "--dynamic-timeout": "--dynamic-duration and --frida-duration",
+      "--no-active-replay": "default behavior; --active-replay is not passed",
+      "--agents": "not available in current CLI; full dynamic roster is used"
+    },
+    "adb_devices_output": "List of devices attached\nR9ZR900AEJT            device usb:1-1.3 product:a03snnxx model:SM_A037F device:a03s transport_id:2",
+    "adb_whoami": "shell",
+    "adb_su_whoami": "root",
+    "frida_client_version": "16.5.7",
+    "frida_server_version": "16.5.7",
+    "frida_ps_error": "",
+    "overall_ok": true
+  },
+  "stability": {
+    "pid_before": "8999",
+    "pid_after": "8999",
+    "app_crashed": false,
+    "rasp_detected": false
+  },
+  "artifacts": {
+    "apk_path": "/home/shambhu/Desktop/project/sentinel/workspace/realworld-validation/com.coinhako/pulled_apk/base.apk",
+    "workspace_root": "/home/shambhu/Desktop/project/sentinel/workspace/realworld-validation",
+    "session_workspace": "/home/shambhu/Desktop/project/sentinel/workspace/realworld-validation/com.coinhako/workspace/3_8rQuxl-lAbMK0L",
+    "scan_output": "/home/shambhu/Desktop/project/sentinel/workspace/realworld-validation/com.coinhako/scan_1781448373.json",
+    "scan_log": "/home/shambhu/Desktop/project/sentinel/workspace/realworld-validation/com.coinhako/scan_1781448373.log",
+    "frida_event_files": [],
+    "mitm_flow_files": [
+      "/home/shambhu/Desktop/project/sentinel/workspace/realworld-validation/com.coinhako/workspace/3_8rQuxl-lAbMK0L/dynamic/mitm_capture.jsonl",
+      "/home/shambhu/Desktop/project/sentinel/workspace/realworld-validation/com.global.edu.campus/workspace/P8Yevg2-FMHYa1p_/dynamic/mitm_capture.jsonl"
+    ],
+    "report_path": "validation_report_com.coinhako.json"
+  },
+  "traffic": {
+    "mitmproxy_flow_count": 0,
+    "captured": false
+  },
+  "hook_fire_rate": {},
+  "agent_health": [
+    {
+      "agent_id": "D_063",
+      "hook_fired": null,
+      "hook_event_count": 0,
+      "traffic_captured": false,
+      "app_crashed": false,
+      "notes": [
+        "No persisted Frida event file available.",
+        "No matching SAST target emitted in this run."
+      ],
+      "rpc_summary": {},
+      "sast_findings": 0
+    },
+    {
+      "agent_id": "D_065",
+      "hook_fired": null,
+      "hook_event_count": 0,
+      "traffic_captured": null,
+      "app_crashed": false,
+      "notes": [
+        "No persisted Frida event file available.",
+        "No matching SAST target emitted in this run."
+      ],
+      "rpc_summary": {},
+      "sast_findings": 0
+    },
+    {
+      "agent_id": "D_073",
+      "hook_fired": null,
+      "hook_event_count": 0,
+      "traffic_captured": null,
+      "app_crashed": false,
+      "notes": [
+        "No persisted Frida event file available.",
+        "14 SAST target finding(s) emitted."
+      ],
+      "rpc_summary": {},
+      "sast_findings": 14
+    },
+    {
+      "agent_id": "D_074",
+      "hook_fired": null,
+      "hook_event_count": 0,
+      "traffic_captured": null,
+      "app_crashed": false,
+      "notes": [
+        "No persisted Frida event file available.",
+        "No matching SAST target emitted in this run."
+      ],
+      "rpc_summary": {},
+      "sast_findings": 0
+    },
+    {
+      "agent_id": "D_084",
+      "hook_fired": null,
+      "hook_event_count": 0,
+      "traffic_captured": false,
+      "app_crashed": false,
+      "notes": [
+        "No persisted Frida event file available.",
+        "No matching SAST target emitted in this run."
+      ],
+      "rpc_summary": {},
+      "sast_findings": 0
+    },
+    {
+      "agent_id": "D_087",
+      "hook_fired": null,
+      "hook_event_count": 0,
+      "traffic_captured": null,
+      "app_crashed": false,
+      "notes": [
+        "No persisted Frida event file available.",
+        "D_087 is not present in this repository checkout."
+      ],
+      "rpc_summary": {},
+      "sast_findings": 0
+    }
+  ],
+  "scan_warnings": [
+    "Androguard: Androguard slow on this APK (212s)",
+    "Phase 4: mitmproxy start failed: mitmdump died immediately. exit=1 stderr=Error logged during startup, exiting...\n",
+    "Phase 4.6 Frida attach failed: Frida attach to PID 8999 failed after 3 retries: frida-server on the device is not reachable. Fix: restart it with `adb shell \"su -c 'nohup /data/local/tmp/frida-server >/dev/null 2>&1 &'\"`.",
+    "Phase 8 report generation timed out after 120s"
+  ],
+  "notes": [
+    "No frida_events.jsonl file found. Current SENTINEL keeps Frida events in memory; hook fire rate is inferred only from any persisted JSONL files or RPC summaries.",
+    "No mitmproxy flows captured. Causes: no app interaction, pinning/bypass failure, proxy refusal, or app blocked traffic."
+  ],
+  "cleanup": [
+    {
+      "action": "force_stop",
+      "returncode": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "action": "clear_proxy_put",
+      "returncode": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "action": "clear_proxy_delete",
+      "returncode": 0,
+      "stdout": "Deleted 1 rows",
+      "stderr": ""
+    },
+    {
+      "action": "clear_proxy_host",
+      "returncode": 0,
+      "stdout": "Deleted 1 rows",
+      "stderr": ""
+    },
+    {
+      "action": "clear_proxy_port",
+      "returncode": 0,
+      "stdout": "Deleted 1 rows",
+      "stderr": ""
+    },
+    {
+      "action": "frida_kill_package",
+      "returncode": 0,
+      "stdout": "unable to find process: com.coinhako",
+      "stderr": ""
+    }
+  ],
+  "stdout_tail": "\u2502            \u2502                        \u2502            \u2502        \u2502 s   \u2502\n\u2502            \u2502            \u2502                        \u2502            \u2502        \u2502 pro \u2502\n\u2502            \u2502            \u2502                        \u2502            \u2502        \u2502 fil \u2502\n\u2502            \u2502            \u2502                        \u2502            \u2502        \u2502 e   \u2502\n\u2502            \u2502            \u2502                        \u2502            \u2502        \u2502 to  \u2502\n\u2502            \u2502            \u2502                        \u2502            \u2502        \u2502 gui \u2502\n\u2502            \u2502            \u2502                        \u2502            \u2502        \u2502 de  \u2502\n\u2502            \u2502            \u2502                        \u2502            \u2502        \u2502 man \u2502\n\u2502            \u2502            \u2502                        \u2502            \u2502        \u2502 ual \u2502\n\u2502            \u2502            \u2502                        \u2502            \u2502        \u2502     \u2502\n\u2502            \u2502            \u2502                        \u2502            \u2502        \u2502 tes \u2502\n\u2502            \u2502            \u2502                        \u2502            \u2502        \u2502 tin \u2502\n\u2502            \u2502            \u2502                        \u2502            \u2502        \u2502 g:  \u2502\n\u2502            \u2502            \u2502                        \u2502            \u2502        \u2502 fra \u2502\n\u2502            \u2502            \u2502                        \u2502            \u2502        \u2502 mew \u2502\n\u2502            \u2502            \u2502                        \u2502            \u2502        \u2502 ork \u2502\n\u2502            \u2502            \u2502                        \u2502            \u2502        \u2502 -sp \u2502\n\u2502            \u2502            \u2502                        \u2502            \u2502        \u2502 eci \u2502\n\u2502            \u2502            \u2502                        \u2502            \u2502        \u2502 fic \u2502\n\u2502            \u2502            \u2502                        \u2502            \u2502        \u2502     \u2502\n\u2502            \u2502            \u2502                        \u2502            \u2502        \u2502 too \u2502\n\u2502            \u2502            \u2502                        \u2502            \u2502        \u2502 ls  \u2502\n\u2502            \u2502            \u2502                        \u2502            \u2502        \u2502 may \u2502\n\u2502            \u2502            \u2502                        \u2502            \u2502        \u2502 be  \u2502\n\u2502            \u2502            \u2502                        \u2502            \u2502        \u2502 nee \u2502\n\u2502            \u2502            \u2502                        \u2502            \u2502        \u2502 ded \u2502\n\u2502            \u2502            \u2502                        \u2502            \u2502        \u2502     \u2502\n\u2502            \u2502            \u2502                        \u2502            \u2502        \u2502 for \u2502\n\u2502            \u2502            \u2502                        \u2502            \u2502        \u2502 ful \u2502\n\u2502            \u2502            \u2502                        \u2502            \u2502        \u2502 l   \u2502\n\u2502            \u2502            \u2502                        \u2502            \u2502        \u2502 cov \u2502\n\u2502            \u2502            \u2502                        \u2502            \u2502        \u2502 era \u2502\n\u2502            \u2502            \u2502                        \u2502            \u2502        \u2502 ge  \u2502\n\u2502            \u2502            \u2502                        \u2502            \u2502        \u2502 bey \u2502\n\u2502            \u2502            \u2502                        \u2502            \u2502        \u2502 ond \u2502\n\u2502            \u2502            \u2502                        \u2502            \u2502        \u2502     \u2502\n\u2502            \u2502            \u2502                        \u2502            \u2502        \u2502 SEN \u2502\n\u2502            \u2502            \u2502                        \u2502            \u2502        \u2502 TIN \u2502\n\u2502            \u2502            \u2502                        \u2502            \u2502        \u2502 EL' \u2502\n\u2502            \u2502            \u2502                        \u2502            \u2502        \u2502 s   \u2502\n\u2502            \u2502            \u2502                        \u2502            \u2502        \u2502 aut \u2502\n\u2502            \u2502            \u2502                        \u2502            \u2502        \u2502 oma \u2502\n\u2502            \u2502            \u2502                        \u2502            \u2502        \u2502 ted \u2502\n\u2502            \u2502            \u2502                        \u2502            \u2502        \u2502     \u2502\n\u2502            \u2502            \u2502                        \u2502            \u2502        \u2502 ana \u2502\n\u2502            \u2502            \u2502                        \u2502            \u2502        \u2502 lys \u2502\n\u2502            \u2502            \u2502                        \u2502            \u2502        \u2502 is. \u2502\n\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2518\n\nWrote summary to: \n/home/shambhu/Desktop/project/sentinel/workspace/realworld-validation/com.coinha\nko/scan_1781448373.json\n",
+  "stderr_tail": "2026-06-14 20:31:19.654 | WARNING  | androguard.core.api_specific_resources:load_permissions:62 - Requested API level 36 is larger than maximum we have, returning API level 34 instead.\n2026-06-14 20:31:19.655 | WARNING  | androguard.core.api_specific_resources:load_permissions:62 - Requested API level 36 is larger than maximum we have, returning API level 34 instead.\n[A_001] Stopped scanning after 3000 files\n[A_004] Stopped scanning after 3000 files\n[A_007] Stopped scanning after 3000 files\n[B_002] Stopped scanning after 3000 files\n[C_002] Stopped scanning after 3000 files\n[C_004] Stopped scanning after 3000 files\n[C_007] Stopped scanning after 3000 files\n[F_001] Stopped scanning after 5000 files (perf cap)\n[N_002] Stopped scanning after 3000 files (perf cap)\n[SCA_001] tier-2: stopped after 3000 files\n[STG_006] Stopped scanning after 3000 files\nFrida attach attempt 1/3 failed: frida-server connection closed (unable to connect to remote frida-server: closed) \u2014 retrying in 2.0s\nFrida attach attempt 2/3 failed: frida-server connection closed (unable to connect to remote frida-server: closed) \u2014 retrying in 2.0s\nFrida attach attempt 3/3 failed: frida-server connection closed (unable to connect to remote frida-server: closed) \u2014 retrying in 2.0s\nR_001 cancelled\n[3_8rQuxl-lAbMK0L] Phase 8 report generation timed out after 120s\n"
+}
