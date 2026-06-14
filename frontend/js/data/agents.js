@@ -1246,6 +1246,9 @@ export const AGENTS = [
   { id: 'D_069', name: "AutofillSniffer", vuln_class: "Sensitive Field Leaked to Autofill", phase: "Phase 2", category: "dynamic", severities: ['medium'], description: "Pure SAST. EditText with textPassword without importantForAutofill=\"no\" — Android autofill caches the content." },
   { id: 'D_070', name: "PipSpy", vuln_class: "Picture-in-Picture Clickjack (Dynamic Testing Target)", phase: "Phase 2", category: "dynamic", severities: ['medium'], description: "enterPictureInPictureMode usage. Frida overlays a transparent button on the PiP window to test for tapjacking." },
   { id: 'D_071', name: "TwaBreaker", vuln_class: "TWA Session Hijack (Dynamic Testing Target)", phase: "Phase 2", category: "dynamic", severities: ['high', 'low'], description: "TWA / Custom Tabs sites WITHOUT asset_statements (Digital Asset Links). Frida injects a malicious CustomTabsIntent." },
+  // ---- Financial fraud + cloud exposure (D_082-D_083) ----
+  { id: 'D_082', name: "IapSpoofing", vuln_class: "IAP Spoofing (Dynamic Testing Target)", phase: "Phase 2", category: "dynamic", severities: ['high', 'medium'], description: "Identifies PurchasesUpdatedListener implementations lacking server-side token validation. Frida replays onPurchasesUpdated with a synthetic PURCHASED Purchase + fake token; never touches Google Play backend. SafetyBudget: 5 actions / 1 per sec / safe_mode_local_only." },
+  { id: 'D_083', name: "MobileSsrf", vuln_class: "Mobile SSRF (Dynamic Testing Target)", phase: "Phase 2", category: "dynamic", severities: ['high', 'medium'], description: "Identifies user-input URLs flowing into OkHttp/Retrofit/HttpURLConnection/WebView.loadUrl/Glide/Picasso. Frida rewrites destinations to curated allow-listed probes (AWS IMDS 169.254.169.254, GCP metadata, loopback, RFC1918, file://, content://). Never touches external hosts." },
 ];
 
 export const CATEGORIES = [
