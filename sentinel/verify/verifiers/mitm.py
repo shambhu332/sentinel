@@ -1,13 +1,11 @@
 """mitmproxy-capture-based verifiers."""
 from __future__ import annotations
 
-import re
 from typing import Any
 from urllib.parse import urlparse
 
 from sentinel.core.finding import Finding
 from sentinel.verify.models import VerificationResult, VerifierContext
-
 
 # ---------- N_002 — cleartext traffic ----------
 

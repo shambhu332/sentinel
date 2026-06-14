@@ -149,7 +149,7 @@ class KnowledgeBase:
         dists = (result.get("distances") or [[]])[0]
 
         out: list[dict[str, Any]] = []
-        for i, doc, meta, dist in zip(ids, docs, metas, dists):
+        for i, doc, meta, dist in zip(ids, docs, metas, dists, strict=False):
             out.append({
                 "id": i,
                 "document": doc,

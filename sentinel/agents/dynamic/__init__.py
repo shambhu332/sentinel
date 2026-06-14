@@ -219,6 +219,7 @@ from sentinel.agents.dynamic.d068_wearable_bridge import WearableBridgeAgent
 from sentinel.agents.dynamic.d069_autofill_sniffer import AutofillSnifferAgent
 from sentinel.agents.dynamic.d070_pip_spy import PipSpyAgent
 from sentinel.agents.dynamic.d071_twa_breaker import TwaBreakerAgent
+from sentinel.agents.dynamic.d072_jni_shadow import JniShadowAgent
 from sentinel.agents.dynamic.d073_pending_intent_esc import (
     PendingIntentEscalationAgent,
 )
@@ -295,6 +296,7 @@ __all__ = [
     "SplitApkAgent",
     "SqliteProberAgent",
     "StatePoisonerAgent",
+    "JniShadowAgent",
     "TwaBreakerAgent",
     "WearableBridgeAgent",
     "WebSocketInjectorAgent",

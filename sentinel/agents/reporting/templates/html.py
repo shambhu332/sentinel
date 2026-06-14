@@ -870,7 +870,7 @@ def _refs_html(section: FindingSection) -> str:
     for cid, title in (section.rag_mapping or {}).items():
         refs.append({
             "label": f"{cid} — {title}",
-            "url": f"https://mas.owasp.org/MASVS/",
+            "url": "https://mas.owasp.org/MASVS/",
         })
     if not refs:
         return "<p class='muted'>No external references attached.</p>"

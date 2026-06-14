@@ -279,7 +279,7 @@ class SwarmOrchestrator:
         if self.purple_enabled:
             try:
                 purple = await self._run_purple(finding, sanitized, red, blue)
-            except Exception as e:  # noqa: BLE001
+            except Exception:  # noqa: BLE001
                 logger.exception("Purple agent failed (continuing without)")
 
         result = SwarmResult(

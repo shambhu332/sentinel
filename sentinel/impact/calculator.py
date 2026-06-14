@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from sentinel.core.finding import Finding, Severity
+from sentinel.core.finding import Finding
 
 logger = logging.getLogger(__name__)
 

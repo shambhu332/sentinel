@@ -48,7 +48,7 @@ def _header(lines: list[str], data: ReportData) -> None:
         f"**Version:** `{data.version}`  ",
         f"**Report generated:** {data.generated_at.isoformat(timespec='seconds')}  ",
         f"**Session ID:** `{data.session_id}`  ",
-        f"**SENTINEL build:** v0.1.0",
+        "**SENTINEL build:** v0.1.0",
         "",
         "---",
         "",

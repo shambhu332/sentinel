@@ -6,8 +6,10 @@ execSQL inside the app's own ROOM/SQLite helper where input came
 from a deep link, push notification, or saved-state restore.
 """
 from __future__ import annotations
+
 import logging
 import re
+
 from sentinel.agents.base.base_agent import BaseAgent
 from sentinel.core.finding import Finding, Severity
 

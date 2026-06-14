@@ -1,6 +1,8 @@
 """D_055 — Native heap monitor (Dynamic Testing Target)."""
 from __future__ import annotations
+
 import logging
+
 from sentinel.agents.base.base_agent import BaseAgent
 from sentinel.core.finding import Finding, Severity
 

@@ -16,7 +16,6 @@ from __future__ import annotations
 import logging
 import math
 from collections import Counter
-from pathlib import Path
 
 from sentinel.agents.base.base_agent import BaseAgent
 from sentinel.core.finding import Finding, Severity

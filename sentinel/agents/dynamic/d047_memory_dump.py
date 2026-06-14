@@ -6,8 +6,10 @@ a heap snapshot just after the target activity onResume fires, then
 scan the snapshot for JWT / AWS-key / PAN shapes.
 """
 from __future__ import annotations
+
 import logging
 import re
+
 from sentinel.agents.base.base_agent import BaseAgent
 from sentinel.core.finding import Finding, Severity
 

@@ -32,7 +32,6 @@ from __future__ import annotations
 
 import logging
 import re
-from pathlib import Path
 from typing import Any
 
 from sentinel.agents.base.base_agent import BaseAgent
@@ -72,11 +71,7 @@ _SINKS: list[tuple[str, re.Pattern]] = [
 
 # Comparison patterns inside guards (very limited)
 # var == "value"  /  var.equals("value")
-_STR_EQ_RE = re.compile(r'(\w+)\s*(?:==|\.equals\s*\(\s*)\s*"([^"]+)"')
-# var > N  /  var >= N  /  var == N  (ints)
-_INT_CMP_RE = re.compile(r'(\w+)\s*(==|>=|<=|>|<|!=)\s*(-?\d+)')
-# boolean var or !var
-_BOOL_RE = re.compile(r"\bif\s*\(\s*(!?)(\w+)\s*\)")
+# Guard-shape regexes moved to sentinel.symbolic.solver.
 
 _MAX_FILES = 1500
 _RECEIVER_RE = re.compile(
@@ -98,7 +93,12 @@ class SymbolicIntentAgent(BaseAgent):
     async def analyze(self) -> list[Finding]:
         try:
             from z3 import (  # noqa: F401  (presence check only)
-                Bool, BoolVal, Int, Solver, String, sat,
+                Bool,
+                BoolVal,
+                Int,
+                Solver,
+                String,
+                sat,
             )
         except ImportError:
             logger.info(
@@ -131,6 +131,8 @@ class SymbolicIntentAgent(BaseAgent):
     # ---------- per-file ----------
 
     def _analyze_file(self, text: str, rel: str) -> list[Finding]:
+        from sentinel.symbolic import SymbolDecl, solve_constraints
+
         out: list[Finding] = []
         for m in _RECEIVER_RE.finditer(text):
             method = m.group(1)
@@ -141,14 +143,20 @@ class SymbolicIntentAgent(BaseAgent):
             extras = self._collect_extras(body)
             if not extras:
                 continue
-            # 2) For each guarded sink, solve
+            # Convert the agent's local extras shape into the shared
+            # SymbolDecl shape the solver consumes.
+            decls = [
+                SymbolDecl(name=var, kind=kind, extras_key=key, default=default)
+                for var, (kind, key, default) in extras.items()
+            ]
+            # 2) For each guarded sink, solve via the shared module.
             for sink_name, sink_pattern in _SINKS:
                 for s_match in sink_pattern.finditer(body):
                     guards = self._extract_enclosing_guards(body, s_match.start())
                     if not guards:
                         continue
-                    sat_extras = self._solve(extras, guards)
-                    if sat_extras is None:
+                    result = solve_constraints(decls, guards)
+                    if not result.sat:
                         continue
                     line_no = (
                         text[:m.end()].count("\n")
@@ -171,9 +179,30 @@ class SymbolicIntentAgent(BaseAgent):
                             "method": method,
                             "sink": sink_name,
                             "line": line_no,
-                            "satisfying_extras": sat_extras,
+                            "satisfying_extras": result.witness,
                             "guards": guards[:5],
+                            "encoded_constraints": result.encoded_constraints[:5],
+                            "skipped_guards": result.skipped_guards[:5],
                             "dynamic_target": True,
+                            "frida_payload": {
+                                "extras": result.witness,
+                                "extras_types": {
+                                    decl.extras_key: decl.kind for decl in decls
+                                    if decl.extras_key in result.witness
+                                },
+                                "target_method": method,
+                                "safety_budget": {
+                                    "max_actions_total": 3,
+                                    "max_actions_per_sec": 1,
+                                    "wall_clock_budget_s": 15,
+                                    "max_consecutive_crashes": 2,
+                                },
+                                "frida_script_hint":
+                                    "// D_052 — fire the z3-solved Intent at "
+                                    "the target component\n"
+                                    "// rpc.exports.symbolicintent(payload) "
+                                    "is the entry\n",
+                            },
                         },
                     ))
         return out
@@ -257,80 +286,9 @@ class SymbolicIntentAgent(BaseAgent):
                 guards.append(cond)
         return guards
 
-    # ---------- solver ----------
-
-    @staticmethod
-    def _solve(
-        extras: dict[str, tuple[str, str, Any]],
-        guards: list[str],
-    ) -> dict[str, Any] | None:
-        """Try to satisfy every guard. Return the witness extras map."""
-        from z3 import Bool, Int, Solver, String, sat
-
-        solver = Solver()
-        # Bind z3 symbols per extras variable
-        symbols: dict[str, Any] = {}
-        for var, (kind, _key, default) in extras.items():
-            if kind == "bool":
-                symbols[var] = Bool(var)
-            elif kind == "int":
-                symbols[var] = Int(var)
-            else:
-                symbols[var] = String(var)
-
-        for cond in guards:
-            constraint = SymbolicIntentAgent._guard_to_z3(cond, symbols)
-            if constraint is None:
-                continue  # un-modelable guard — assume satisfiable
-            solver.add(constraint)
-
-        if solver.check() != sat:
-            return None
-        model = solver.model()
-        witness: dict[str, Any] = {}
-        for var, (kind, key, _default) in extras.items():
-            sym = symbols[var]
-            val = model[sym]
-            if val is None:
-                continue
-            if kind == "bool":
-                witness[key] = bool(val)
-            elif kind == "int":
-                witness[key] = val.as_long()
-            else:
-                # z3 string literal → strip surrounding quotes
-                raw = val.as_string() if hasattr(val, "as_string") else str(val)
-                witness[key] = raw.strip('"')
-        return witness or None
-
-    @staticmethod
-    def _guard_to_z3(cond: str, symbols: dict[str, Any]) -> Any:
-        """Best-effort translation of a guard string to a z3 expression."""
-        from z3 import And, Not, StringVal
-
-        # 1) String equality: var == "lit" or var.equals("lit")
-        m = _STR_EQ_RE.search(cond)
-        if m and m.group(1) in symbols:
-            return symbols[m.group(1)] == StringVal(m.group(2))
-
-        # 2) Int comparison: var op int
-        m = _INT_CMP_RE.search(cond)
-        if m and m.group(1) in symbols:
-            sym = symbols[m.group(1)]
-            op, n = m.group(2), int(m.group(3))
-            return {
-                "==": sym == n, "!=": sym != n,
-                ">": sym > n,  ">=": sym >= n,
-                "<": sym < n,  "<=": sym <= n,
-            }.get(op)
-
-        # 3) Bare boolean: if(var) or if(!var)
-        m = _BOOL_RE.search(f"if({cond})")
-        if m and m.group(2) in symbols:
-            sym = symbols[m.group(2)]
-            return Not(sym) if m.group(1) == "!" else sym
-
-        return None
+    # Solver moved to sentinel.symbolic.solver. The shared module
+    # encodes guards and runs z3 so D_072 + future symbolic agents
+    # can reuse the same plumbing.
 
 
 __all__ = ["SymbolicIntentAgent"]

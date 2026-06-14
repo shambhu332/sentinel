@@ -54,6 +54,41 @@ import "./hooks/biometric_unwrapper.js";
 import "./hooks/pending_intent_esc.js";
 import "./hooks/scheme_confuser.js";
 
+// God-Mode + Experimental tier hooks (D_042-D_072).
+// These register rpc.exports entries the Python orchestrator invokes
+// on-demand at Phase 4.5 — they do not install Java.perform listeners
+// at agent load time. Safe to import unconditionally.
+import "./hooks/d042_deep_link_bomb.js";
+import "./hooks/d043_hidden_api_hunter.js";
+import "./hooks/d044_biometric_replay.js";
+import "./hooks/d045_sqlite_prober.js";
+import "./hooks/d046_race_trigger.js";
+import "./hooks/d047_memory_dump.js";
+import "./hooks/d048_webview_xss.js";
+import "./hooks/d049_notification_snoop.js";
+import "./hooks/d050_pinning_stress_test.js";
+import "./hooks/d051_service_leaker.js";
+import "./hooks/d052_symbolic_intent.js";
+import "./hooks/d053_side_channel.js";
+import "./hooks/d054_graphql_fuzzer.js";
+import "./hooks/d055_native_heap.js";
+import "./hooks/d056_biometric_timing.js";
+import "./hooks/d057_state_poisoner.js";
+import "./hooks/d058_websocket_injector.js";
+import "./hooks/d059_clipboard_hijack.js";
+import "./hooks/d060_sensor_spoofing.js";
+import "./hooks/d061_key_extractor.js";
+import "./hooks/d062_binder_bomb.js";
+import "./hooks/d063_provider_sqli.js";
+import "./hooks/d064_job_hijacker.js";
+import "./hooks/d065_file_provider_fuzzer.js";
+import "./hooks/d066_a11y_abuser.js";
+import "./hooks/d067_split_apk.js";
+import "./hooks/d068_wearable_bridge.js";
+import "./hooks/d070_pip_spy.js";
+import "./hooks/d071_twa_breaker.js";
+import "./hooks/d072_jni_shadow.js";
+
 // Native hooks first — independent of Java bridge readiness.
 let nativeHooks = 0;
 try {

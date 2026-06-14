@@ -48,11 +48,9 @@ One consolidated finding per category, with up to 5 sample flows.
 """
 from __future__ import annotations
 
-import json
 import logging
 import re
 from typing import Any
-from urllib.parse import urlparse
 
 from sentinel.agents.base import BaseAgent
 from sentinel.core.finding import Finding, Severity

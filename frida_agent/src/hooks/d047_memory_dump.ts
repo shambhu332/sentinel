@@ -67,8 +67,19 @@ async function memorydump(payload: MemDumpPayload): Promise<MemDumpResult> {
                         const buf = r.base.readByteArray(Math.min(r.size, 1024 * 1024));
                         if (!buf) continue;
                         bytesScanned += buf.byteLength;
-                        const s = new TextDecoder("ascii", { fatal: false })
-                            .decode(new Uint8Array(buf));
+                        // QuickJS (Frida's JS runtime) does not ship a
+                        // TextDecoder. We only need printable ASCII so
+                        // hand-roll the conversion.
+                        const u8 = new Uint8Array(buf);
+                        let s = "";
+                        for (let k = 0; k < u8.length; k++) {
+                            const c = u8[k];
+                            // Keep printable ASCII; everything else
+                            // becomes a space (regex still matches
+                            // contiguous tokens).
+                            s += (c >= 0x20 && c < 0x7f)
+                                ? String.fromCharCode(c) : " ";
+                        }
                         for (let i = 0; i < regexes.length; i++) {
                             const m = s.match(regexes[i]);
                             if (m) {

@@ -17,8 +17,8 @@ from sentinel.agents.reflection.refl001_reflection_resolver import (
     ReflectionResolverAgent,
 )
 from sentinel.agents.ui.gesture001_pattern_lock import PatternLockAgent
+from sentinel.core.dedup import dedupe_all, semantic_dedupe
 from sentinel.core.delta import compute_changed, hash_tree, should_skip
-from sentinel.core.dedup import semantic_dedupe, dedupe_all
 from sentinel.core.finding import BountyScope, Finding, Severity
 from sentinel.core.scan_context import ScanContext, generate_session_id
 from sentinel.memory import LightweightMemory

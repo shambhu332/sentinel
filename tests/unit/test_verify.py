@@ -29,7 +29,6 @@ from sentinel.verify.verifiers.manifest import (
 )
 from sentinel.verify.verifiers.mitm import CleartextTrafficVerifier
 
-
 # ---------- fixtures ----------
 
 

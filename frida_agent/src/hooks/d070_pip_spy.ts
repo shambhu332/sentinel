@@ -57,10 +57,12 @@ async function pipspy(
                 // Fire-and-forget PIP enter via the current foreground
                 // activity, if accessible — best-effort.
                 try {
-                    const FG = (Java as any).vm
-                        .getEnv()
-                        .findClass("android.app.ActivityThread");
-                    (void)FG;
+                    // Reach the JVM env to confirm the activity thread
+                    // is alive. We don't use the handle; the call is a
+                    // liveness probe.
+                    (Java as any).vm.getEnv().findClass(
+                        "android.app.ActivityThread",
+                    );
                 } catch (_) { /* ignore */ }
             } catch (e: any) {
                 sendError(`D_070: ${e.message}`);

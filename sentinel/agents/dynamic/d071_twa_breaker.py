@@ -1,7 +1,9 @@
 """D_071 — Trusted Web Activity session hijack (Dynamic Testing Target)."""
 from __future__ import annotations
+
 import logging
 import re
+
 from sentinel.agents.base.base_agent import BaseAgent
 from sentinel.core.finding import Finding, Severity
 

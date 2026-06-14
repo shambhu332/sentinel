@@ -5,6 +5,16 @@ description = "Autonomous multi-agent mobile security platform"
 authors = ["Shambhu <you@example.com>"]
 readme = "README.md"
 packages = [{include = "sentinel"}]
+# Non-Python data shipped inside the package. Without this Poetry's
+# wheel build drops .json / .yaml / .sql, breaking:
+#   - sentinel.profiles.loader (banking/ecommerce/edu profiles)
+#   - sentinel.compliance.mapper (mappings.yaml)
+#   - sentinel.impact.calculator (loss_schedule.yaml)
+include = [
+    "sentinel/profiles/data/*.json",
+    "sentinel/compliance/mappings.yaml",
+    "sentinel/impact/loss_schedule.yaml",
+]
 
 [tool.poetry.dependencies]
 python = ">=3.12,<3.13"
@@ -42,6 +52,7 @@ redis = {version = "^5.0.0", optional = true}
 # Symbolic execution for D_052 SymbolicIntentAgent — optional, ~80MB.
 # Agent degrades gracefully when missing.
 z3-solver = {version = "^4.13.0", optional = true}
+email-validator = "^2.3.0"
 
 [tool.poetry.extras]
 production = ["redis"]

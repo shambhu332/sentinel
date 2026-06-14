@@ -1,7 +1,8 @@
 """D_053 — CPU / battery side-channel for hidden native crypto."""
 from __future__ import annotations
+
 import logging
-from pathlib import Path
+
 from sentinel.agents.base.base_agent import BaseAgent
 from sentinel.core.finding import Finding, Severity
 
