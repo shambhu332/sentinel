@@ -88,6 +88,8 @@ import "./hooks/d068_wearable_bridge.js";
 import "./hooks/d070_pip_spy.js";
 import "./hooks/d071_twa_breaker.js";
 import "./hooks/d072_jni_shadow.js";
+import "./hooks/d082_iap_spoofing.js";
+import "./hooks/d083_mobile_ssrf.js";
 
 // Native hooks first — independent of Java bridge readiness.
 let nativeHooks = 0;

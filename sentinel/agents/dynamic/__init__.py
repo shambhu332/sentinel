@@ -228,6 +228,8 @@ from sentinel.agents.dynamic.d078_biometric_unwrapper import (
     BiometricCryptoUnwrapperAgent,
 )
 from sentinel.agents.dynamic.d081_backup_extractor import BackupDataExtractorAgent
+from sentinel.agents.dynamic.d082_iap_spoofing import IapSpoofingAgent
+from sentinel.agents.dynamic.d083_mobile_ssrf import MobileSsrfAgent
 from sentinel.agents.dynamic.data_in_transit_agent import DataInTransitAgent
 from sentinel.agents.dynamic.improper_tls_agent import ImproperTLSAgent
 from sentinel.agents.dynamic.runtime_crypto_agent import RuntimeCryptoAgent
@@ -254,6 +256,7 @@ __all__ = [
     "FlagSecureMissingAgent",
     "GraphqlPersistedQueryAgent",
     "IapBypassAgent",
+    "IapSpoofingAgent",
     "IdorCandidateAgent",
     "ImplicitIntentLeakAgent",
     "ImproperTLSAgent",
@@ -265,6 +268,7 @@ __all__ = [
     "JwtWeaknessAgent",
     "LocalFileLogLeakAgent",
     "LocalSocketServerAgent",
+    "MobileSsrfAgent",
     "NotificationFloodAgent",
     "NotificationLeakAgent",
     "OkHttpLoggingRuntimeAgent",
