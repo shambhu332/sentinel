@@ -15,6 +15,7 @@ import pytest
 
 from sentinel.core.finding import BountyScope, Finding, Severity
 from sentinel.core.scan_context import ScanContext, generate_session_id
+from sentinel.tools.mitmproxy_runner import CapturedFlow, MitmproxyCapture
 from sentinel.verify.models import VerificationOutcome, VerifierContext
 from sentinel.verify.replayers import (
     IdorReplayResult,
@@ -27,8 +28,6 @@ from sentinel.verify.verifiers.active import (
     RaceConditionVerifier,
     ThirdPartyTokenRedactionVerifier,
 )
-from sentinel.tools.mitmproxy_runner import CapturedFlow, MitmproxyCapture
-
 
 # ---------- fixtures ----------
 

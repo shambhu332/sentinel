@@ -287,7 +287,6 @@ def semantic_dedupe(
     if embeddings is None:
         return findings  # graceful degradation
 
-    survivors_idx = list(range(len(findings)))
     survivor_dropped: dict[int, list[dict[str, Any]]] = {}
     merged_into: dict[int, int] = {}  # maps absorbed -> survivor
 

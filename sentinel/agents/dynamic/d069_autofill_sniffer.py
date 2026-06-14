@@ -5,8 +5,10 @@ that don't set importantForAutofill="no" / autofillHints (so the
 Android autofill framework caches them for any service).
 """
 from __future__ import annotations
+
 import logging
 import re
+
 from sentinel.agents.base.base_agent import BaseAgent
 from sentinel.core.finding import Finding, Severity
 

@@ -6,7 +6,6 @@ from typing import Any
 from sentinel.core.finding import Finding
 from sentinel.verify.models import VerificationResult, VerifierContext
 
-
 # ---------- A_003 — runtime crypto ----------
 
 

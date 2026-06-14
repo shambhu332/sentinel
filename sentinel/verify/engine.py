@@ -9,12 +9,11 @@ time, persists the result back into the finding's evidence under
 from __future__ import annotations
 
 import logging
-from typing import Awaitable, Callable, Iterable, Protocol, runtime_checkable
+from typing import Callable, Iterable, Protocol, runtime_checkable
 
 from sentinel.core.finding import Finding
 from sentinel.core.scan_context import ScanContext
 from sentinel.verify.models import (
-    VerificationOutcome,
     VerificationResult,
     VerifierContext,
 )

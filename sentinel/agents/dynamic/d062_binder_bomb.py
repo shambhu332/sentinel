@@ -5,8 +5,10 @@ catalog. Hard-capped at 10 transactions, 1 per second, 30s wall-clock,
 2 consecutive crashes trips the breaker.
 """
 from __future__ import annotations
+
 import logging
 import re
+
 from sentinel.agents.base.base_agent import BaseAgent
 from sentinel.core.finding import Finding, Severity
 

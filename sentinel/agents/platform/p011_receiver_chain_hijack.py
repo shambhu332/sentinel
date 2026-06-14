@@ -33,7 +33,6 @@ to ship at confidence 0.55–0.75.
 from __future__ import annotations
 
 import re
-from typing import Any
 
 from sentinel.agents.base import BaseAgent
 from sentinel.core.finding import Finding, Severity

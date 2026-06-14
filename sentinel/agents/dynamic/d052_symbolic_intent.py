@@ -32,7 +32,6 @@ from __future__ import annotations
 
 import logging
 import re
-from pathlib import Path
 from typing import Any
 
 from sentinel.agents.base.base_agent import BaseAgent
@@ -94,7 +93,12 @@ class SymbolicIntentAgent(BaseAgent):
     async def analyze(self) -> list[Finding]:
         try:
             from z3 import (  # noqa: F401  (presence check only)
-                Bool, BoolVal, Int, Solver, String, sat,
+                Bool,
+                BoolVal,
+                Int,
+                Solver,
+                String,
+                sat,
             )
         except ImportError:
             logger.info(

@@ -160,7 +160,8 @@ def solve_constraints(
             sat=False, reason="z3-solver missing — install with 'symbolic' extra",
         )
 
-    from z3 import Bool, Int, Solver, String, sat as z3_sat
+    from z3 import Bool, Int, Solver, String
+    from z3 import sat as z3_sat
 
     symbols: dict[str, Any] = {}
     for d in decls:

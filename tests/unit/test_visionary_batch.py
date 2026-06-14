@@ -27,7 +27,6 @@ from sentinel.memory import LightweightMemory
 from sentinel.swarm import SwarmOrchestrator, sanitize_evidence
 from sentinel.swarm.sanitize import sanitize_text
 
-
 # ============================================================
 # Finding schema additions
 # ============================================================

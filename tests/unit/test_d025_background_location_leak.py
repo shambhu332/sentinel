@@ -9,7 +9,6 @@ from sentinel.core.scan_context import ScanContext, generate_session_id
 from sentinel.memory import LightweightMemory
 from sentinel.tools.frida_runner import FridaCapture, FridaHookEvent
 
-
 # Mirror the constants in the agent file.
 IMP_FG = 100
 IMP_FG_SERVICE = 125

@@ -22,7 +22,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import OrderedDict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -159,7 +159,7 @@ class AstCache:
         Runs the actual parse in an executor to avoid blocking the event loop.
         """
         try:
-            import tree_sitter  # noqa: F811
+            import tree_sitter  # noqa: F401  (presence check only)
         except ImportError:
             logger.debug("tree_sitter not installed — AST cache disabled")
             return None

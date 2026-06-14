@@ -38,7 +38,7 @@ import asyncio
 import contextlib
 import logging
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 try:

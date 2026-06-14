@@ -24,7 +24,6 @@ from sentinel.agents.reporting.models import (
 )
 from sentinel.core.finding import Finding, Severity
 
-
 _SOURCE_BY_PREFIX: tuple[tuple[str, str], ...] = (
     ("MSTG-", "MASVS"),
     ("M", "OWASP_MOBILE"),  # M1..M10

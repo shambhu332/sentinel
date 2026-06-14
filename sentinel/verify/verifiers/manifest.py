@@ -10,13 +10,11 @@ flagged, and returns ``verified`` / ``refuted`` / ``unsupported``.
 """
 from __future__ import annotations
 
-import re
 from typing import Any
 from xml.etree import ElementTree as ET
 
 from sentinel.core.finding import Finding
 from sentinel.verify.models import VerificationResult, VerifierContext
-
 
 # ---------- META_002 — debuggable manifest ----------
 
