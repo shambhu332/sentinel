@@ -8,6 +8,6 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: '3.12' }
       - run: pip install poetry
-      - run: poetry install
+      - run: poetry install --extras "production symbolic"
       - run: poetry run ruff check sentinel tests
       - run: poetry run pytest tests/unit -v
