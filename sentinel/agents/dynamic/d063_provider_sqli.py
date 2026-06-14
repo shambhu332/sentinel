@@ -65,6 +65,18 @@ _PROBE_PAYLOADS = [
     "%' AND substr(sqlite_version(),1,1)>'2",
 ]
 
+# Custom-ORM extension probes — activated by ADAPT_001 when the
+# previous scan for this APK recorded a `custom_orm` failure context.
+# Common ORM-wrapping shapes: ROOM @Query placeholders, Greenrobot
+# wrappers, JOOQ-style positional binds. We never mutate state.
+_CUSTOM_ORM_PROBES = [
+    "1=1) AND name LIKE '%'--",       # ROOM-style positional
+    ":selection OR 1=1--",            # named-parameter spillover
+    "':1 OR 1=1--",                   # quoted positional
+    "?1) OR 1=1--",                   # JOOQ-style
+    "GROUP_CONCAT(name)--",           # column-expression bleed
+]
+
 _MAX_FILES = 1500
 
 
@@ -92,6 +104,30 @@ class ProviderSqliAgent(BaseAgent):
         providers = self._exported_providers(ctx.manifest or {})
         if not providers:
             return []
+
+        # ADAPT_001: consult the per-app learning profile for any
+        # recorded failure context strategies that apply to this agent.
+        adaptive_strategies: list[str] = []
+        if ctx.learning_profile is not None:
+            try:
+                from sentinel.learning import StrategySelector
+                selector = StrategySelector()
+                adaptive_strategies = [
+                    r.strategy for r in selector.strategies_for(
+                        self.AGENT_ID, ctx.learning_profile,
+                    )
+                ]
+                if adaptive_strategies:
+                    logger.info(
+                        "[%s] Applying %d adaptive strategies: %s",
+                        self.AGENT_ID, len(adaptive_strategies),
+                        adaptive_strategies,
+                    )
+            except Exception:  # noqa: BLE001
+                logger.exception(
+                    "[%s] Strategy selector failed; using defaults",
+                    self.AGENT_ID,
+                )
 
         findings: list[Finding] = []
         scanned = 0
@@ -133,7 +169,10 @@ class ProviderSqliAgent(BaseAgent):
             # Build the Frida payload
             authority = matched.get("authority") or ""
             uri_hints = self._extract_uri_hints(text)
-            payload = self._build_frida_payload(authority, uri_hints)
+            payload = self._build_frida_payload(
+                authority, uri_hints,
+                adaptive_strategies=adaptive_strategies,
+            )
 
             severity = Severity.HIGH if has_concat else Severity.MEDIUM
             findings.append(self._make_finding(
@@ -194,6 +233,7 @@ class ProviderSqliAgent(BaseAgent):
     @staticmethod
     def _build_frida_payload(
         authority: str, uri_hints: list[str],
+        adaptive_strategies: list[str] | None = None,
     ) -> dict[str, Any]:
         # If no UriMatcher hints found, fall back to the bare authority root
         candidate_uris: list[str] = []
@@ -203,10 +243,19 @@ class ProviderSqliAgent(BaseAgent):
                 candidate_uris.append(
                     f"{base}/{hint}" if hint else base,
                 )
+        # ADAPT_001 hook: if the last scan of this APK recorded a
+        # `custom_orm` failure context, extend the probe set with the
+        # ROOM / Greenrobot / JOOQ-shaped payloads. Standard probes
+        # still run — we widen rather than replace.
+        strats = adaptive_strategies or []
+        probes = list(_PROBE_PAYLOADS)
+        if "custom_orm_fuzzing" in strats:
+            probes = list(_CUSTOM_ORM_PROBES) + probes
         return {
             "authority": authority,
             "candidate_uris": candidate_uris,
-            "probe_payloads": _PROBE_PAYLOADS,
+            "probe_payloads": probes,
+            "adaptive_strategies_applied": strats,
             "safety_budget": {
                 "max_actions_total": 50,
                 "max_actions_per_sec": 5,

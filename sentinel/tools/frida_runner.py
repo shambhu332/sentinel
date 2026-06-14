@@ -421,6 +421,57 @@ class FridaRunner:
             logger.exception("Frida script injection failed")
             return ToolResult.from_exception(e)
 
+    async def dispatch_rpc(
+        self, method: str, payload: dict[str, Any],
+        timeout_s: float = 30.0,
+    ) -> ToolResult[dict[str, Any]]:
+        """Call `script.exports.<method>(payload)` and return the result.
+
+        Used by the orchestrator's Phase 4.5 hybrid-agent dispatcher
+        to invoke the rpc.exports surface every hybrid TS hook exposes
+        (iapspoofing, mobilessrf, providerlfi, jnishadow, ...).
+
+        Returns ToolResult.ok({"result": <returned dict>}) on success;
+        ToolResult.fail(...) on missing script / unknown method /
+        timeout / Frida exception. Each call is independent — the
+        caller controls timing + ordering.
+        """
+        if self._script is None:
+            return ToolResult.fail(
+                "No active Frida script — call inject_script() first",
+            )
+        try:
+            exports = self._script.exports_sync
+        except AttributeError:
+            # Older Frida used .exports (async). Best-effort fallback.
+            exports = getattr(self._script, "exports", None)
+            if exports is None:
+                return ToolResult.fail(
+                    "Frida script has no exports surface",
+                )
+
+        if not hasattr(exports, method):
+            return ToolResult.fail(
+                f"Frida RPC method {method!r} not found on script.exports",
+            )
+
+        def _call() -> Any:
+            return getattr(exports, method)(payload)
+
+        try:
+            result = await asyncio.wait_for(
+                self._loop.run_in_executor(None, _call),
+                timeout=timeout_s,
+            )
+            return ToolResult.ok({"result": result})
+        except asyncio.TimeoutError:
+            return ToolResult.fail(
+                f"Frida RPC {method!r} timed out after {timeout_s}s",
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.exception("Frida RPC %s failed", method)
+            return ToolResult.from_exception(e)
+
     async def wait(self, seconds: int) -> None:
         """Wait while hooks collect events. User interacts with the app."""
         logger.info("Frida: collecting events for %ds", seconds)

@@ -240,6 +240,32 @@ class Orchestrator:
             result.findings = findings
             await self._persist_findings(result.findings)
 
+            # Phase 4.6: hybrid SAST→DAST replay. The Phase 4 Frida
+            # capture runs before Phase 2 so runtime observers can feed
+            # dynamic agents. Hybrid target findings, however, only exist
+            # after Phase 2. Re-attach briefly and invoke their rpc.exports
+            # payloads here.
+            if self._dynamic_enabled and self._frida_enabled:
+                start = asyncio.get_event_loop().time()
+                try:
+                    await self._phase46_dynamic_target_dispatch(
+                        result.findings, result,
+                    )
+                except Exception as e:  # noqa: BLE001
+                    logger.exception("[%s] Phase 4.6 dispatch failed",
+                                     self._context.session_id)
+                    result.warnings.append(
+                        f"Phase 4.6 dynamic-target dispatch failed: "
+                        f"{str(e)[:200]}",
+                    )
+                    await self._memory.publish_event(
+                        self._context.session_id, "phase.failed",
+                        {"phase": 4.6, "error": str(e)[:500]},
+                    )
+                result.phase_timings["phase4_6"] = (
+                    asyncio.get_event_loop().time() - start
+                )
+
             # Phase 3: LLM triage (optional)
             if self._triager is not None and findings:
                 start = asyncio.get_event_loop().time()
@@ -773,6 +799,7 @@ class Orchestrator:
             "Frida hooks active. Interact with the app for %ds.",
             self._frida_duration_seconds,
         )
+
         await frida.wait(self._frida_duration_seconds)
 
         detach_result = await frida.detach()
@@ -798,6 +825,87 @@ class Orchestrator:
             scan_result.warnings.append(
                 f"Phase 4.5 Frida detach failed: {detach_result.error}",
             )
+
+    async def _phase46_dynamic_target_dispatch(
+        self,
+        findings: list[Finding],
+        scan_result: ScanResult,
+    ) -> None:
+        """Replay hybrid SAST findings through Frida RPC after Phase 2."""
+        targets = [
+            f for f in findings
+            if (f.evidence or {}).get("dynamic_target") is True
+            and isinstance((f.evidence or {}).get("frida_payload"), dict)
+        ]
+        if not targets:
+            return
+
+        package = str((self._context.manifest or {}).get("package") or "")
+        if not package:
+            scan_result.warnings.append(
+                "Phase 4.6 skipped: manifest package unavailable",
+            )
+            return
+
+        adb = AdbRunner()
+        device_result = await adb.get_first_device()
+        if not device_result.success:
+            scan_result.warnings.append(
+                f"Phase 4.6 skipped: {device_result.error}",
+            )
+            return
+        serial = device_result.data.serial
+
+        relaunch = await adb.start_app(package, serial=serial)
+        if relaunch.success:
+            await asyncio.sleep(2)
+        else:
+            scan_result.warnings.append(
+                f"Phase 4.6 app launch warning: {relaunch.error}",
+            )
+
+        frida = FridaRunner()
+        attach_result = await frida.attach(package, spawn=self._frida_spawn)
+        if not attach_result.success:
+            scan_result.warnings.append(
+                f"Phase 4.6 Frida attach failed: {attach_result.error}",
+            )
+            return
+
+        try:
+            inject_result = await frida.inject_script(ALL_RUNTIME_HOOKS)
+            if not inject_result.success:
+                scan_result.warnings.append(
+                    f"Phase 4.6 Frida script injection failed: "
+                    f"{inject_result.error}",
+                )
+                return
+            if self._frida_spawn:
+                resume_result = await frida.resume()
+                if not resume_result.success:
+                    scan_result.warnings.append(
+                        f"Phase 4.6 Frida resume failed: "
+                        f"{resume_result.error}",
+                    )
+
+            from sentinel.core.dynamic_dispatch import dispatch_dynamic_targets
+            dispatch_summary = await dispatch_dynamic_targets(findings, frida)
+            self._context.sources["phase4_6_dispatch"] = dispatch_summary
+            await self._memory.publish_event(
+                self._context.session_id,
+                "phase.completed",
+                {
+                    "phase": 4.6,
+                    "dispatched": dispatch_summary.get("dispatched", 0),
+                    "succeeded": dispatch_summary.get("succeeded", 0),
+                    "failed": dispatch_summary.get("failed", 0),
+                },
+            )
+        finally:
+            detach_result = await frida.detach()
+            if detach_result.success:
+                self._context.sources["frida_dispatch"] = detach_result.data
+            await adb.force_stop(package, serial=serial)
 
     # ---------- LEARN_001 — per-app profile load ----------
 

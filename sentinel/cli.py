@@ -298,6 +298,10 @@ async def _run_scan(
     swarm_enabled: bool = False,
 ) -> None:
     """Async implementation of the scan command."""
+    # Some D_07x / D_08x ship under non-canonical class names; resolve
+    # via attribute lookup on the module so missing entries don't kill
+    # the import.
+    from sentinel.agents import dynamic as _dyn_mod
     from sentinel.agents.auth import (
         BiometricBypassAgent,
         HardcodedSecretsAgent,
@@ -333,6 +337,11 @@ async def _run_scan(
         WeakPrngSeedAgent,
     )
     from sentinel.agents.data_storage import WorldReadableStorageAgent
+
+    # Hybrid SAST→DAST agents (D_042+, D_046, D_052, D_063, D_065,
+    # D_072, D_082–D_086, D_073/D_074/D_078/D_081). Each ships a
+    # frida_payload alongside its SAST finding; runtime activation
+    # is the orchestrator's dynamic-target dispatcher's job.
     from sentinel.agents.dynamic import (
         AccessibilityAbuseAgent,
         AntiTamperCoverageAgent,
@@ -346,12 +355,16 @@ async def _run_scan(
         ContentProviderUriExposureAgent,
         CookieHardeningAgent,
         DataInTransitAgent,
+        DeepLinkBombAgent,
         DynamicCodeLoadingAgent,
         DynamicReceiverExportAgent,
         ExportedActivityResultLeakAgent,
+        FileProviderFuzzerAgent,
         FileProviderTraversalAgent,
         FlagSecureMissingAgent,
         GraphqlPersistedQueryAgent,
+        HiddenApiHunterAgent,
+        IapSpoofingAgent,
         IdorCandidateAgent,
         ImplicitIntentLeakAgent,
         ImproperTLSAgent,
@@ -360,28 +373,48 @@ async def _run_scan(
         InsecureKeystoreUsageAgent,
         InsecureRandomRuntimeAgent,
         InsecureTrustManagerRuntimeAgent,
+        IntentXssAgent,
+        JniShadowAgent,
         JwtWeaknessAgent,
         LocalFileLogLeakAgent,
         LocalSocketServerAgent,
+        MobileSsrfAgent,
         NotificationFloodAgent,
         NotificationLeakAgent,
         OkHttpLoggingRuntimeAgent,
         PendingIntentMutableAgent,
+        PinningStressTestAgent,
+        ProviderLfiAgent,
+        ProviderSqliAgent,
         RaceConditionCandidateAgent,
+        RaceConditionTargetAgent,
         RuntimeCryptoAgent,
         ScreenCaptureAgent,
+        ServiceLeakerAgent,
         SmsPermissionAbuseAgent,
         SqliteCommandInjectionAgent,
         StaticIvReuseAgent,
+        SymbolicIntentAgent,
         ThirdPartyPiiLeakAgent,
         UnsafeJsonDeserializationAgent,
         UnsafeReflectionInvokeAgent,
         WebViewRuntimeAgent,
+        WebViewUniversalXssAgent,
         ZipPathTraversalAgent,
     )
     from sentinel.agents.dynamic import (
         IapBypassAgent as DynamicIapBypassAgent,
     )
+    _OPTIONAL_HYBRID = [
+        "PendingIntentEscalationAgent",     # D_073
+        "SchemeConfuserAgent",              # D_074
+        "BiometricCryptoUnwrapperAgent",    # D_078
+        "BackupDataExtractorAgent",         # D_081
+    ]
+    _optional_hybrid_classes = [
+        cls for name in _OPTIONAL_HYBRID
+        if (cls := getattr(_dyn_mod, name, None)) is not None
+    ]
     from sentinel.agents.logging import InsecureLoggingAgent
     from sentinel.agents.meta import DebuggableManifestAgent, ObfuscationDetectorAgent
     from sentinel.agents.native import LoadLibraryTaintAgent, NativeLibraryAgent
@@ -651,6 +684,25 @@ async def _run_scan(
             agent_list.append(OkHttpLoggingRuntimeAgent)        # D_039 (Sprint 8.15 DAST)
             agent_list.append(BiometricDeviceCredentialFallbackAgent)  # D_040 (Sprint 8.15 DAST)
             agent_list.append(NotificationFloodAgent)           # D_041 (Sprint 8.15 DAST)
+            # Hybrid SAST→DAST agents (always registered when --dynamic
+            # is set; they emit dynamic_target findings the orchestrator
+            # picks up via the Phase 4.5 dispatcher).
+            agent_list.append(DeepLinkBombAgent)                 # D_042
+            agent_list.append(HiddenApiHunterAgent)              # D_043
+            agent_list.append(RaceConditionTargetAgent)          # D_046
+            agent_list.append(PinningStressTestAgent)            # D_050
+            agent_list.append(ServiceLeakerAgent)                # D_051
+            agent_list.append(SymbolicIntentAgent)               # D_052
+            agent_list.append(ProviderSqliAgent)                 # D_063
+            agent_list.append(FileProviderFuzzerAgent)           # D_065
+            agent_list.append(JniShadowAgent)                    # D_072
+            agent_list.append(IapSpoofingAgent)                  # D_082
+            agent_list.append(MobileSsrfAgent)                   # D_083
+            agent_list.append(WebViewUniversalXssAgent)          # D_084
+            agent_list.append(ProviderLfiAgent)                  # D_085
+            agent_list.append(IntentXssAgent)                    # D_086
+            for cls in _optional_hybrid_classes:
+                agent_list.append(cls)                           # D_073/D_074/D_078/D_081
 
         if profile_name:
             from sentinel.profiles import load_profile

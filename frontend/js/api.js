@@ -31,11 +31,41 @@ export function setApiBase(url) {
   try { localStorage.setItem('sentinel.apiBase', url); } catch (_) {}
 }
 
+// Token retrieval — checks localStorage first, falls back to a global the
+// host page can set (window.SENTINEL_TOKEN). Returning "" disables the
+// Authorization header so the dev-bypass mode (SENTINEL_DEV_AUTH_BYPASS=1
+// on the gateway) still works untouched.
+function getAuthToken() {
+  try {
+    const t = localStorage.getItem('sentinel.token');
+    if (t) return t;
+  } catch (_) { /* no localStorage */ }
+  if (typeof window !== 'undefined' && window.SENTINEL_TOKEN) {
+    return String(window.SENTINEL_TOKEN);
+  }
+  return '';
+}
+
+export function setAuthToken(token) {
+  try {
+    if (token) localStorage.setItem('sentinel.token', token);
+    else localStorage.removeItem('sentinel.token');
+  } catch (_) {}
+}
+
+function applyAuth(headers) {
+  const t = getAuthToken();
+  if (t && !headers['Authorization']) {
+    headers['Authorization'] = t.startsWith('Bearer ') ? t : `Bearer ${t}`;
+  }
+  return headers;
+}
+
 async function request(path, opts = {}) {
   const url = `${API_BASE}${path}`;
   const init = {
     method: opts.method || 'GET',
-    headers: opts.headers || {},
+    headers: applyAuth({ ...(opts.headers || {}) }),
     body: opts.body,
     signal: opts.signal,
   };
@@ -100,6 +130,13 @@ export const api = {
     return await new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open('POST', `${API_BASE}/scans`);
+      const token = getAuthToken();
+      if (token) {
+        xhr.setRequestHeader(
+          'Authorization',
+          token.startsWith('Bearer ') ? token : `Bearer ${token}`,
+        );
+      }
       if (onProgress) {
         xhr.upload.addEventListener('progress', (e) => {
           if (e.lengthComputable) onProgress(e.loaded, e.total);

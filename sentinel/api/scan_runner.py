@@ -18,6 +18,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+# Optional D_07x / D_08x — resolved by attribute lookup so missing
+# entries don't crash the API import.
+from sentinel.agents import dynamic as _dyn_mod
 from sentinel.agents.auth import (
     BiometricBypassAgent,
     HardcodedSecretsAgent,
@@ -56,8 +59,22 @@ from sentinel.agents.data_storage import WorldReadableStorageAgent
 from sentinel.agents.dynamic import (
     CertPinningBypassAgent,
     DataInTransitAgent,
+    DeepLinkBombAgent,
+    FileProviderFuzzerAgent,
+    HiddenApiHunterAgent,
+    IapSpoofingAgent,
     ImproperTLSAgent,
+    IntentXssAgent,
+    JniShadowAgent,
+    MobileSsrfAgent,
+    PinningStressTestAgent,
+    ProviderLfiAgent,
+    ProviderSqliAgent,
+    RaceConditionTargetAgent,
     RuntimeCryptoAgent,
+    ServiceLeakerAgent,
+    SymbolicIntentAgent,
+    WebViewUniversalXssAgent,
 )
 from sentinel.agents.logging import InsecureLoggingAgent
 from sentinel.agents.meta import DebuggableManifestAgent, ObfuscationDetectorAgent
@@ -180,6 +197,35 @@ SAST_AGENTS = [
     BackupRulesAgent,
     PlaintextPasswordFileAgent,
     SqliteWalLeakAgent,
+]
+
+_HYBRID_DAST_AGENTS = [
+    DeepLinkBombAgent,
+    HiddenApiHunterAgent,
+    RaceConditionTargetAgent,
+    PinningStressTestAgent,
+    ServiceLeakerAgent,
+    SymbolicIntentAgent,
+    ProviderSqliAgent,
+    FileProviderFuzzerAgent,
+    JniShadowAgent,
+    IapSpoofingAgent,
+    MobileSsrfAgent,
+    WebViewUniversalXssAgent,
+    ProviderLfiAgent,
+    IntentXssAgent,
+]
+
+_HYBRID_OPTIONAL_NAMES = [
+    "PendingIntentEscalationAgent",
+    "SchemeConfuserAgent",
+    "BiometricCryptoUnwrapperAgent",
+    "BackupDataExtractorAgent",
+]
+
+_HYBRID_OPTIONAL = [
+    cls for name in _HYBRID_OPTIONAL_NAMES
+    if (cls := getattr(_dyn_mod, name, None)) is not None
 ]
 
 
@@ -412,6 +458,11 @@ async def _run_job(job: ScanJob) -> None:
         agent_list = list(SAST_AGENTS)
         if dynamic:
             agent_list.extend([ImproperTLSAgent, DataInTransitAgent])
+            # Hybrid SAST→DAST agents emit dynamic_target findings; the
+            # orchestrator's Phase 4.5 dispatcher consumes them. Always
+            # registered when --dynamic so coverage matches the CLI.
+            agent_list.extend(_HYBRID_DAST_AGENTS)
+            agent_list.extend(_HYBRID_OPTIONAL)
         if dynamic and frida:
             agent_list.append(RuntimeCryptoAgent)
             agent_list.append(CertPinningBypassAgent)

@@ -59,6 +59,17 @@ class AppLearningProfile:
     # Stored as "agent_id|vuln_class" string keys so we can JSON-round-trip.
     confidence_priors: dict[str, dict[str, int]] = field(default_factory=dict)
     notes: list[str] = field(default_factory=list)
+    # LEARN_001 (this brief): per-(agent_id) list of "why the dynamic
+    # probe failed last time" entries. The Strategy Selector reads
+    # these at scan-start to decide which payload bag to use.
+    # Schema: agent_id -> list of {
+    #     "context_tag": "custom_orm" | "obfuscation_tier_2" | ...,
+    #     "context_note": free-form description,
+    #     "suggested_strategy": "custom_orm_fuzzing" | "extended_payload_set" | ...,
+    #     "recorded_at": iso datetime,
+    #     "scan_session": session_id,
+    # }
+    failure_contexts: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
 
     # ---------- mutators ----------
 
@@ -81,6 +92,44 @@ class AppLearningProfile:
             prior["tp"] = prior["tp"] + 1
         elif triage == "False Positive":
             prior["fp"] = prior["fp"] + 1
+
+    def record_failure_context(
+        self, agent_id: str, context_tag: str,
+        context_note: str = "",
+        suggested_strategy: str = "",
+        scan_session: str = "",
+    ) -> None:
+        """Append one failure-context entry under `agent_id`.
+
+        Duplicate (agent_id, context_tag) entries get coalesced — the
+        most-recent note + strategy wins, and the count increments via
+        an `occurrences` field so the strategy selector can prefer
+        recurring failures over one-offs.
+        """
+        from datetime import datetime, timezone
+        bucket = self.failure_contexts.setdefault(agent_id, [])
+        for entry in bucket:
+            if entry.get("context_tag") == context_tag:
+                entry["context_note"] = context_note or entry.get("context_note", "")
+                entry["suggested_strategy"] = (
+                    suggested_strategy or entry.get("suggested_strategy", "")
+                )
+                entry["recorded_at"] = datetime.now(timezone.utc).isoformat()
+                entry["scan_session"] = scan_session or entry.get("scan_session", "")
+                entry["occurrences"] = int(entry.get("occurrences", 1)) + 1
+                return
+        bucket.append({
+            "context_tag": context_tag,
+            "context_note": context_note,
+            "suggested_strategy": suggested_strategy,
+            "recorded_at": datetime.now(timezone.utc).isoformat(),
+            "scan_session": scan_session,
+            "occurrences": 1,
+        })
+
+    def get_failure_contexts(self, agent_id: str) -> list[dict[str, Any]]:
+        """Return the recorded failure-context entries for `agent_id`."""
+        return list(self.failure_contexts.get(agent_id, []))
 
     def prior_accept_rate(self, agent_id: str, vuln_class: str) -> float | None:
         """Return historical accept rate (TP / N) or None when unknown."""
@@ -106,6 +155,7 @@ class AppLearningProfile:
             "triage_decisions": self.triage_decisions,
             "confidence_priors": self.confidence_priors,
             "notes": self.notes,
+            "failure_contexts": self.failure_contexts,
         }
 
     @classmethod
@@ -119,6 +169,7 @@ class AppLearningProfile:
             triage_decisions=data.get("triage_decisions") or {},
             confidence_priors=data.get("confidence_priors") or {},
             notes=data.get("notes") or [],
+            failure_contexts=data.get("failure_contexts") or {},
         )
 
 

@@ -41,7 +41,7 @@ inputs:
     description: Python version to install the SENTINEL CLI under.
   sentinel-repo:
     required: false
-    default: shambhu33/sentinel
+    default: shambhu332/sentinel
     description: >
       GitHub repository to install SENTINEL from. Default points at the
       public SENTINEL repo. Ignored when sentinel-source is "local".

@@ -101,6 +101,33 @@ class JniShadowAgent(BaseAgent):
         native_info = ctx.app_profile.get("native_libs_info") or {}
         lib_hint: list[str] = native_info.get("libs", []) or []
 
+        # ADAPT_001: consult the per-app learning profile for
+        # recorded failure-context strategies. D_072's relevant tags:
+        #   "obfuscation_tier_2"   -> "extended_payload_set"
+        #   "anti_debug_present"   -> "skip_oversize_probes"
+        #   "symbol_stripped"      -> "module_export_scan"
+        adaptive_strategies: list[str] = []
+        if ctx.learning_profile is not None:
+            try:
+                from sentinel.learning import StrategySelector
+                selector = StrategySelector()
+                adaptive_strategies = [
+                    r.strategy for r in selector.strategies_for(
+                        self.AGENT_ID, ctx.learning_profile,
+                    )
+                ]
+                if adaptive_strategies:
+                    logger.info(
+                        "[%s] Applying %d adaptive strategies: %s",
+                        self.AGENT_ID, len(adaptive_strategies),
+                        adaptive_strategies,
+                    )
+            except Exception:  # noqa: BLE001
+                logger.exception(
+                    "[%s] Strategy selector failed; using defaults",
+                    self.AGENT_ID,
+                )
+
         findings: list[Finding] = []
         scanned = 0
         for path in root.rglob("*.java"):
@@ -164,6 +191,7 @@ class JniShadowAgent(BaseAgent):
                         "dynamic_target": True,
                         "frida_payload": self._build_payload(
                             jni_symbol, params, lib_hint,
+                            adaptive_strategies=adaptive_strategies,
                         ),
                     },
                 ))
@@ -188,19 +216,40 @@ class JniShadowAgent(BaseAgent):
     @staticmethod
     def _build_payload(
         jni_symbol: str, params: str, lib_hint: list[str],
+        adaptive_strategies: list[str] | None = None,
     ) -> dict[str, Any]:
+        strats = adaptive_strategies or []
+        # ADAPT_001 branching: when a prior scan recorded
+        # `skip_oversize_probes` we drop the 256-byte payload (anti-
+        # debug present, oversize probe triggers SIGABRT immediately).
+        # `extended_payload_set` widens the probe list with longer
+        # format strings that have caught obfuscated impls. The base
+        # canary + standard format strings always fire.
+        probes: list[dict[str, Any]] = [
+            {"kind": "canary", "value": "AAAA_CANARY_AAAA"},
+            {"kind": "format_string", "value": "%n%n%n"},
+            {"kind": "format_string_safe_short", "value": "%s%s%s"},
+        ]
+        if "skip_oversize_probes" not in strats:
+            probes.append({"kind": "oversize", "value": "A" * 256})
+        if "extended_payload_set" in strats:
+            probes.extend([
+                {"kind": "format_string_long",
+                 "value": "%n%n%n%n%n%n%n%n%n%n"},
+                {"kind": "format_string_arg_walk",
+                 "value": "%1$s|%2$s|%3$s|%4$s|%5$s"},
+                {"kind": "unicode_overlong",
+                 "value": "ÀÀÀÀ"},
+            ])
         return {
             "jni_symbol": jni_symbol,
             "native_lib_hints": lib_hint[:10],
             "params": params,
-            # The TS hook applies these in order; each one is a tiny
-            # payload so a memory monitor can isolate its blame.
-            "probes": [
-                {"kind": "canary", "value": "AAAA_CANARY_AAAA"},
-                {"kind": "format_string", "value": "%n%n%n"},
-                {"kind": "format_string_safe_short", "value": "%s%s%s"},
-                {"kind": "oversize", "value": "A" * 256},
-            ],
+            "probes": probes,
+            "adaptive_strategies_applied": strats,
+            "module_export_scan": (
+                "module_export_scan" in strats
+            ),
             "safety_budget": {
                 # The brief specifies "Hard stop if >2 memory violations
                 # in 1 second." We expose that as part of the payload so
