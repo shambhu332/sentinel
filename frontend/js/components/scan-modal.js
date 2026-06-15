@@ -24,9 +24,13 @@ export function openScanModal(prefill = {}) {
       llmTriage: true,
       allowLivePoc: false,
       planner: false,
+      fuzz: false,
+      mlStrategy: false,
       deviceSerial: "",
       dynamicDuration: 30,
       fridaDuration: 30,
+      fuzzTime: 60,
+      mlModelPath: "",
     },
     scope: '',
   };
@@ -190,15 +194,15 @@ function renderStepOptions() {
       'Pure static — no device required',
       { dynamic: false, frida: false, noProxy: false, llmTriage: true }),
     mkPreset('Full VAPT',
-      'SAST + DAST + Frida hybrid dispatch + runnable PoC scripts + adaptive planner (device + frida-server required)',
+      'SAST + DAST + Frida hybrid dispatch + runnable PoC scripts + adaptive planner + ML strategy + AFL++ fuzzing (device + frida-server + AFL++ toolchain required)',
       { dynamic: true, frida: true, noProxy: false, llmTriage: true,
-        allowLivePoc: true, planner: true,
-        dynamicDuration: 60, fridaDuration: 45 }),
+        allowLivePoc: true, planner: true, fuzz: true, mlStrategy: true,
+        dynamicDuration: 60, fridaDuration: 45, fuzzTime: 60 }),
     mkPreset('Stealth VAPT',
-      'Full VAPT with anti-MITM apps — skips proxy, still emits PoCs',
+      'Full VAPT with anti-MITM apps — skips proxy, still emits PoCs + fuzzes',
       { dynamic: true, frida: true, noProxy: true, llmTriage: true,
-        allowLivePoc: true, planner: true,
-        dynamicDuration: 60, fridaDuration: 45 }),
+        allowLivePoc: true, planner: true, fuzz: true, mlStrategy: true,
+        dynamicDuration: 60, fridaDuration: 45, fuzzTime: 60 }),
     mkPreset('Privacy mode',
       'Local LLM only, no cloud egress for triage',
       { privacy: true, llmTriage: true }),
@@ -231,6 +235,8 @@ function renderStepOptions() {
     toggleRow('llmTriage', 'LLM triage', 'Filter false positives with LLM (Cerebras / Groq / Ollama).', 'recommended'),
     toggleRow('allowLivePoc', 'Live PoC artifacts', 'Let PoC Studio emit runnable Frida/curl/HTML exploit scripts for confirmed dynamic findings. Off → markdown-only reproduction guides.', 'authorized only'),
     toggleRow('planner', 'Adaptive planner', 'LLM-driven agent ordering; falls back to heuristic when no LLM is available.', 'experimental'),
+    toggleRow('fuzz', 'AFL++ JNI fuzzing', 'Compile + fuzz the libFuzzer harnesses META_006 emits. Requires clang/afl-fuzz/qemu-user-static on PATH; skips cleanly when absent.', 'toolchain'),
+    toggleRow('mlStrategy', 'ML strategy', 'Use the GradientBoostingClassifier in sentinel.learning.ml_strategy instead of the rule-based map. Falls back to the map when sklearn is missing.', 'sklearn'),
   );
   wrap.appendChild(card);
 
@@ -254,6 +260,17 @@ function renderStepOptions() {
       el('label', { class: 'field-label' }, 'Frida duration (sec)'),
       el('input', { class: 'input', type: 'number', min: 10, max: 1800, value: state.options.fridaDuration,
         oninput: (e) => { state.options.fridaDuration = +e.target.value || 30; } }),
+    ),
+    el('div', { class: 'field' },
+      el('label', { class: 'field-label' }, 'Fuzz time per harness (sec)'),
+      el('input', { class: 'input', type: 'number', min: 10, max: 3600, value: state.options.fuzzTime,
+        oninput: (e) => { state.options.fuzzTime = +e.target.value || 60; } }),
+    ),
+    el('div', { class: 'field' },
+      el('label', { class: 'field-label' }, 'ML model path (optional)'),
+      el('input', { class: 'input', type: 'text', placeholder: 'data/model.pkl — leave blank for bootstrap',
+        value: state.options.mlModelPath,
+        oninput: (e) => { state.options.mlModelPath = e.target.value.trim(); } }),
     ),
   ));
 
@@ -295,6 +312,8 @@ function renderStepReview() {
     ['LLM triage',      state.options.llmTriage ? 'Enabled' : 'Disabled'],
     ['Live PoC',        state.options.allowLivePoc ? 'Enabled (runnable scripts)' : 'Markdown-only'],
     ['Planner',         state.options.planner ? 'Adaptive' : 'Procedural'],
+    ['AFL++ fuzz',      state.options.fuzz ? `Enabled (${state.options.fuzzTime}s/harness)` : 'Disabled'],
+    ['ML strategy',     state.options.mlStrategy ? (state.options.mlModelPath || 'Bootstrap classifier') : 'Rule-based map'],
     ['Device serial',   state.options.deviceSerial || 'Pool round-robin'],
     ['Scope',           state.scope ? truncate(state.scope, 60) : 'None'],
   ];
@@ -323,6 +342,9 @@ function buildCliPreview() {
   if (!state.options.llmTriage) flags.push('--no-triage');
   if (state.options.allowLivePoc) flags.push('--allow-live-poc');
   if (state.options.planner) flags.push('--planner');
+  if (state.options.fuzz) flags.push(`--fuzz --fuzz-time ${state.options.fuzzTime}`);
+  if (state.options.mlStrategy) flags.push('--ml-strategy');
+  if (state.options.mlModelPath) flags.push(`--ml-model-path ${state.options.mlModelPath}`);
   if (state.options.deviceSerial) flags.push(`--device-serial ${state.options.deviceSerial}`);
   if (state.scope) flags.push('--scope-text "' + truncate(state.scope, 40) + '"');
   const cli = 'poetry run sentinel scan \\\n  ' + flags.join(' \\\n  ');
@@ -353,6 +375,10 @@ async function startScan() {
       llm_triage: state.options.llmTriage,
       allow_live_poc: state.options.allowLivePoc,
       planner: state.options.planner,
+      fuzz: state.options.fuzz,
+      fuzz_time: state.options.fuzzTime,
+      ml_strategy: state.options.mlStrategy,
+      ml_model_path: state.options.mlModelPath || "",
       device_serial: state.options.deviceSerial || "",
       dynamic_duration: state.options.dynamicDuration,
       frida_duration: state.options.fridaDuration,

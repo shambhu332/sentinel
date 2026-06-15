@@ -109,6 +109,7 @@ export const api = {
   status() { return request('/status'); },
   listAgents()   { return request('/agents'); },
   listScans()    { return request('/scans'); },
+  listDevices()  { return request('/devices'); },
   getScan(id)    { return request(`/scans/${id}`); },
   getFindings(id){ return request(`/scans/${id}/findings`); },
   getResult(id)  { return request(`/scans/${id}/result`); },

@@ -24,6 +24,7 @@ const NAV_GROUPS = [
       { id: 'rag',       label: 'Knowledge', icon: 'library',          href: '#rag',     badge: '61' },
       { id: 'verify',    label: 'Verify',    icon: 'badge-check',      href: '#verify' },
       { id: 'exploit',   label: 'PoC',       icon: 'flame',            href: '#exploit' },
+      { id: 'devices',   label: 'Devices',   icon: 'smartphone',       href: '#devices' },
     ],
   },
   {

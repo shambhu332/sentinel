@@ -40,6 +40,7 @@ function dispatch() {
     rag: 'Knowledge Base',
     verify: 'Verify Engine',
     exploit: 'PoC Generator',
+    devices: 'Devices',
   };
   const crumbs = [{ label: labels[name] || name }];
   if (params.length > 0 && name === 'scans') {

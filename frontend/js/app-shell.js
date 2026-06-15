@@ -16,6 +16,7 @@ import { renderDocsPage }      from './pages/docs.js';
 import { renderRagPage }       from './pages/rag.js';
 import { renderVerifyPage }    from './pages/verify.js';
 import { renderExploitPage }   from './pages/exploit.js';
+import { renderDevicesPage }   from './pages/devices.js';
 
 document.addEventListener('DOMContentLoaded', () => {
   const shell = document.getElementById('app-shell');
@@ -53,6 +54,7 @@ document.addEventListener('DOMContentLoaded', () => {
   registerRoute('rag',       renderRagPage);
   registerRoute('verify',    renderVerifyPage);
   registerRoute('exploit',   renderExploitPage);
+  registerRoute('devices',   renderDevicesPage);
 
   initRouter();
 
