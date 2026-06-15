@@ -229,6 +229,77 @@ _HYBRID_OPTIONAL = [
 ]
 
 
+def _discover_all_agents() -> list[type]:
+    """Walk every sentinel.agents.* package and return all BaseAgent
+    subclasses. Mirrors the discovery used by /agents so the scan
+    roster never lags behind the visible catalog.
+    """
+    import importlib
+    import pkgutil
+    from sentinel.agents.base.base_agent import BaseAgent
+
+    try:
+        agents_pkg = importlib.import_module("sentinel.agents")
+    except ImportError:
+        return []
+    for _f, name, _is in pkgutil.walk_packages(
+        agents_pkg.__path__, prefix="sentinel.agents.",
+    ):
+        try:
+            importlib.import_module(name)
+        except Exception as e:  # noqa: BLE001
+            logger.debug("scan-roster: skip %s (%s)", name, e)
+
+    seen: dict[str, type] = {}
+    stack: list[type] = list(BaseAgent.__subclasses__())
+    while stack:
+        cls = stack.pop()
+        aid = getattr(cls, "AGENT_ID", "")
+        if aid and aid not in seen:
+            seen[aid] = cls
+        stack.extend(cls.__subclasses__())
+    return list(seen.values())
+
+
+def _build_full_roster(dynamic: bool, frida: bool) -> list[type]:
+    """Build the per-scan agent list from the live class registry.
+
+    Phase 2 SAST agents always run. Pure-dynamic observers (the D_001..
+    D_041 batch + ImproperTLSAgent / DataInTransitAgent / pinning-bypass
+    crew that need a live device) are only scheduled when --dynamic
+    is on. Hybrid SAST→DAST agents are scheduled whenever --dynamic
+    is on so the Phase 4.5 dispatcher has something to fire.
+    """
+    # Start from the curated SAST list so its ordering is preserved.
+    roster: list[type] = list(SAST_AGENTS)
+    seen_ids = {getattr(c, "AGENT_ID", id(c)) for c in roster}
+
+    discovered = _discover_all_agents()
+    dynamic_module_prefix = "sentinel.agents.dynamic."
+    for cls in discovered:
+        aid = getattr(cls, "AGENT_ID", None)
+        if not aid or aid in seen_ids:
+            continue
+        is_dynamic_only = cls.__module__.startswith(dynamic_module_prefix)
+        if is_dynamic_only and not dynamic:
+            continue  # device-required agent, no point scheduling it
+        roster.append(cls)
+        seen_ids.add(aid)
+
+    if dynamic and frida:
+        # Frida-only agents that need the script bundle injected.
+        for extra in (RuntimeCryptoAgent, CertPinningBypassAgent):
+            if getattr(extra, "AGENT_ID", None) not in seen_ids:
+                roster.append(extra)
+                seen_ids.add(extra.AGENT_ID)
+
+    logger.info(
+        "Scan roster: %d agents (dynamic=%s, frida=%s)",
+        len(roster), dynamic, frida,
+    )
+    return roster
+
+
 class ScanJob:
     """One scan tracked by the gateway."""
 
@@ -455,17 +526,13 @@ async def _run_job(job: ScanJob) -> None:
         frida = bool(job.options.get("frida", False))
         no_proxy = bool(job.options.get("no_proxy", False))
 
-        agent_list = list(SAST_AGENTS)
-        if dynamic:
-            agent_list.extend([ImproperTLSAgent, DataInTransitAgent])
-            # Hybrid SAST→DAST agents emit dynamic_target findings; the
-            # orchestrator's Phase 4.5 dispatcher consumes them. Always
-            # registered when --dynamic so coverage matches the CLI.
-            agent_list.extend(_HYBRID_DAST_AGENTS)
-            agent_list.extend(_HYBRID_OPTIONAL)
-        if dynamic and frida:
-            agent_list.append(RuntimeCryptoAgent)
-            agent_list.append(CertPinningBypassAgent)
+        # Single source of truth: walk every BaseAgent subclass on disk
+        # so the /scans roster matches the /agents catalog the UI shows.
+        # The hand-curated SAST_AGENTS list (above) is kept for ordering
+        # of the SAST tier; everything else discovered via introspection
+        # is appended after de-dup. Dynamic-only agents are excluded
+        # unless --dynamic was passed (they require a live device).
+        agent_list = _build_full_roster(dynamic=dynamic, frida=frida)
 
         orch = Orchestrator(
             context=ctx,
