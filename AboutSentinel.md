@@ -446,11 +446,11 @@ sentinel agents             # List 88 agents
 
 ### 3.3 Not Yet Implemented
 
-❌ **Phase 5 - Verification** (partial coverage only)
-❌ **Phase 9 - Meta-exploration (M_001)**
-❌ **Multi-worker orchestration** (single-process only)
-❌ **Real-time scan progress** (WebSocket stub)
-❌ **Scan queue management** (FIFO only)
+❌ **Phase 5 - Verification** (roadmap-only; no `_phase5_verification()` in `orchestrator.py`)
+❌ **Phase 9 - Meta-exploration (M_001)** (SWARM_001 runs in Phase 2.6, but no standalone M_001/Phase 9)
+🚧 **Multi-worker orchestration** (asyncio task-per-scan in a single process via `scan_runner.py:475`; no multiprocess/Celery/distributed queue)
+❌ **Real-time scan progress** (no WebSocket endpoints; clients poll `GET /scans/{id}` per `routes/scans.py:193`)
+🚧 **Scan queue management** (in-memory FIFO `ScanRegistry` with cancel-only; no priority, reorder, or persistence)
 ❌ **User authentication** (JWT + API keys implemented, not enforced)
 
 ---
