@@ -564,16 +564,55 @@ class Orchestrator:
         adb = AdbRunner()
         mitmproxy = MitmproxyRunner(port=self._dynamic_port)
 
-        # 1) Verify device available
-        device_result = await adb.get_first_device()
-        if not device_result.success:
-            scan_result.warnings.append(
-                f"Phase 4 skipped: no Android device. {device_result.error}",
-            )
-            return
-        device = device_result.data
-        logger.info("Phase 4 device: %s (%s)",
-                    device.serial, device.properties.get("model", "?"))
+        # 1) Verify device available. We funnel device selection through
+        # DeviceManager so multi-device deployments get round-robin
+        # leasing AND honor ctx.device_serial when the user pinned one.
+        # Falls back to the old AdbRunner.get_first_device() path if
+        # the pool fails for any reason (no adb, weird state, ...).
+        device = None
+        pool_lease = None
+        try:
+            from sentinel.devices import DeviceManager, DeviceUnavailable
+            self._device_pool = getattr(self, "_device_pool", None) or DeviceManager()
+            preferred = getattr(self._context, "device_serial", "") or None
+            try:
+                pool_lease = self._device_pool.lease(
+                    prefer_serial=preferred, timeout_s=30.0,
+                )
+                self._device_lease_ctx = pool_lease
+                pool_device = await pool_lease.__aenter__()
+                self._device_lease_active = True
+                # Translate DeviceInfo into the AdbRunner.Device shape
+                # the existing flow expects (serial + properties dict).
+                fake = type("D", (), {})()
+                fake.serial = pool_device.serial
+                fake.properties = {
+                    "model": pool_device.model,
+                    "manufacturer": pool_device.manufacturer,
+                    "sdk": pool_device.sdk,
+                    "abi": pool_device.abi,
+                }
+                device = fake
+                logger.info(
+                    "Phase 4 device (pool-leased): %s (%s)",
+                    pool_device.serial, pool_device.model or "?",
+                )
+            except DeviceUnavailable as e:
+                scan_result.warnings.append(f"Phase 4 device pool: {e}")
+        except Exception:  # noqa: BLE001
+            logger.debug("DeviceManager unavailable; falling through to adb directly")
+
+        if device is None:
+            # Fallback path: original AdbRunner-first device.
+            device_result = await adb.get_first_device()
+            if not device_result.success:
+                scan_result.warnings.append(
+                    f"Phase 4 skipped: no Android device. {device_result.error}",
+                )
+                return
+            device = device_result.data
+            logger.info("Phase 4 device: %s (%s)",
+                        device.serial, device.properties.get("model", "?"))
 
         # 2) Install the APK ONLY if it's not already on the device.
         # `adb install -r` force-stops the existing app as a side effect,
@@ -674,6 +713,17 @@ class Orchestrator:
                 )
 
         finally:
+            # Release the DeviceManager lease the moment Phase 4 exits
+            # (success or failure). Other concurrent scans waiting on
+            # the pool can then pick this device up.
+            try:
+                if getattr(self, "_device_lease_active", False):
+                    await self._device_lease_ctx.__aexit__(None, None, None)
+                    self._device_lease_active = False
+                    logger.info("Phase 4: released device-pool lease")
+            except Exception:  # noqa: BLE001
+                logger.exception("Phase 4: device-pool lease release failed")
+
             # 7) Teardown — always run, even on failure
             if app_started:
                 stop_result = await adb.force_stop(package, serial=device.serial)
@@ -1176,7 +1226,62 @@ class Orchestrator:
             self._context.session_id, "phase.completed",
             {"phase": 2, "findings_count": len(all_findings)},
         )
+
+        # Phase 2.1 — planner advisory pass. When ctx.planner_enabled
+        # is True, run the AdaptivePlanner over the registry + findings
+        # so far. Decisions are *advisory only* in this release: they
+        # land in ctx.sources['planner_log'] for the report and don't
+        # reorder the procedural Phase-2 execution that already ran.
+        # Wiring the planner to actually drive scheduling is a careful
+        # cross-phase change that lands after planner output has been
+        # observed on real scans.
+        if getattr(self._context, "planner_enabled", False):
+            try:
+                await self._run_planner_advisory(all_findings)
+            except Exception:  # noqa: BLE001
+                logger.exception("Planner advisory pass failed; ignoring")
+
         return all_findings
+
+    async def _run_planner_advisory(self, findings: list[Finding]) -> None:
+        """Run the AdaptivePlanner once per registered agent — advisory."""
+        from sentinel.planner import AdaptivePlanner
+        from sentinel.planner.planner import tools_from_classes
+
+        # LLM mode requires a router; otherwise drop to heuristic mode.
+        router = None
+        try:
+            from sentinel.llm.router import FreeProviderRouter
+            router = FreeProviderRouter(force_local=self._context.is_private)
+        except Exception:  # noqa: BLE001
+            logger.debug("Planner: no LLM router; using heuristic mode")
+
+        tools = tools_from_classes(self._agents)
+        planner = AdaptivePlanner(
+            tools=tools, router=router, max_steps=len(tools) + 1,
+        )
+        # Replay every agent that already ran so the planner only
+        # advises on what's left (in this advisory pass, nothing — but
+        # the decision log still proves the planner can rank).
+        decisions: list[dict[str, Any]] = []
+        for _ in range(min(8, len(tools))):
+            d = await planner.decide(findings)
+            decisions.append({
+                "next": d.next_tool, "strategy": d.strategy, "why": d.reason,
+            })
+            if d.next_tool is None:
+                break
+            planner.mark_done(d.next_tool)
+        self._context.sources.setdefault("planner_log", []).extend(decisions)
+        logger.info(
+            "[%s] Planner advisory: recorded %d decisions",
+            self._context.session_id, len(decisions),
+        )
+        if router is not None:
+            try:
+                await router.close()
+            except Exception:  # noqa: BLE001
+                pass
 
     # ---------- Phase 3: LLM Triage (Sprint 7) ----------
 

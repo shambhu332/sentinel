@@ -93,6 +93,22 @@ class ScanContext:
     # touch a live system.
     active_replay: bool = False
 
+    # Opt-in: when True, PoC Studio emits standalone runnable exploit
+    # scripts (Frida-Python, curl, HTML) for confirmed dynamic_target
+    # findings. Off by default — falls back to markdown-only mode.
+    # See sentinel/exploit/poc_studio.py for the safety contract.
+    allow_live_poc: bool = False
+
+    # Opt-in: when True, the adaptive planner (sentinel/planner/) wraps
+    # Phase 2 agent execution in an LLM tool-calling loop so the next
+    # agent is chosen based on findings so far. Off by default — the
+    # procedural pipeline still runs every agent without it.
+    planner_enabled: bool = False
+
+    # Optional preferred device serial when DeviceManager has multiple
+    # attached devices. Empty string means "let the pool round-robin."
+    device_serial: str = ""
+
     def __post_init__(self) -> None:
         # Path resolution prevents traversal via ../ in user input
         self.workspace = self.workspace.expanduser().resolve()

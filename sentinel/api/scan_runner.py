@@ -58,12 +58,10 @@ from sentinel.agents.crypto import (
 from sentinel.agents.data_storage import WorldReadableStorageAgent
 from sentinel.agents.dynamic import (
     CertPinningBypassAgent,
-    DataInTransitAgent,
     DeepLinkBombAgent,
     FileProviderFuzzerAgent,
     HiddenApiHunterAgent,
     IapSpoofingAgent,
-    ImproperTLSAgent,
     IntentXssAgent,
     JniShadowAgent,
     MobileSsrfAgent,
@@ -236,6 +234,7 @@ def _discover_all_agents() -> list[type]:
     """
     import importlib
     import pkgutil
+
     from sentinel.agents.base.base_agent import BaseAgent
 
     try:
@@ -520,6 +519,10 @@ async def _run_job(job: ScanJob) -> None:
             workspace=settings.workspace,
             scope=scope,
             data_sensitivity="private" if bool(job.options.get("privacy", False)) else "public",
+            active_replay=bool(job.options.get("active_replay", False)),
+            allow_live_poc=bool(job.options.get("allow_live_poc", False)),
+            planner_enabled=bool(job.options.get("planner", False)),
+            device_serial=str(job.options.get("device_serial", "") or ""),
         )
 
         dynamic = bool(job.options.get("dynamic", False))

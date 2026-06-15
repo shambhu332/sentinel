@@ -106,7 +106,71 @@ class NativeInspectorAgent(BaseAgent):
         findings: list[Finding] = []
         for analysis in result.data.analyses:
             findings.extend(self._render_findings(analysis))
+
+        # Emit AFL++/libFuzzer harnesses for every JNI export across
+        # every .so. Generator is pure file IO — no QEMU required to
+        # *write* the harnesses; running them needs the toolchain
+        # documented in sentinel/fuzz/README.md. Best-effort: a
+        # generation failure must not block the rest of META_006.
+        try:
+            harness_finding = self._emit_jni_harnesses(result.data.analyses)
+            if harness_finding is not None:
+                findings.append(harness_finding)
+        except Exception:  # noqa: BLE001
+            self._log.exception("AFL++ harness emission failed")
+
         return findings
+
+    def _emit_jni_harnesses(self, analyses) -> Finding | None:
+        """Walk every .so, collect Java_-prefixed exports, ask the fuzz
+        package to write a libFuzzer harness per signature.
+        """
+        from sentinel.fuzz import generate_for_apk
+
+        # Build the shape generate_for_apk expects: a dict with
+        # 'exports' = [{symbol, lib, params, return_type}, ...].
+        exports: list[dict[str, str]] = []
+        for a in analyses:
+            lib_name = Path(a.path).name if hasattr(a, "path") else "libnative.so"
+            for sym in (a.exported_symbols or []):
+                if not sym.startswith("Java_"):
+                    continue
+                exports.append({
+                    "symbol": sym,
+                    "lib": lib_name,
+                    # We don't have an arity from ELF parsing alone, so
+                    # we default to a single jstring arg — the harness
+                    # passes a fuzz-derived string and that exercises
+                    # most format-string / buffer-overflow shapes.
+                    "params": "jstring",
+                    "return_type": "void",
+                })
+        if not exports:
+            return None
+
+        out_dir = self._context.workspace / "fuzz" / "harnesses"
+        sigs = generate_for_apk({"exports": exports}, out_dir)
+        if not sigs:
+            return None
+        return self._make_finding(
+            vuln_class="Native JNI fuzz target inventory",
+            severity=Severity.INFO,
+            confidence=1.0,
+            recommendation=(
+                f"Generated {len(sigs)} libFuzzer / AFL++ harness(es) under "
+                f"{out_dir}. Build + run with `make && ./run.sh` "
+                "(requires AFL++ + QEMU usermode — see "
+                "sentinel/fuzz/README.md). Any crash artifacts under "
+                "out/ should be triaged as candidate native-RCE bugs."
+            ),
+            evidence={
+                "harness_count": len(sigs),
+                "harness_directory": str(out_dir),
+                "symbols_covered": [s.symbol for s in sigs[:20]],
+                "build_command": "make && ./run.sh",
+                "follow_up": "Wire crash triage back into D_072",
+            },
+        )
 
     # ---------- Finding builders ----------
 

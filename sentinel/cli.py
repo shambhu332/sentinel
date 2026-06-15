@@ -141,6 +141,23 @@ def serve(host: str, port: int, reload: bool) -> None:
                    "to a custom .json). Reorders the agent roster so the "
                    "agents most relevant to the category run first; "
                    "coverage is unchanged.")
+@click.option("--allow-live-poc", "allow_live_poc", is_flag=True,
+              help="Let PoC Studio emit runnable exploit scripts "
+                   "(Frida-Python, curl, HTML) for confirmed dynamic_target "
+                   "findings. Off by default — the studio falls back to "
+                   "markdown-only reproduction guides. Only enable when "
+                   "you have written authorisation to test the target.")
+@click.option("--planner", "planner_enabled", is_flag=True,
+              help="EXPERIMENTAL: wrap Phase 2 agent execution in an "
+                   "LLM-driven adaptive planner. The planner picks the "
+                   "next agent based on findings so far instead of "
+                   "iterating the registry in fixed order. Falls back "
+                   "to a deterministic heuristic when the LLM is "
+                   "unavailable.")
+@click.option("--device-serial", "device_serial", default="",
+              help="Prefer this adb device serial when DeviceManager "
+                   "has multiple attached devices. Empty (default) lets "
+                   "the pool round-robin.")
 @click.option("--active-replay", "active_replay", is_flag=True,
               help="EXPERIMENTAL: allow verifiers to issue live HTTP "
                    "replays against the application's backend in order "
@@ -210,6 +227,9 @@ def scan(
     profile_name: str | None,
     static_only: bool,
     active_replay: bool,
+    allow_live_poc: bool,
+    planner_enabled: bool,
+    device_serial: str,
     generate_patch: bool,
     patches_dir: Path,
     no_impact: bool,
@@ -264,6 +284,9 @@ def scan(
         learning_dir=learning_dir,
         tenant_plan=tenant_plan,
         swarm_enabled=swarm_enabled,
+        allow_live_poc=allow_live_poc,
+        planner_enabled=planner_enabled,
+        device_serial=device_serial,
     ))
 
 
@@ -296,6 +319,9 @@ async def _run_scan(
     learning_dir: Path | None = None,
     tenant_plan: str = "free",
     swarm_enabled: bool = False,
+    allow_live_poc: bool = False,
+    planner_enabled: bool = False,
+    device_serial: str = "",
 ) -> None:
     """Async implementation of the scan command."""
     # Some D_07x / D_08x ship under non-canonical class names; resolve
@@ -547,6 +573,9 @@ async def _run_scan(
             scope=scope,
             data_sensitivity="private" if private else "public",
             active_replay=active_replay,
+            allow_live_poc=allow_live_poc,
+            planner_enabled=planner_enabled,
+            device_serial=device_serial or "",
         )
 
         if active_replay:

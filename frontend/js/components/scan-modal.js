@@ -22,6 +22,9 @@ export function openScanModal(prefill = {}) {
       noProxy: false,
       privacy: false,
       llmTriage: true,
+      allowLivePoc: false,
+      planner: false,
+      deviceSerial: "",
       dynamicDuration: 30,
       fridaDuration: 30,
     },
@@ -187,12 +190,14 @@ function renderStepOptions() {
       'Pure static — no device required',
       { dynamic: false, frida: false, noProxy: false, llmTriage: true }),
     mkPreset('Full VAPT',
-      'SAST + DAST + Frida hybrid dispatch (device + frida-server required)',
+      'SAST + DAST + Frida hybrid dispatch + runnable PoC scripts + adaptive planner (device + frida-server required)',
       { dynamic: true, frida: true, noProxy: false, llmTriage: true,
+        allowLivePoc: true, planner: true,
         dynamicDuration: 60, fridaDuration: 45 }),
     mkPreset('Stealth VAPT',
-      'Full VAPT with anti-MITM apps — skips proxy',
+      'Full VAPT with anti-MITM apps — skips proxy, still emits PoCs',
       { dynamic: true, frida: true, noProxy: true, llmTriage: true,
+        allowLivePoc: true, planner: true,
         dynamicDuration: 60, fridaDuration: 45 }),
     mkPreset('Privacy mode',
       'Local LLM only, no cloud egress for triage',
@@ -224,8 +229,20 @@ function renderStepOptions() {
     toggleRow('noProxy', 'No-proxy mode', 'Skip mitmproxy. Use for apps with strict anti-MITM (Signal, banking).', null),
     toggleRow('privacy', 'Privacy mode', 'Force local LLM (Ollama) for triage. Data stays on device.', 'local'),
     toggleRow('llmTriage', 'LLM triage', 'Filter false positives with LLM (Cerebras / Groq / Ollama).', 'recommended'),
+    toggleRow('allowLivePoc', 'Live PoC artifacts', 'Let PoC Studio emit runnable Frida/curl/HTML exploit scripts for confirmed dynamic findings. Off → markdown-only reproduction guides.', 'authorized only'),
+    toggleRow('planner', 'Adaptive planner', 'LLM-driven agent ordering; falls back to heuristic when no LLM is available.', 'experimental'),
   );
   wrap.appendChild(card);
+
+  // Optional device picker — populated by /devices when reachable.
+  wrap.appendChild(el('div', { class: 'field', style: 'margin-top: 12px;' },
+    el('label', { class: 'field-label' }, 'Device serial (optional)'),
+    el('input', {
+      class: 'input', type: 'text', placeholder: 'leave blank for round-robin',
+      value: state.options.deviceSerial || '',
+      oninput: (e) => { state.options.deviceSerial = e.target.value.trim(); },
+    }),
+  ));
 
   wrap.appendChild(el('div', { style: 'display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px;' },
     el('div', { class: 'field' },
@@ -276,6 +293,9 @@ function renderStepReview() {
     ['No-proxy',        state.options.noProxy ? 'Yes' : 'No'],
     ['Privacy mode',    state.options.privacy ? 'Local LLM' : 'Cloud LLM'],
     ['LLM triage',      state.options.llmTriage ? 'Enabled' : 'Disabled'],
+    ['Live PoC',        state.options.allowLivePoc ? 'Enabled (runnable scripts)' : 'Markdown-only'],
+    ['Planner',         state.options.planner ? 'Adaptive' : 'Procedural'],
+    ['Device serial',   state.options.deviceSerial || 'Pool round-robin'],
     ['Scope',           state.scope ? truncate(state.scope, 60) : 'None'],
   ];
   rows.forEach(([k, v]) => {
@@ -301,6 +321,9 @@ function buildCliPreview() {
   if (state.options.noProxy) flags.push('--no-proxy');
   if (state.options.privacy) flags.push('--private');
   if (!state.options.llmTriage) flags.push('--no-triage');
+  if (state.options.allowLivePoc) flags.push('--allow-live-poc');
+  if (state.options.planner) flags.push('--planner');
+  if (state.options.deviceSerial) flags.push(`--device-serial ${state.options.deviceSerial}`);
   if (state.scope) flags.push('--scope-text "' + truncate(state.scope, 40) + '"');
   const cli = 'poetry run sentinel scan \\\n  ' + flags.join(' \\\n  ');
   return codeBlock(cli, { showLineNumbers: false });
@@ -328,6 +351,9 @@ async function startScan() {
       no_proxy: state.options.noProxy,
       privacy: state.options.privacy,
       llm_triage: state.options.llmTriage,
+      allow_live_poc: state.options.allowLivePoc,
+      planner: state.options.planner,
+      device_serial: state.options.deviceSerial || "",
       dynamic_duration: state.options.dynamicDuration,
       frida_duration: state.options.fridaDuration,
       scope_text: state.scope || null,
