@@ -266,6 +266,25 @@ class Orchestrator:
                     asyncio.get_event_loop().time() - start
                 )
 
+            # Phase 4.7 — AFL++ fuzz over JNI harnesses. Opt-in via
+            # ctx.fuzz_enabled. Toolchain-detects + degrades cleanly.
+            if getattr(self._context, "fuzz_enabled", False):
+                start = asyncio.get_event_loop().time()
+                try:
+                    fuzz_findings = await self._phase4_7_fuzz()
+                    if fuzz_findings:
+                        await self._persist_findings(fuzz_findings)
+                        result.findings.extend(fuzz_findings)
+                except Exception as e:  # noqa: BLE001
+                    logger.exception("[%s] Phase 4.7 fuzz failed",
+                                     self._context.session_id)
+                    result.warnings.append(
+                        f"Phase 4.7 AFL++ fuzz failed: {str(e)[:200]}",
+                    )
+                result.phase_timings["phase4_7"] = (
+                    asyncio.get_event_loop().time() - start
+                )
+
             # Phase 3: LLM triage (optional)
             if self._triager is not None and findings:
                 start = asyncio.get_event_loop().time()
@@ -572,8 +591,10 @@ class Orchestrator:
         device = None
         pool_lease = None
         try:
-            from sentinel.devices import DeviceManager, DeviceUnavailable
-            self._device_pool = getattr(self, "_device_pool", None) or DeviceManager()
+            from sentinel.devices import DeviceUnavailable, get_device_manager
+            self._device_pool = (
+                getattr(self, "_device_pool", None) or get_device_manager()
+            )
             preferred = getattr(self._context, "device_serial", "") or None
             try:
                 pool_lease = self._device_pool.lease(
@@ -1341,6 +1362,47 @@ class Orchestrator:
             {"phase": 7, "chains_detected": len(chain_findings)},
         )
         return chain_findings
+
+    # ---------- Phase 4.7: AFL++ fuzz run (opt-in) ----------
+
+    async def _phase4_7_fuzz(self) -> list[Finding]:
+        """Run AFL++/libFuzzer over the JNI harnesses META_006 emitted.
+
+        Opt-in (``ctx.fuzz_enabled``). Toolchain-detects; degrades to a
+        warning when AFL++/clang/QEMU isn't on PATH. Findings come back
+        as D_072 follow-ups via fuzz.run_for_session.
+        """
+        if not getattr(self._context, "fuzz_enabled", False):
+            return []
+        try:
+            from sentinel.fuzz import run_for_session
+        except Exception:  # noqa: BLE001
+            logger.exception("Phase 4.7: fuzz module unavailable")
+            return []
+        logger.info("[%s] Phase 4.7: AFL++ fuzz run", self._context.session_id)
+        await self._memory.publish_event(
+            self._context.session_id, "phase.started", {"phase": 4.7},
+        )
+        try:
+            findings, status = run_for_session(
+                workspace=self._context.workspace,
+                session_id=self._context.session_id,
+                time_per_harness_s=getattr(
+                    self._context, "fuzz_time_per_harness_s", 60,
+                ),
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("Phase 4.7: fuzz runner crashed")
+            return []
+        if not status.available:
+            logger.info("Phase 4.7: skipped (%s)", status.reason)
+            return []
+        logger.info("Phase 4.7: %d crash findings", len(findings))
+        await self._memory.publish_event(
+            self._context.session_id, "phase.completed",
+            {"phase": 4.7, "crash_count": len(findings)},
+        )
+        return findings
 
     # ---------- Phase 7.5: PoC Studio (runnable exploit artifacts) ----------
 

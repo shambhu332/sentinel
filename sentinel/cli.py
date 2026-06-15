@@ -158,6 +158,23 @@ def serve(host: str, port: int, reload: bool) -> None:
               help="Prefer this adb device serial when DeviceManager "
                    "has multiple attached devices. Empty (default) lets "
                    "the pool round-robin.")
+@click.option("--fuzz", "fuzz_enabled", is_flag=True,
+              help="Run AFL++/libFuzzer over the JNI harnesses META_006 "
+                   "emits. Requires AFL++ + clang + QEMU usermode on "
+                   "PATH (apt install afl++ clang qemu-user-static). "
+                   "Off by default — the harnesses are always written "
+                   "but only fuzzed when this flag is set.")
+@click.option("--fuzz-time", "fuzz_time_per_harness_s", type=int, default=60,
+              help="Seconds to fuzz each JNI harness. Multiplied by "
+                   "the number of harnesses — keep low for CI runs.")
+@click.option("--ml-strategy", "ml_strategy", is_flag=True,
+              help="Use the scikit-learn classifier in "
+                   "sentinel/learning/ml_strategy.py instead of the "
+                   "rule-based _FAILURE_STRATEGY_MAP. Falls back to "
+                   "the map when sklearn is unavailable.")
+@click.option("--ml-model-path", "ml_model_path", default="",
+              help="Path to a previously-trained classifier pickle. "
+                   "Empty (default) uses the bootstrap dataset.")
 @click.option("--active-replay", "active_replay", is_flag=True,
               help="EXPERIMENTAL: allow verifiers to issue live HTTP "
                    "replays against the application's backend in order "
@@ -230,6 +247,10 @@ def scan(
     allow_live_poc: bool,
     planner_enabled: bool,
     device_serial: str,
+    fuzz_enabled: bool,
+    fuzz_time_per_harness_s: int,
+    ml_strategy: bool,
+    ml_model_path: str,
     generate_patch: bool,
     patches_dir: Path,
     no_impact: bool,
@@ -287,6 +308,10 @@ def scan(
         allow_live_poc=allow_live_poc,
         planner_enabled=planner_enabled,
         device_serial=device_serial,
+        fuzz_enabled=fuzz_enabled,
+        fuzz_time_per_harness_s=fuzz_time_per_harness_s,
+        ml_strategy=ml_strategy,
+        ml_model_path=ml_model_path,
     ))
 
 
@@ -322,6 +347,10 @@ async def _run_scan(
     allow_live_poc: bool = False,
     planner_enabled: bool = False,
     device_serial: str = "",
+    fuzz_enabled: bool = False,
+    fuzz_time_per_harness_s: int = 60,
+    ml_strategy: bool = False,
+    ml_model_path: str = "",
 ) -> None:
     """Async implementation of the scan command."""
     # Some D_07x / D_08x ship under non-canonical class names; resolve
@@ -576,6 +605,10 @@ async def _run_scan(
             allow_live_poc=allow_live_poc,
             planner_enabled=planner_enabled,
             device_serial=device_serial or "",
+            fuzz_enabled=fuzz_enabled,
+            fuzz_time_per_harness_s=int(fuzz_time_per_harness_s),
+            ml_strategy=ml_strategy,
+            ml_model_path=ml_model_path or "",
         )
 
         if active_replay:

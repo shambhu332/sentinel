@@ -5,12 +5,13 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
 from sentinel.auth.jwt_auth import get_current_active_user
-from sentinel.devices import DeviceManager
+from sentinel.devices import get_device_manager
 
 router = APIRouter(prefix="/devices", tags=["devices"])
 
-# Module-scope manager — single process today; revisit if we go multi-worker.
-_manager = DeviceManager()
+# Module-scope manager — Redis-backed when SENTINEL_REDIS_URL is set,
+# in-process otherwise. See sentinel/devices/redis_pool.py.
+_manager = get_device_manager()
 
 
 @router.get("")

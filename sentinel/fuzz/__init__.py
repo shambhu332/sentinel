@@ -23,10 +23,20 @@ from sentinel.fuzz.harness_gen import (
     generate_harness,
     parse_jni_signature,
 )
+from sentinel.fuzz.runner import (
+    FuzzCrash,
+    ToolchainStatus,
+    detect_toolchain,
+    run_for_session,
+)
 
 __all__ = [
+    "FuzzCrash",
     "JniSignature",
+    "ToolchainStatus",
+    "detect_toolchain",
     "generate_for_apk",
     "generate_harness",
     "parse_jni_signature",
+    "run_for_session",
 ]

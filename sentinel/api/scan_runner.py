@@ -523,6 +523,12 @@ async def _run_job(job: ScanJob) -> None:
             allow_live_poc=bool(job.options.get("allow_live_poc", False)),
             planner_enabled=bool(job.options.get("planner", False)),
             device_serial=str(job.options.get("device_serial", "") or ""),
+            fuzz_enabled=bool(job.options.get("fuzz", False)),
+            fuzz_time_per_harness_s=int(
+                job.options.get("fuzz_time", 60),
+            ),
+            ml_strategy=bool(job.options.get("ml_strategy", False)),
+            ml_model_path=str(job.options.get("ml_model_path", "") or ""),
         )
 
         dynamic = bool(job.options.get("dynamic", False))

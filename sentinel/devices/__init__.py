@@ -14,5 +14,12 @@ The pool is process-local (no Redis lock). For multi-process /
 multi-worker deployments a Redis-backed lease is a follow-up.
 """
 from sentinel.devices.pool import DeviceInfo, DeviceManager, DeviceUnavailable
+from sentinel.devices.redis_pool import RedisDeviceManager, get_device_manager
 
-__all__ = ["DeviceInfo", "DeviceManager", "DeviceUnavailable"]
+__all__ = [
+    "DeviceInfo",
+    "DeviceManager",
+    "DeviceUnavailable",
+    "RedisDeviceManager",
+    "get_device_manager",
+]

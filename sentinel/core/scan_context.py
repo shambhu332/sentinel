@@ -109,6 +109,19 @@ class ScanContext:
     # attached devices. Empty string means "let the pool round-robin."
     device_serial: str = ""
 
+    # Opt-in: when True, run AFL++/libFuzzer over the JNI harnesses
+    # META_006 emitted. Toolchain detection is best-effort — if
+    # afl-fuzz / clang / QEMU isn't on PATH the runner skips cleanly
+    # rather than failing the scan. See sentinel/fuzz/runner.py.
+    fuzz_enabled: bool = False
+    fuzz_time_per_harness_s: int = 60
+
+    # Use ML-trained classifier instead of the rule-based
+    # _FAILURE_STRATEGY_MAP. Falls back to the rule-based selector
+    # when scikit-learn isn't installed.
+    ml_strategy: bool = False
+    ml_model_path: str = ""
+
     def __post_init__(self) -> None:
         # Path resolution prevents traversal via ../ in user input
         self.workspace = self.workspace.expanduser().resolve()
