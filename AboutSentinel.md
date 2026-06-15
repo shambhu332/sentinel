@@ -420,6 +420,52 @@ sentinel scope parse        # Bounty scope ingestion
 sentinel agents             # List 88 agents
 ```
 
+✅ **PoC Studio (Phase 7.5)**
+- Live PoC artifact emission gated by `allow_live_poc` ScanContext flag
+- Burp Repeater requests, curl one-liners, Frida scripts per finding
+- CLI flag: `--allow-live-poc`; preset-enabled by Full VAPT / Stealth VAPT
+- Wired in `orchestrator.py:1409` (`_phase7_5_poc_studio`)
+
+✅ **CVSS v3.1 Scoring**
+- Per-finding vector + base score computed during triage
+- Surfaced in findings table UI alongside severity badges
+- SARIF and HTML exports include CVSS metadata
+
+✅ **Multi-Format Report Export**
+- SARIF 2.1.0 (GitHub Code Scanning compatible)
+- SIEM rule bundle (Sigma / Splunk / Elastic)
+- PoC artifact bundle (always-available download)
+- Buttons surfaced on `/reports` page
+
+✅ **OpenAPI Inferrer**
+- Reconstructs candidate OpenAPI 3.0 spec from MITM-captured flows
+- Endpoint/method/auth-class grouping for API attack surface mapping
+
+✅ **MITRE ATT&CK Mobile Corpus (RAG)**
+- ATT&CK Mobile techniques ingested as a default RAG corpus
+- Ingester tracks corpus counts; technique citations in triage/report prompts
+
+✅ **Adaptive Planner (Phase 2.1)**
+- Post-agent advisory pass that rewrites Phase 4/4.5 plan based on Phase 2 signals
+- CLI flag: `--planner`; preset-enabled by Full VAPT / Stealth VAPT
+
+✅ **AFL++ JNI Fuzzing (D_072)**
+- AFL++ QEMU runner with crash triage emitting D_072 findings
+- META_006 emits per-export AFL++ harness stubs for native libraries
+- CLI flags: `--fuzz`, `--fuzz-time <seconds>` (60s/harness default)
+
+✅ **ML Strategy Classifier**
+- GradientBoost classifier picks scan strategy from prior session profiles
+- `train_from_profiles` bootstrap + `MLStrategySelector` runtime API
+- CLI flags: `--ml-strategy`, `--ml-model-path <path>`
+
+✅ **Multi-Device Pool (DeviceManager)**
+- Async lease allocation with round-robin scheduling across attached devices
+- Redis-backed coordination for cross-process leases (with in-memory fallback)
+- `GET /devices` endpoint + `/devices` UI page (serial, state, manufacturer, model, SDK, ABI, fingerprint)
+- Phase 4 acquires a lease at entry, releases at exit
+- CLI flag: `--device-serial <serial>` to pin a scan to one device
+
 ### 3.2 Partially Implemented
 
 🚧 **Frontend Web UI**
