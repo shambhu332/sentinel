@@ -1237,11 +1237,60 @@ class Orchestrator:
         )
         return chain_findings
 
+    # ---------- Phase 7.5: PoC Studio (runnable exploit artifacts) ----------
+
+    async def _phase7_5_poc_studio(self, findings: list[Finding]) -> None:
+        """Emit standalone runnable PoC scripts for every confirmed finding.
+
+        Gated by ``allow_live_poc`` on the scan context — when off, the
+        studio still emits a per-finding markdown reproduction guide
+        (no runnable code). The studio is a no-op when there are no
+        eligible findings, which is the common case for SAST-only runs.
+        """
+        try:
+            from sentinel.exploit.poc_studio import emit_for_scan
+            out_dir = self._context.workspace / "poc"
+            target_pkg = (self._context.manifest or {}).get(
+                "package", "com.example.app",
+            )
+            allow_live = bool(getattr(self._context, "allow_live_poc", False))
+            artifacts = emit_for_scan(
+                findings, out_dir,
+                target_package=target_pkg,
+                allow_live=allow_live,
+            )
+            if artifacts:
+                logger.info(
+                    "[%s] PoC Studio: emitted %d artifacts (live=%s)",
+                    self._context.session_id, len(artifacts), allow_live,
+                )
+                await self._memory.publish_event(
+                    self._context.session_id, "poc.emitted",
+                    {"count": len(artifacts), "live": allow_live},
+                )
+        except Exception:  # noqa: BLE001
+            logger.exception("PoC Studio failed; continuing")
+
     # ---------- Phase 8: VAPT report generation ----------
 
     async def _phase8_report(self) -> list[Finding]:
-        """Generate VAPT report artifacts via R_001."""
+        """Generate VAPT report artifacts via R_001.
+
+        Fires the PoC Studio just before so the report can reference
+        the emitted artifacts and the API can serve them from
+        ``/reports/{session}/poc/...``.
+        """
         from sentinel.agents.reporting import ReportGeneratorAgent
+
+        # PoC Studio runs against everything already in memory so it
+        # sees both Phase 2 SAST findings + Phase 4.5 dispatch results.
+        try:
+            all_findings = await self._memory.get_findings(
+                session_id=self._context.session_id,
+            )
+            await self._phase7_5_poc_studio(all_findings)
+        except Exception:  # noqa: BLE001
+            logger.exception("PoC Studio pre-report hook failed")
 
         logger.info("[%s] Phase 8: VAPT report generation", self._context.session_id)
         await self._memory.publish_event(

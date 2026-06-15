@@ -119,7 +119,18 @@ function buildReportCard(r) {
     { key: 'html', label: 'Open HTML', icon: 'external-link', primary: true },
     { key: 'markdown', label: 'Markdown', icon: 'file-text', ext: '.md' },
     { key: 'json', label: 'JSON', icon: 'braces', ext: '.json' },
+    { key: 'sarif', label: 'SARIF', icon: 'shield-check', ext: '.sarif' },
   ];
+  // Always-available extras (generated on-demand from the JSON report
+  // by /reports/{session}/{siem.zip,poc/index.json} so they don't
+  // need a slot in `formats`).
+  const extras = [
+    { key: 'siem.zip', label: 'SIEM rules', icon: 'shield',
+      filename: `sentinel-siem-${r.session_id}.zip` },
+    { key: 'poc/index.json', label: 'PoCs', icon: 'play',
+      filename: `poc-index-${r.session_id}.json` },
+  ];
+
   for (const f of order) {
     const meta = formats[f.key];
     if (!meta || !meta.available) {
@@ -146,6 +157,19 @@ function buildReportCard(r) {
       meta.size_bytes
         ? el('span', { class: 'reports-card-size' }, formatBytes(meta.size_bytes))
         : null,
+    ));
+  }
+  for (const ex of extras) {
+    btns.appendChild(el('a', {
+      class: 'btn btn-ghost btn-sm',
+      href: `/reports/${encodeURIComponent(r.session_id)}/${ex.key}`,
+      target: '_blank',
+      rel: 'noopener',
+      download: ex.filename,
+      title: ex.label,
+    },
+      el('i', { 'data-lucide': ex.icon }),
+      ex.label,
     ));
   }
   card.appendChild(btns);

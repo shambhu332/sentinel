@@ -52,6 +52,15 @@ class ReportGeneratorAgent(BaseAgent):
         if not all_findings:
             return []
 
+        # Stamp every finding with a CVSS 3.1 vector + base score before
+        # the report builder gets them. CVSS is deterministic — no LLM
+        # involved — so this is safe to do unconditionally.
+        try:
+            from sentinel.reports.cvss import stamp_all
+            stamp_all(all_findings)
+        except Exception:  # noqa: BLE001
+            logger.exception("R_001: CVSS stamping failed; reports will omit scores")
+
         report_findings = self._select_report_findings(all_findings)
         data = build_report_data(
             findings=report_findings,
@@ -144,7 +153,23 @@ class ReportGeneratorAgent(BaseAgent):
             logger.warning("R_001: failed to write JSON report: %s", exc)
             json_path = report_dir / "(json unavailable)"
 
-        return {"markdown": md_path, "html": html_path, "json": json_path}
+        # SARIF v2.1.0 — for GitHub Code Scanning / Azure DevOps ingest.
+        sarif_path = report_dir / f"{stem}.sarif"
+        try:
+            from sentinel.reports.sarif import render_sarif_json
+            findings_for_sarif = [s.finding for s in data.sections]
+            sarif_path.write_text(
+                render_sarif_json(findings_for_sarif, data.session_id),
+                encoding="utf-8",
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("R_001: failed to write SARIF report: %s", exc)
+            sarif_path = report_dir / "(sarif unavailable)"
+
+        return {
+            "markdown": md_path, "html": html_path,
+            "json": json_path, "sarif": sarif_path,
+        }
 
     @staticmethod
     def _json_payload(data: ReportData) -> dict:

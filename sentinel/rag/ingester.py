@@ -33,10 +33,14 @@ class IngestReport:
     owasp_mobile: int = 0
     cwe: int = 0
     osv: int = 0
+    mitre_attack: int = 0
 
     @property
     def total(self) -> int:
-        return self.masvs + self.owasp_mobile + self.cwe + self.osv
+        return (
+            self.masvs + self.owasp_mobile + self.cwe
+            + self.osv + self.mitre_attack
+        )
 
 
 async def ingest_default_corpora(kb: KnowledgeBase) -> IngestReport:
@@ -50,9 +54,11 @@ async def ingest_default_corpora(kb: KnowledgeBase) -> IngestReport:
     report.masvs = await _ingest_masvs(kb)
     report.owasp_mobile = await _ingest_owasp_mobile(kb)
     report.cwe = await _ingest_cwe(kb)
+    report.mitre_attack = await _ingest_mitre_attack(kb)
     logger.info(
-        "Ingested %d MASVS + %d OWASP Mobile + %d CWE = %d passages",
-        report.masvs, report.owasp_mobile, report.cwe, report.total,
+        "Ingested %d MASVS + %d OWASP Mobile + %d CWE + %d MITRE = %d passages",
+        report.masvs, report.owasp_mobile, report.cwe,
+        report.mitre_attack, report.total,
     )
     return report
 
@@ -158,6 +164,36 @@ async def _ingest_cwe(kb: KnowledgeBase) -> int:
             "category": "weakness",
         }
         for e in entries
+    ]
+    if not ids:
+        return 0
+    await kb.upsert(ids=ids, texts=texts, metadatas=metas)
+    return len(ids)
+
+
+async def _ingest_mitre_attack(kb: KnowledgeBase) -> int:
+    """Ingest MITRE ATT&CK Mobile techniques bundled in the corpus.
+
+    Adds adversary-perspective grounding — "this finding looks like
+    T1626 Privilege Escalation" — alongside the defensive MASVS / CWE
+    references already indexed. Both directions help triage stay
+    grounded.
+    """
+    try:
+        payload = _read_json("mitre_attack_mobile.json")
+    except KnowledgeBaseError:
+        return 0
+    techniques = payload.get("techniques") or []
+    ids = [f"ATTACK::{t['id']}" for t in techniques]
+    texts = [f"{t['title']}\n\n{t['text']}" for t in techniques]
+    metas = [
+        {
+            "source": "MITRE_ATTACK_MOBILE",
+            "control_id": t["id"],
+            "title": t["title"],
+            "category": t.get("tactic", "attack"),
+        }
+        for t in techniques
     ]
     if not ids:
         return 0

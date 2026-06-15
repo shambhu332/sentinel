@@ -55,6 +55,39 @@ export function renderFindingsTable(container, findings) {
     const iPill = impactBadge(finding);
     if (iPill) inlineBadges.push(iPill);
 
+    // CVSS v3.1 badge — only shown when the report layer stamped a
+    // score onto the finding. Coloured by GitHub's security-severity
+    // bands so it reads instantly.
+    const cvssScore = finding.evidence?.cvss_v3_score;
+    if (typeof cvssScore === 'number') {
+      const band = cvssScore >= 9 ? '#dc2626' : cvssScore >= 7 ? '#f97316'
+        : cvssScore >= 4 ? '#eab308' : '#3b82f6';
+      inlineBadges.push(el('span', {
+        class: 'badge cvss',
+        title: finding.cvss_vector || `CVSS:3.1 score ${cvssScore}`,
+        style:
+          `background:${band}22;color:${band};border:1px solid ${band}55;` +
+          'font-size:10px;margin-left:6px;font-family:var(--font-mono);',
+      }, `CVSS ${cvssScore.toFixed(1)}`));
+    }
+
+    // PoC download link — appears when the orchestrator's PoC Studio
+    // emitted a runnable artifact for this finding. Wires to
+    // /reports/{session}/poc/{finding_id}.{ext}.
+    if (finding.evidence?.poc_artifact) {
+      const a = el('a', {
+        class: 'badge poc',
+        href: finding.evidence.poc_artifact,
+        target: '_blank',
+        title: 'Download the runnable PoC for this finding',
+        style:
+          'background:#10b98122;color:#34d399;border:1px solid #10b98155;' +
+          'font-size:10px;margin-left:6px;text-decoration:none;',
+        onclick: (e) => e.stopPropagation(),
+      }, '⬇ PoC');
+      inlineBadges.push(a);
+    }
+
     const vulnCell = el('td', {}, finding.vulnClass, ...inlineBadges);
 
     const row = el('tr', { class: 'finding-row clickable', 'data-fid': finding.id },

@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 
 from sentinel.auth.jwt_auth import get_current_active_user
 from sentinel.core.config import get_settings
@@ -38,6 +38,7 @@ _FORMATS: dict[str, dict[str, str]] = {
     "markdown": {"ext": ".md", "mime": "text/markdown"},
     "html": {"ext": ".html", "mime": "text/html"},
     "json": {"ext": ".json", "mime": "application/json"},
+    "sarif": {"ext": ".sarif", "mime": "application/sarif+json"},
 }
 
 
@@ -141,7 +142,109 @@ def get_report(
     )
 
 
+@router.get("/{session_id}/siem.zip")
+def get_siem_bundle(
+    session_id: str,
+    current_user=Depends(get_current_active_user),
+) -> Response:
+    """Build + stream a SIEM detection-rule bundle for ``session_id``."""
+    if not _SESSION_ID.match(session_id):
+        raise HTTPException(status_code=400, detail="invalid session_id")
+    findings = _load_findings_for_session(session_id)
+    if not findings:
+        raise HTTPException(status_code=404, detail="no findings for session")
+    from sentinel.reports.siem import build_bundle
+    blob = build_bundle(findings, session_id)
+    return Response(
+        content=blob, media_type="application/zip",
+        headers={
+            "Content-Disposition":
+                f'attachment; filename="sentinel-siem-{session_id}.zip"',
+        },
+    )
+
+
+@router.get("/{session_id}/poc/index.json")
+def get_poc_index(
+    session_id: str,
+    current_user=Depends(get_current_active_user),
+) -> JSONResponse:
+    """List PoC artifacts emitted by the PoC Studio during the scan."""
+    if not _SESSION_ID.match(session_id):
+        raise HTTPException(status_code=400, detail="invalid session_id")
+    idx_path = (
+        Path(get_settings().workspace) / session_id / "poc" / "index.json"
+    )
+    if not idx_path.exists():
+        return JSONResponse(content=[])
+    import json
+    try:
+        return JSONResponse(content=json.loads(idx_path.read_text()))
+    except (OSError, json.JSONDecodeError):
+        return JSONResponse(content=[])
+
+
+@router.get("/{session_id}/poc/{filename}")
+def get_poc_file(
+    session_id: str,
+    filename: str,
+    current_user=Depends(get_current_active_user),
+) -> FileResponse:
+    """Stream one PoC artifact."""
+    if not _SESSION_ID.match(session_id):
+        raise HTTPException(status_code=400, detail="invalid session_id")
+    if "/" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="invalid filename")
+    workspace_root = Path(get_settings().workspace).resolve()
+    candidate = (
+        workspace_root / session_id / "poc" / filename
+    ).resolve()
+    if not candidate.is_relative_to(workspace_root) or not candidate.exists():
+        raise HTTPException(status_code=404, detail="not found")
+    return FileResponse(path=str(candidate), filename=filename)
+
+
 # ---------- helpers ----------
+
+
+def _load_findings_for_session(session_id: str):
+    """Reconstruct Finding objects from the JSON report on disk.
+
+    The SIEM bundle builder needs the same Finding objects the scan
+    produced. Since the API process is stateless once a scan completes,
+    we re-hydrate from the JSON report R_001 already wrote.
+    """
+    import json as _json
+
+    from sentinel.core.finding import Finding, Severity
+    json_path = (
+        Path(get_settings().workspace)
+        / session_id / "reports"
+        / f"VAPT_Report_{session_id}.json"
+    )
+    if not json_path.exists():
+        return []
+    try:
+        doc = _json.loads(json_path.read_text(errors="replace"))
+    except (_json.JSONDecodeError, OSError):
+        return []
+    sev_map = {s.value: s for s in Severity}
+    out = []
+    for raw in doc.get("findings", []) or []:
+        try:
+            out.append(Finding(
+                agent_id=raw.get("agent_id", "?"),
+                vuln_class=raw.get("vuln_class", "Unknown"),
+                severity=sev_map.get(raw.get("severity", "info"), Severity.INFO),
+                confidence=float(raw.get("confidence") or 0.5),
+                recommendation=raw.get("recommendation") or "",
+                evidence=raw.get("evidence") or {},
+                cvss_vector=raw.get("cvss_vector"),
+            ))
+        except Exception:  # noqa: BLE001
+            continue
+    return out
+
 
 
 def _size_of(path: Path) -> int:

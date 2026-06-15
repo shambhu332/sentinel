@@ -1,0 +1,79 @@
+{
+  "source": "MITRE ATT&CK Mobile v15",
+  "license": "ATT&CK Terms of Use",
+  "license_url": "https://attack.mitre.org/resources/terms-of-use/",
+  "techniques": [
+    {
+      "id": "T1626",
+      "title": "Abuse Elevation Control Mechanism",
+      "tactic": "Privilege Escalation",
+      "text": "Adversaries may circumvent mechanisms designed to control elevated privileges. In Android this is commonly seen as abuse of mutable PendingIntents (CVE-2021-0938 family), exported activities that grant admin actions, and SmsRetriever / accessibility services elevated beyond their declared purpose."
+    },
+    {
+      "id": "T1635",
+      "title": "Steal Application Access Token",
+      "tactic": "Credential Access",
+      "text": "Adversaries may steal tokens used to authenticate API calls. In mobile this includes SharedPreferences-stored bearer tokens, Keystore keys lacking biometric binding, FCM device tokens, and OAuth refresh tokens persisted across logout."
+    },
+    {
+      "id": "T1634",
+      "title": "Credentials from Password Store",
+      "tactic": "Credential Access",
+      "text": "Adversaries may access credential storage in databases, keystores, or password managers. Mobile-specific surfaces include AccountManager.getAuthToken(), AndroidKeyStore entries lacking setUserAuthenticationRequired(true), and webview password-autofill caches."
+    },
+    {
+      "id": "T1638",
+      "title": "Adversary-in-the-Middle",
+      "tactic": "Collection",
+      "text": "Adversaries may position themselves between two communicating endpoints to intercept and modify traffic. Cleartext HTTP traffic, missing cert pinning, and custom TrustManager / HostnameVerifier implementations are the typical mobile entry points."
+    },
+    {
+      "id": "T1517",
+      "title": "Access Notifications",
+      "tactic": "Collection",
+      "text": "Adversaries may collect data from notifications. Apps registering NotificationListenerService have full read access to every notification on the device, including 2FA codes and bank-app push alerts."
+    },
+    {
+      "id": "T1404",
+      "title": "Exploitation for Privilege Escalation",
+      "tactic": "Privilege Escalation",
+      "text": "Adversaries may exploit software vulnerabilities to gain elevated privileges. Memory-corruption bugs in JNI native libraries and unsafe deserialization sinks (ObjectInputStream.readObject, polymorphic Gson/Jackson) are the most common mobile-app shapes."
+    },
+    {
+      "id": "T1428",
+      "title": "Exploit Enterprise Resources",
+      "tactic": "Lateral Movement",
+      "text": "Adversaries may exploit resources reachable from the mobile network position. Mobile SSRF (D_083) reaching cloud IMDS endpoints (169.254.169.254) or RFC1918 ranges through user-controlled URL inputs is the canonical pattern."
+    },
+    {
+      "id": "T1577",
+      "title": "Compromise Application Executable",
+      "tactic": "Persistence",
+      "text": "Adversaries may modify the executable code of an installed application to maintain persistence. Insecure in-app updaters that install APKs without signature checks (D_030) and dynamic code loading from writable paths (D_005) enable this."
+    },
+    {
+      "id": "T1414",
+      "title": "Clipboard Data",
+      "tactic": "Collection",
+      "text": "Adversaries may read the contents of the system clipboard. Apps with foreground access can use ClipboardManager.getPrimaryClip; background readers (D_036) bypass user expectation, particularly on Android <10 where clipboard read was unrestricted."
+    },
+    {
+      "id": "T1623",
+      "title": "Command and Scripting Interpreter",
+      "tactic": "Execution",
+      "text": "Adversaries may abuse command and script interpreters to execute commands. Runtime.exec / ProcessBuilder reached via unsafe reflection chains (D_033) or DexClassLoader on attacker-influenceable paths gives an attacker command execution as the app UID."
+    },
+    {
+      "id": "T1521",
+      "title": "Encrypted Channel",
+      "tactic": "Command and Control",
+      "text": "Adversaries may use encrypted channels to evade detection. From a defender perspective, weakly-pinned TLS (N_001/N_005) and accept-all TrustManager (N_008) implementations downgrade this protection and let analysts MITM."
+    },
+    {
+      "id": "T1646",
+      "title": "Exfiltration Over C2 Channel",
+      "tactic": "Exfiltration",
+      "text": "Adversaries may steal data by exfiltrating it over an existing command and control channel. PII shipped to third-party analytics or ads hosts (D_013) is the data-leakage twin of this technique inside legitimate mobile apps."
+    }
+  ]
+}
