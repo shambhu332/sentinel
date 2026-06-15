@@ -167,8 +167,38 @@ function acceptFile(f) {
 function renderStepOptions() {
   const wrap = el('div');
   wrap.appendChild(el('h4', { style: 'margin-bottom: 8px;' }, 'Scan options'));
-  wrap.appendChild(el('p', { class: 'text-muted', style: 'margin-bottom: 16px;' },
+  wrap.appendChild(el('p', { class: 'text-muted', style: 'margin-bottom: 12px;' },
     'Pick analysis modes. Dynamic and Frida require a connected Android device with adb and frida-server.'));
+
+  // Quick presets — single click sets a coherent VAPT/SAST/Full posture.
+  const presetBar = el('div', { style: 'display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px;' });
+  function mkPreset(label, desc, opts) {
+    const btn = el('button', { class: 'btn btn-ghost btn-sm', title: desc }, label);
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      Object.assign(state.options, opts);
+      renderStep();
+      toast(`Preset applied: ${label}`, 'success');
+    });
+    return btn;
+  }
+  presetBar.append(
+    mkPreset('SAST only',
+      'Pure static — no device required',
+      { dynamic: false, frida: false, noProxy: false, llmTriage: true }),
+    mkPreset('Full VAPT',
+      'SAST + DAST + Frida hybrid dispatch (device + frida-server required)',
+      { dynamic: true, frida: true, noProxy: false, llmTriage: true,
+        dynamicDuration: 60, fridaDuration: 45 }),
+    mkPreset('Stealth VAPT',
+      'Full VAPT with anti-MITM apps — skips proxy',
+      { dynamic: true, frida: true, noProxy: true, llmTriage: true,
+        dynamicDuration: 60, fridaDuration: 45 }),
+    mkPreset('Privacy mode',
+      'Local LLM only, no cloud egress for triage',
+      { privacy: true, llmTriage: true }),
+  );
+  wrap.appendChild(presetBar);
 
   function toggleRow(key, label, desc, badge) {
     const row = el('div', { class: 'settings-row' },

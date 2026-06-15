@@ -1,6 +1,13 @@
-// Agents catalog page
+// Agents catalog page — primary source is the live /agents API (derived
+// from the in-process Python class registry, so every CLI-runnable agent
+// appears here automatically). Static AGENTS array is used as a fallback
+// + as a source of enriched descriptions for IDs the API also exposes.
 import { el, refreshIcons, debounce } from '../utils.js';
-import { AGENTS, CATEGORIES, PHASES, SEVERITIES } from '../data/agents.js';
+import { AGENTS as STATIC_AGENTS, CATEGORIES, PHASES, SEVERITIES } from '../data/agents.js';
+import { api } from '../api.js';
+
+let LIVE_AGENTS = STATIC_AGENTS;     // replaced once /agents responds
+let CATALOG_SOURCE = 'static';       // 'static' | 'live' | 'merged'
 
 let state = {
   q: '',
@@ -10,11 +17,32 @@ let state = {
   expanded: new Set(),
 };
 
+function mergeWithStatic(liveList) {
+  // The /agents endpoint emits {id, name, category, phase, severity,
+  // description}. Static catalog has per-agent severities arrays +
+  // richer descriptions. Merge so the UI keeps its severity dots while
+  // still picking up every agent the live registry exposes.
+  const staticById = new Map(STATIC_AGENTS.map(a => [a.id, a]));
+  return liveList.map(a => {
+    const fallback = staticById.get(a.id);
+    return {
+      id: a.id,
+      name: a.name?.replace(/Agent$/, '') || (fallback?.name || a.id),
+      vuln_class: fallback?.vuln_class || a.description?.split('.')[0] || '',
+      phase: a.phase || fallback?.phase || 'Phase 2',
+      category: (a.category || fallback?.category || 'other').toLowerCase().replace(/\s+/g, '-'),
+      severities: fallback?.severities || ['info'],
+      description: fallback?.description || a.description || '',
+    };
+  });
+}
+
 export function renderAgentsPage(main) {
   main.appendChild(el('div', { class: 'page-header' },
     el('div', {},
       el('div', { class: 'page-title' }, 'Agents'),
-      el('div', { class: 'page-subtitle' }, `${AGENTS.length} specialized agents across ${CATEGORIES.length} categories`),
+      el('div', { class: 'page-subtitle', id: 'agents-subtitle' },
+        `${LIVE_AGENTS.length} agents · loading live registry…`),
     ),
     el('div', { class: 'page-actions' },
       el('div', { class: 'search-input', style: 'min-width: 240px;' },
@@ -49,6 +77,20 @@ export function renderAgentsPage(main) {
 
   renderGrid();
   refreshIcons();
+
+  // Fetch live registry. Failure is non-fatal — the static catalog
+  // ships every agent that was known at frontend build time.
+  api.listAgents().then(live => {
+    if (!Array.isArray(live) || live.length === 0) return;
+    LIVE_AGENTS = mergeWithStatic(live);
+    CATALOG_SOURCE = 'live';
+    const sub = document.getElementById('agents-subtitle');
+    if (sub) sub.textContent = `${LIVE_AGENTS.length} agents (live registry) · ${CATEGORIES.length} categories`;
+    renderGrid();
+  }).catch(() => {
+    const sub = document.getElementById('agents-subtitle');
+    if (sub) sub.textContent = `${LIVE_AGENTS.length} agents (offline catalog) · ${CATEGORIES.length} categories`;
+  });
 }
 
 function buildFilterSection(title, items, key) {
@@ -74,7 +116,7 @@ function renderGrid() {
   if (!grid) return;
   grid.innerHTML = '';
 
-  const filtered = AGENTS.filter(a => {
+  const filtered = LIVE_AGENTS.filter(a => {
     if (state.q) {
       const txt = `${a.id} ${a.name} ${a.description} ${a.category}`.toLowerCase();
       if (!txt.includes(state.q)) return false;
@@ -134,16 +176,15 @@ function buildAgentCard(agent) {
 
   const more = el('div', { class: 'agent-more' });
   more.append(
-    el('h5', {}, 'What it detects'),
-    el('p', {}, agent.detects),
-    el('h5', {}, 'Example finding'),
-    el('p', { class: 'mono', style: 'font-size: 12px; color: var(--text-muted);' }, agent.example),
-    el('h5', {}, 'False-positive rate'),
-    el('p', {}, agent.fpRate),
-    el('h5', {}, 'Key heuristics'),
-    el('ul', { style: 'list-style: disc; padding-left: 20px;' },
-      ...agent.heuristics.map(h => el('li', { class: 'mono text-secondary', style: 'font-size: 12px; margin: 2px 0;' }, h)),
-    ),
+    el('h5', {}, 'Vulnerability class'),
+    el('p', { class: 'mono', style: 'font-size: 12px;' }, agent.vuln_class || '—'),
+    el('h5', {}, 'Description'),
+    el('p', {}, agent.description || '—'),
+    el('h5', {}, 'Phase'),
+    el('p', { class: 'mono', style: 'font-size: 12px;' }, agent.phase || '—'),
+    el('h5', {}, 'Severities'),
+    el('p', { class: 'mono', style: 'font-size: 12px;' },
+      (agent.severities || []).join(' · ') || '—'),
   );
   card.appendChild(toggleBtn);
   card.appendChild(more);
