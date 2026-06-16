@@ -1224,3 +1224,339 @@ code.inline {
   border:1px solid color-mix(in srgb, var(--swarm-purple) 30%, transparent);
   border-radius:12px;
 }
+
+/* ============================================================
+   FindingDetailView — Djini-style multi-section report panel
+   ============================================================ */
+.finding-detail-v2 {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 20px 24px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+}
+
+.fd-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 16px 20px;
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--accent-primary) 6%, transparent),
+    var(--bg-tertiary));
+  border-left: 4px solid var(--accent-primary);
+}
+.fd-banner[data-sev="Critical"] { border-left-color: var(--sev-critical); }
+.fd-banner[data-sev="High"]     { border-left-color: var(--sev-high); }
+.fd-banner[data-sev="Medium"]   { border-left-color: var(--sev-medium); }
+.fd-banner[data-sev="Low"]      { border-left-color: var(--sev-low); }
+.fd-banner[data-sev="Info"]     { border-left-color: var(--sev-info); }
+.fd-banner-left { min-width: 0; }
+.fd-banner-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+.fd-banner-meta {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.fd-banner-right {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-shrink: 0;
+}
+.fd-cvss-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--cvss-high) 13%, transparent);
+  border: 1px solid color-mix(in srgb, var(--cvss-high) 33%, transparent);
+  font-family: 'JetBrains Mono', monospace;
+}
+.fd-cvss-label { font-size: 10px; color: var(--text-muted); letter-spacing: 0.06em; }
+.fd-cvss-score { font-size: 14px; font-weight: 600; color: var(--cvss-high); }
+
+.fd-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.fd-section h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin: 0;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.fd-section h3 i { width: 14px; height: 14px; }
+.fd-prose {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-primary);
+}
+.fd-rationale {
+  margin-top: 8px;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--accent-primary) 5%, transparent);
+  border-left: 3px solid var(--accent-primary);
+}
+.fd-rationale-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent-primary);
+  margin-bottom: 4px;
+}
+.fd-agent-attribution {
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+/* Steps to reproduce */
+.fd-steps {
+  list-style: none;
+  counter-reset: fd-step;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.fd-steps li {
+  counter-increment: fd-step;
+  position: relative;
+  padding: 12px 14px 12px 48px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+}
+.fd-steps li::before {
+  content: counter(fd-step);
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--accent-primary);
+  color: var(--text-on-accent);
+  font-weight: 600;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.fd-step-text { font-size: 14px; line-height: 1.5; color: var(--text-primary); }
+.fd-step-cmd {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  background: var(--code-bg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--text-primary);
+  overflow-x: auto;
+  white-space: pre;
+}
+
+/* Affected code */
+.fd-code-path {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+.fd-code-line-tag {
+  padding: 1px 8px;
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--accent-primary) 13%, transparent);
+  color: var(--accent-primary);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+}
+.code-block .col-highlight {
+  background: color-mix(in srgb, var(--sev-high) 28%, transparent);
+  border-radius: 2px;
+  padding: 0 2px;
+  color: var(--text-primary);
+}
+
+/* Context factors */
+.fd-context-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+.fd-context-card {
+  padding: 12px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+}
+.fd-context-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.fd-context-label i { width: 13px; height: 13px; }
+.fd-context-value {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.fd-section-remediation {
+  padding: 14px 16px;
+  background: color-mix(in srgb, var(--success) 5%, transparent);
+  border-radius: var(--radius-md);
+  border-left: 3px solid var(--success);
+}
+.fd-section-remediation h3 { border-bottom: none; padding-bottom: 0; color: var(--success); }
+
+/* References */
+.fd-refs {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.fd-refs li a {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: var(--radius-full);
+  background: var(--bg-tertiary);
+  color: var(--accent-primary);
+  font-size: 12px;
+  text-decoration: none;
+  border: 1px solid var(--border);
+  transition: all var(--t-fast);
+}
+.fd-refs li a:hover {
+  background: color-mix(in srgb, var(--accent-primary) 13%, transparent);
+  border-color: var(--accent-primary);
+}
+
+.finding-supplementary {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 4px;
+}
+
+/* Screenshot carousel */
+.screenshot-carousel { margin-top: 10px; }
+.screenshot-caption {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+.screenshot-strip {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  padding: 4px 2px 10px;
+}
+.screenshot-item {
+  margin: 0;
+  flex: 0 0 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.screenshot-img {
+  width: 220px;
+  height: 380px;
+  object-fit: cover;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-tertiary);
+  cursor: zoom-in;
+  transition: transform var(--t-fast), border-color var(--t-fast);
+}
+.screenshot-img:hover {
+  border-color: var(--accent-primary);
+  transform: translateY(-2px);
+}
+.screenshot-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
+}
+.screenshot-placeholder {
+  width: 220px;
+  height: 380px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: var(--bg-tertiary);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.screenshot-placeholder i { width: 28px; height: 28px; }
+.screenshot-lightbox {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  z-index: var(--z-modal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  cursor: zoom-out;
+}
+.screenshot-lightbox-img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-xl);
+}
+.screenshot-lightbox-close {
+  position: absolute;
+  top: 16px;
+  right: 20px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+  font-size: 22px;
+  cursor: pointer;
+}
+.screenshot-lightbox-close:hover { background: rgba(255, 255, 255, 0.2); }
+
+/* Modal needs an XL size for the new detail view */
+.modal-xl { max-width: 1100px; width: 95vw; }

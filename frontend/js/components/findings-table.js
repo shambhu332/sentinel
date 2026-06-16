@@ -1,13 +1,12 @@
 // Findings table with expandable detail rows
 import { el, refreshIcons, escape } from '../utils.js';
 import { sevBadge, triageBadge } from './severity-badge.js';
-import { codeBlock } from './code-block.js';
 import { getAgentById } from '../data/agents.js';
-import { renderCompliancePanel, complianceInlinePill } from './compliance-panel.js';
-import { impactBadge, renderImpactCard } from './impact-badge.js';
-import { renderSwarmPanel } from './swarm-panel.js';
+import { complianceInlinePill } from './compliance-panel.js';
+import { impactBadge } from './impact-badge.js';
+import { renderFindingDetailView } from './finding-detail-view.js';
 
-export function renderFindingsTable(container, findings) {
+export function renderFindingsTable(container, findings, ctx = null) {
   container.innerHTML = '';
 
   if (!findings || findings.length === 0) {
@@ -115,7 +114,7 @@ export function renderFindingsTable(container, findings) {
     // Expansion row
     const expansion = el('tr', { class: 'finding-expansion hidden' });
     const detailCell = el('td', { colspan: 7, style: 'padding: 0;' });
-    detailCell.appendChild(buildFindingDetail(finding, agent));
+    detailCell.appendChild(renderFindingDetailView(finding, agent, ctx));
     expansion.appendChild(detailCell);
 
     row.addEventListener('click', () => {
@@ -141,51 +140,6 @@ export function renderFindingsTable(container, findings) {
   container.appendChild(wrap);
 
   refreshIcons();
-}
-
-function buildFindingDetail(finding, agent) {
-  const detail = el('div', { class: 'finding-detail' });
-
-  // Left column — code evidence
-  const left = el('div', { class: 'finding-section' },
-    el('h4', {}, 'Evidence'),
-    el('p', { class: 'mono text-muted', style: 'font-size: 12px; margin-bottom: 8px;' },
-      `${finding.evidence?.file || '—'}:${finding.evidence?.line || '?'}`),
-    codeBlock(finding.evidence?.snippet || '// (no snippet)', { showLineNumbers: false }),
-  );
-
-  // Right column — context
-  const right = el('div', { style: 'display: flex; flex-direction: column; gap: 16px;' });
-
-  if (agent) {
-    right.appendChild(el('div', { class: 'finding-section' },
-      el('h4', {}, 'Agent'),
-      el('p', {}, `${agent.id} — ${agent.name}`),
-      el('p', { class: 'text-muted', style: 'font-size: 12px;' }, agent.description),
-    ));
-  }
-
-  right.appendChild(el('div', { class: 'finding-section rationale' },
-    el('h4', {}, 'LLM Triage Rationale'),
-    el('p', {}, finding.llmRationale || '—'),
-  ));
-
-  right.appendChild(el('div', { class: 'finding-section recommendation' },
-    el('h4', {}, 'Recommendation'),
-    el('p', {}, finding.recommendation || '—'),
-  ));
-
-  const compliance = renderCompliancePanel(finding);
-  if (compliance) right.appendChild(compliance);
-
-  const impactCard = renderImpactCard(finding);
-  if (impactCard) right.appendChild(impactCard);
-
-  const swarmPanel = renderSwarmPanel(finding);
-  if (swarmPanel) right.appendChild(swarmPanel);
-
-  detail.append(left, right);
-  return detail;
 }
 
 function truncate(s, n) {

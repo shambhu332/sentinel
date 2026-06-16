@@ -113,7 +113,7 @@ async function paint(scanId, summary) {
   shell.appendChild(panes);
 
   renderSummaryPane(summary, findings, result);
-  renderFindingsPane(findings, summary.status);
+  renderFindingsPane(findings, summary.status, summary);
   renderVaptPane(scanId, summary);
   renderJsonPane(scanId, summary, result, findings);
   renderWarningsPane(result?.warnings || []);
@@ -318,7 +318,7 @@ function sevCard(cls, label, count) {
   );
 }
 
-function renderFindingsPane(findings, status) {
+function renderFindingsPane(findings, status, summary) {
   const pane = document.querySelector('[data-pane="findings"]');
   pane.innerHTML = '';
 
@@ -369,7 +369,7 @@ function renderFindingsPane(findings, status) {
   )));
   const tbody = el('tbody');
   rows.forEach(f => {
-    const tr = el('tr', { class: 'clickable', onclick: () => showFindingDetail(f) });
+    const tr = el('tr', { class: 'clickable', onclick: () => showFindingDetail(f, summary) });
     tr.append(
       el('td', {}, sevBadge(f.severity, f.severity_label || f.severity)),
       el('td', {}, el('span', { class: 'mono', style: 'font-size: 12px;' }, f.agent_id)),
@@ -421,51 +421,40 @@ function verifyChip(f) {
     c.label);
 }
 
-function showFindingDetail(f) {
-  const ev = f.evidence || {};
-  const ordered = Object.entries(ev).filter(([k]) => !k.startsWith('_'));
-  const evidenceText = ordered.length
-    ? ordered.map(([k, v]) => `${k}: ${typeof v === 'string' ? v : JSON.stringify(v, null, 2)}`).join('\n')
-    : '(no evidence)';
-
-  // Lightweight inline modal — reuse the existing modal helper via dynamic import
-  import('../components/modal.js').then(({ openModal }) => {
-    const body = el('div', {},
-      el('div', { style: 'display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap;' },
-        sevBadge(f.severity, f.severity_label || f.severity),
-        el('span', { class: 'mono', style: 'font-size: 12px;' }, f.agent_id),
+function showFindingDetail(f, summary) {
+  // Normalise to the shape FindingDetailView expects (camelCase vulnClass,
+  // optional context fields).
+  const finding = Object.assign({}, f, {
+    vulnClass: f.vuln_class || f.vulnClass,
+    llmRationale: f.llm_rationale || f.evidence?.llm_rationale,
+  });
+  const ctx = summary ? {
+    session_id: summary.session_id,
+    appName: summary.app_name || summary.appName,
+    package: summary.package,
+    version: summary.version,
+  } : null;
+  Promise.all([
+    import('../components/modal.js'),
+    import('../components/finding-detail-view.js'),
+    import('../data/agents.js'),
+  ]).then(([{ openModal }, { renderFindingDetailView }, { getAgentById }]) => {
+    const agent = getAgentById(f.agent_id);
+    const body = el('div', { class: 'finding-detail-modal' });
+    // Verifier verdict chip stays in the modal header — it's scan-flow
+    // metadata, not part of the canonical Djini layout.
+    if (f.triage || (f.evidence && f.evidence._verify)) {
+      body.appendChild(el('div', {
+        style: 'display:flex; gap:8px; align-items:center; margin-bottom:12px; flex-wrap:wrap;',
+      },
         triageChip(f.triage),
         verifyChip(f),
-        el('span', { class: 'mono text-muted', style: 'font-size: 12px;' }, (f.confidence * 100).toFixed(0) + '% confidence'),
-      ),
-      el('h4', { style: 'margin-bottom: 8px;' }, f.vuln_class),
-      el('div', { class: 'text-secondary', style: 'margin-bottom: 16px;' }, f.recommendation),
-      el('h5', { style: 'margin: 12px 0 6px; text-transform: uppercase; font-size: 11px; letter-spacing: 0.05em; color: var(--text-muted);' }, 'Evidence'),
-      codeBlock(evidenceText, { showLineNumbers: false }),
-    );
-    // Verifier verdict block — outcome, method, notes, and any
-    // evidence the verifier captured during its run.
-    const verify = ev._verify;
-    if (verify) {
-      const verifyBody = `outcome: ${verify.outcome || '—'}\n`
-        + `method:  ${verify.method || '—'}\n`
-        + (verify.notes ? `notes:   ${verify.notes}\n` : '')
-        + (verify.evidence && Object.keys(verify.evidence).length
-            ? `evidence:\n${JSON.stringify(verify.evidence, null, 2)}`
-            : '');
-      body.appendChild(el('h5', {
-        style: 'margin: 16px 0 6px; text-transform: uppercase; font-size: 11px; letter-spacing: 0.05em; color: var(--text-muted);',
-      }, 'Verifier'));
-      body.appendChild(codeBlock(verifyBody, { showLineNumbers: false }));
+        el('span', { class: 'mono text-muted', style: 'font-size: 12px;' },
+          (f.confidence * 100).toFixed(0) + '% confidence'),
+      ));
     }
-    if (f.owasp || f.masvs || f.cvss_vector) {
-      const tags = el('div', { style: 'display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px;' });
-      if (f.owasp)        tags.appendChild(el('span', { class: 'badge' }, 'OWASP ', f.owasp));
-      if (f.masvs)        tags.appendChild(el('span', { class: 'badge' }, 'MASVS ', f.masvs));
-      if (f.cvss_vector)  tags.appendChild(el('span', { class: 'badge mono', style: 'font-size: 11px;' }, f.cvss_vector));
-      body.appendChild(tags);
-    }
-    openModal({ title: f.vuln_class, body, size: 'lg' });
+    body.appendChild(renderFindingDetailView(finding, agent, ctx));
+    openModal({ title: f.vuln_class, body, size: 'xl' });
   });
 }
 
