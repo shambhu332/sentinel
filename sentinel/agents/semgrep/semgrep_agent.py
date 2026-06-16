@@ -20,6 +20,7 @@ findings — the agent never crashes the pipeline.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import shutil
@@ -102,7 +103,7 @@ class SemgrepAgent(BaseAgent):
         source_dir = ctx.decompiled_dir
         assert source_dir is not None  # is_applicable guards this
 
-        raw = self._run_semgrep(source_dir)
+        raw = await asyncio.to_thread(self._run_semgrep, source_dir)
         if raw is None:
             return []
 

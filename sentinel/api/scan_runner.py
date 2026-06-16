@@ -441,14 +441,20 @@ class ScanRegistry:
     async def remove(self, session_id: str) -> bool:
         async with self._lock:
             job = self._jobs.pop(session_id, None)
-            if job and job.task and not job.task.done():
-                job.task.cancel()
-            if job and job.apk_path.exists():
-                try:
-                    job.apk_path.unlink()
-                except OSError:
-                    pass
-            return job is not None
+        if job and job.task and not job.task.done():
+            job.task.cancel()
+            try:
+                await job.task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                # Orchestrator's finally block runs here — swallow so caller
+                # sees a clean cancel rather than the worker's exception.
+                pass
+        if job and job.apk_path.exists():
+            try:
+                job.apk_path.unlink()
+            except OSError:
+                logger.warning("Could not remove APK for session %s", session_id)
+        return job is not None
 
 
 _registry: ScanRegistry | None = None
@@ -592,11 +598,11 @@ async def _run_job(job: ScanJob) -> None:
             try:
                 await router.close()
             except Exception:  # noqa: BLE001
-                pass
+                logger.exception("Scan %s: router.close() failed", job.session_id)
         try:
             await memory.close()
         except Exception:  # noqa: BLE001
-            pass
+            logger.exception("Scan %s: memory.close() failed", job.session_id)
         if ctx is not None and not bool(job.options.get("keep_workspace", False)):
             _cleanup_web_scan_artifacts(ctx.workspace, job.apk_path)
 

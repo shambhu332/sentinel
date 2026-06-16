@@ -74,7 +74,8 @@ class ManifestParser:
         for component_type in ("activity", "service", "receiver", "provider"):
             try:
                 elements = apk.find_tags(component_type)
-            except Exception:
+            except Exception as e:  # noqa: BLE001
+                logger.debug("find_tags(%s) failed: %s", component_type, e)
                 continue
             for elem in elements:
                 name = elem.get(_ns("name")) or ""
@@ -107,7 +108,8 @@ class ManifestParser:
         deep_links: list[dict[str, str]] = []
         try:
             activities = apk.find_tags("activity")
-        except Exception:
+        except Exception as e:  # noqa: BLE001
+            logger.debug("find_tags(activity) failed: %s", e)
             return deep_links
 
         for activity in activities:
@@ -145,7 +147,8 @@ class ManifestParser:
     def _cleartext_enabled(self, apk: Any) -> bool:
         try:
             apps = apk.find_tags("application")
-        except Exception:
+        except Exception as e:  # noqa: BLE001
+            logger.debug("find_tags(application) failed in cleartext check: %s", e)
             return False
         for app in apps:
             val = app.get(_ns("usesCleartextTraffic"))
@@ -156,7 +159,8 @@ class ManifestParser:
     def _backup_enabled(self, apk: Any) -> bool:
         try:
             apps = apk.find_tags("application")
-        except Exception:
+        except Exception as e:  # noqa: BLE001
+            logger.debug("find_tags(application) failed in backup check: %s", e)
             return False
         for app in apps:
             val = app.get(_ns("allowBackup"))
@@ -170,7 +174,8 @@ class ManifestParser:
     def _debuggable(self, apk: Any) -> bool:
         try:
             apps = apk.find_tags("application")
-        except Exception:
+        except Exception as e:  # noqa: BLE001
+            logger.debug("find_tags(application) failed in debuggable check: %s", e)
             return False
         for app in apps:
             if app.get(_ns("debuggable")) == "true":

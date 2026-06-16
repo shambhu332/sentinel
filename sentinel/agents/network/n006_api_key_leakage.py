@@ -65,7 +65,8 @@ class ApiKeyLeakageAgent(BaseAgent):
         if not parts and capture_file and capture_file.exists():
             try:
                 parts.append(capture_file.read_text(errors="replace"))
-            except Exception:
+            except Exception as e:  # noqa: BLE001
+                self._log.warning("Could not read capture file %s: %s", capture_file, e)
                 return findings
 
         traffic_data = "\n".join(parts)
