@@ -1,11 +1,26 @@
 """SENTINEL command-line interface.
 
-Subcommands:
-    serve         Launch the FastAPI gateway
-    scan          Run a real scan against an APK
-    scope parse   Parse a bug bounty scope (URL/file/text)
-    agents        List available analysis agents
-    status        Show configuration and connectivity
+Command groups:
+
+  Scanning
+    scan              Run a real scan against an APK
+    scope parse       Parse a bug bounty scope (URL/file/text)
+    verify            Re-run per-finding-class verifiers on a JSON results file
+    diff              Diff SAST findings between two APK versions (CI gate)
+
+  Knowledge
+    rag build         Build / refresh the local RAG corpus
+    rag query         Query the RAG corpus
+    rag stats         Show RAG corpus statistics
+
+  Bug-bounty
+    exploit generate  Render a PoC artifact from a finding
+
+  Service
+    serve             Launch the FastAPI gateway
+    agents            List available analysis agents (queries gateway)
+    status            Show configuration and connectivity
+    doctor            Pre-flight health check (adb, frida, redis, env vars…)
 """
 from __future__ import annotations
 
@@ -1280,6 +1295,84 @@ def status() -> None:
 
 
 @main.command()
+def doctor() -> None:
+    """Pre-flight health check for the SENTINEL toolchain.
+
+    Probes every external dependency the scanner can use (adb,
+    frida-server, semgrep, mobsf, redis, postgres) plus required
+    environment variables, and prints a green/red checklist. Always
+    exits 0 — the checklist is informational.
+    """
+    import shutil
+    import socket
+
+    settings = get_settings()
+    table = Table(title="SENTINEL Doctor", show_header=True, header_style="bold cyan")
+    table.add_column("Check", width=22)
+    table.add_column("Status", width=10)
+    table.add_column("Detail")
+
+    def ok(label: str, detail: str = "") -> None:
+        table.add_row(label, "[bold green]✓ OK[/]", detail)
+
+    def warn(label: str, detail: str = "") -> None:
+        table.add_row(label, "[bold yellow]⚠ WARN[/]", detail)
+
+    def fail(label: str, detail: str = "") -> None:
+        table.add_row(label, "[bold red]✗ MISS[/]", detail)
+
+    # Binaries on PATH
+    for tool, hint in (
+        ("adb", "Android SDK platform-tools"),
+        ("frida", "pip install frida-tools"),
+        ("frida-server", "On the device, not host — skip if N/A"),
+        ("semgrep", "pip install semgrep"),
+        ("apktool", "apt install apktool / brew install apktool"),
+    ):
+        path = shutil.which(tool)
+        if path:
+            ok(tool, path)
+        else:
+            (warn if tool == "frida-server" else fail)(tool, hint)
+
+    # TCP probes
+    def probe(host: str, port: int) -> bool:
+        try:
+            with socket.create_connection((host, port), timeout=1.5):
+                return True
+        except OSError:
+            return False
+
+    if probe("127.0.0.1", 6379):
+        ok("Redis (localhost:6379)")
+    else:
+        warn("Redis (localhost:6379)", "Device pool falls back to in-memory")
+
+    if probe("127.0.0.1", 5432):
+        ok("Postgres (localhost:5432)")
+    else:
+        warn("Postgres (localhost:5432)", "SQLite fallback in use")
+
+    if probe("127.0.0.1", 8000):
+        ok("Gateway (localhost:8000)")
+    else:
+        warn("Gateway (localhost:8000)", "Start with: sentinel serve")
+
+    # Env / settings
+    if settings.cerebras_api_key.get_secret_value():
+        ok("CEREBRAS_API_KEY", "configured")
+    else:
+        warn("CEREBRAS_API_KEY", "Triage falls back to local Ollama")
+
+    if probe(settings.ollama_host.split("//")[-1].split(":")[0] or "127.0.0.1", 11434):
+        ok("Ollama", settings.ollama_host)
+    else:
+        warn("Ollama", f"Not reachable at {settings.ollama_host}")
+
+    console.print(table)
+
+
+@main.command()
 @click.option("--base", "base_apk", required=True,
               type=click.Path(exists=True, dir_okay=False, path_type=Path),
               help="Baseline APK (the older / known-good build).")
@@ -1383,7 +1476,7 @@ def diff(
         output.write_text(rendered)
         console.print(f"[bold green]Wrote diff to:[/] {output}")
     else:
-        click.echo(rendered)
+        console.print(rendered, markup=False, highlight=False)
 
     code = gate_exit_code(summary, fail_set)
     if code:
