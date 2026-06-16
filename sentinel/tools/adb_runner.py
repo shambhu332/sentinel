@@ -393,6 +393,85 @@ class AdbRunner:
             duration=disable.duration_seconds + enable.duration_seconds,
         )
 
+    # ---------- Visual evidence ----------
+
+    async def screenshot(
+        self,
+        out_dir: Path,
+        label: str = "screen",
+        serial: Optional[str] = None,
+    ) -> ToolResult[Path]:
+        """Capture a device screenshot and save it under ``out_dir``.
+
+        Uses ``adb exec-out screencap -p`` which streams the PNG bytes
+        directly over the adb socket — avoids the legacy /sdcard/
+        round-trip and works on devices without external storage.
+
+        Args:
+            out_dir: directory to write into; created if missing.
+            label: short tag for the filename (e.g. "before_exploit").
+                Combined with a millisecond timestamp to guarantee
+                uniqueness across rapid captures.
+            serial: device serial; None = default device.
+
+        Returns ToolResult[Path] with the absolute screenshot path on
+        success. Captures never raise — failure is reported via
+        ToolResult so the agent pipeline keeps running.
+        """
+        start = time.monotonic()
+        if self._missing_reason:
+            return ToolResult.fail(
+                self._missing_reason, duration=time.monotonic() - start,
+            )
+
+        out_dir.mkdir(parents=True, exist_ok=True)
+        safe_label = "".join(c if c.isalnum() or c in "-_" else "_" for c in label)
+        ts_ms = int(time.time() * 1000)
+        out_path = out_dir / f"{safe_label}_{ts_ms}.png"
+
+        cmd = [self._adb_path]
+        if serial:
+            cmd.extend(["-s", serial])
+        cmd.extend(["exec-out", "screencap", "-p"])
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            try:
+                stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                    proc.communicate(), timeout=self._default_timeout,
+                )
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.wait()
+                return ToolResult.fail(
+                    "screencap timed out",
+                    duration=time.monotonic() - start,
+                )
+
+            if proc.returncode or not stdout_bytes:
+                return ToolResult.fail(
+                    f"screencap failed: {stderr_bytes.decode('utf-8', errors='replace')[:200]}",
+                    duration=time.monotonic() - start,
+                )
+
+            out_path.write_bytes(stdout_bytes)
+            logger.info("Captured screenshot → %s (%d bytes)", out_path, len(stdout_bytes))
+            return ToolResult.ok(out_path, duration=time.monotonic() - start)
+
+        except FileNotFoundError as e:
+            return ToolResult.fail(
+                f"adb not found: {e}", duration=time.monotonic() - start,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.exception("screencap crashed")
+            return ToolResult.from_exception(
+                e, duration=time.monotonic() - start,
+            )
+
     # ---------- Log capture ----------
 
     async def logcat_clear(self,

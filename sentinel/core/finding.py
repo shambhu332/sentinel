@@ -67,6 +67,20 @@ class Finding(BaseModel):
     # is a free-form "framework reference" string; rendering happens in
     # the report layer.
     compliance_tags: list[str] = Field(default_factory=list, max_length=50)
+    # Visual evidence — relative paths under workspace/{session}/evidence/.
+    # Captured by adb_runner.screenshot() around dynamic exploit triggers
+    # and rendered as a carousel in the finding detail view.
+    screenshots: list[str] | None = Field(default=None, max_length=20)
+    # Precise vulnerable-line metadata emitted by SAST agents. Keys:
+    #   file (str), line (int), start_col (int), end_col (int),
+    #   content (str, the snippet itself, max ~4 KB).
+    # The frontend uses start_col/end_col to highlight the exact range.
+    code_snippet: dict[str, Any] | None = Field(default=None)
+    # Five-point qualitative ratings produced by IMPACT_001 / triage.
+    # Keys: exposure, controls, impact, likelihood (each a short string
+    # like "Network-reachable" or "None"). Free-form so different
+    # rating systems can coexist.
+    context_factors: dict[str, str] | None = Field(default=None)
     triage: TriageState = TriageState.UNREVIEWED
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
