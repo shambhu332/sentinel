@@ -155,6 +155,32 @@ class BaseAgent(ABC):
             return False
         return True
 
+    async def _capture_screenshot(
+        self, label: str = "screen", serial: str | None = None,
+    ) -> str | None:
+        """Capture a device screenshot and return a relative path for Finding.screenshots.
+
+        The path is relative to ``workspace/{session_id}/`` (e.g.
+        ``evidence/before_exploit_1718537400123.png``) — that's the
+        form the frontend uses when building the URL against the
+        ``/reports/{session_id}/evidence/{filename}`` endpoint.
+
+        Returns None on failure (missing adb, no device, capture
+        crashed) — callers should treat None as "no visual evidence
+        available" and continue.
+        """
+        try:
+            from sentinel.tools.adb_runner import AdbRunner
+        except ImportError:
+            return None
+        evidence_dir = self._context.workspace / "evidence"
+        runner = AdbRunner()
+        result = await runner.screenshot(evidence_dir, label=label, serial=serial)
+        if not result.success or result.data is None:
+            self._log.debug("Screenshot capture failed: %s", result.error)
+            return None
+        return f"evidence/{result.data.name}"
+
     def _make_finding(self, **kwargs: Any) -> Finding:
         """Build a Finding with session_id, agent_id, and evidence['package']
         auto-filled.

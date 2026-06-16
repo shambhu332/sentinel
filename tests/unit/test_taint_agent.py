@@ -361,6 +361,7 @@ def test_hop_helpers_serialise_correctly() -> None:
                    kind="sink", label="rawQuery")
     d = _hop_dict(hop)
     assert d == {"file": "/tmp/x.java", "line": 42,
+                 "start_col": 0, "end_col": 0,
                  "code": "db.rawQuery(q)", "kind": "sink",
                  "label": "rawQuery"}
     s = _hop_str(hop)

@@ -132,11 +132,19 @@ class TaintAgent(BaseAgent):
 
         severity = self._adjust_severity(sink_spec.severity, flow.confidence)
         recommendation = self._recommendation_for(flow, sink_spec)
+        code_snippet = {
+            "file": flow.sink.file,
+            "line": flow.sink.line,
+            "start_col": flow.sink.start_col,
+            "end_col": flow.sink.end_col,
+            "content": flow.sink.code,
+        }
         return self._make_finding(
             vuln_class=sink_spec.vuln_class,
             severity=severity,
             confidence=flow.confidence,
             evidence=evidence,
+            code_snippet=code_snippet,
             owasp=sink_spec.owasp,
             masvs=sink_spec.masvs,
             recommendation=recommendation,
@@ -221,6 +229,8 @@ def _hop_dict(hop: TraceHop) -> dict:
     return {
         "file": hop.file,
         "line": hop.line,
+        "start_col": hop.start_col,
+        "end_col": hop.end_col,
         "code": hop.code,
         "kind": hop.kind,
         "label": hop.label,

@@ -184,6 +184,39 @@ def get_poc_index(
         return JSONResponse(content=[])
 
 
+@router.get("/{session_id}/evidence/{filename}")
+def get_evidence_file(
+    session_id: str,
+    filename: str,
+    current_user=Depends(get_current_active_user),
+) -> FileResponse:
+    """Stream a visual-evidence artifact (screenshot) for a finding.
+
+    Captured by adb_runner.screenshot() during dynamic testing and
+    referenced from Finding.screenshots as a relative path like
+    ``evidence/before_exploit_1718537400123.png``.
+    """
+    if not _SESSION_ID.match(session_id):
+        raise HTTPException(status_code=400, detail="invalid session_id")
+    if "/" in filename or ".." in filename or "\\" in filename:
+        raise HTTPException(status_code=400, detail="invalid filename")
+    workspace_root = Path(get_settings().workspace).resolve()
+    candidate = (
+        workspace_root / session_id / "evidence" / filename
+    ).resolve()
+    if not candidate.is_relative_to(workspace_root) or not candidate.exists():
+        raise HTTPException(status_code=404, detail="not found")
+    # Lock to PNG/JPEG/WebP — screenshots are images only.
+    suffix = candidate.suffix.lower()
+    mime = {
+        ".png": "image/png", ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg", ".webp": "image/webp",
+    }.get(suffix)
+    if mime is None:
+        raise HTTPException(status_code=400, detail="unsupported media type")
+    return FileResponse(path=str(candidate), media_type=mime, filename=filename)
+
+
 @router.get("/{session_id}/poc/{filename}")
 def get_poc_file(
     session_id: str,

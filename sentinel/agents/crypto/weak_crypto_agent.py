@@ -108,16 +108,23 @@ class WeakCryptoAgent(BaseAgent):
 
             for primitive, pattern, severity, confidence in _DETECTORS:
                 for match in pattern.finditer(text):
-                    # Capture context line
-                    start = max(0, text.rfind("\n", 0, match.start()) + 1)
-                    end = text.find("\n", match.end())
-                    if end == -1:
-                        end = len(text)
-                    line = text[start:end].strip()
+                    # Capture context line + 1-based line number + columns
+                    line_start = max(0, text.rfind("\n", 0, match.start()) + 1)
+                    line_end = text.find("\n", match.end())
+                    if line_end == -1:
+                        line_end = len(text)
+                    line_text = text[line_start:line_end]
+                    # Line number = 1 + number of newlines up to the match
+                    line_no = text.count("\n", 0, match.start()) + 1
+                    start_col = match.start() - line_start
+                    end_col = start_col + (match.end() - match.start())
 
                     hits_by_primitive.setdefault(primitive, []).append({
                         "file": rel,
-                        "context": line[:200],
+                        "line": line_no,
+                        "start_col": start_col,
+                        "end_col": end_col,
+                        "context": line_text.strip()[:200],
                         "matched": match.group(0)[:80],
                     })
                     primitive_metadata[primitive] = (severity, confidence)
@@ -132,11 +139,21 @@ class WeakCryptoAgent(BaseAgent):
         findings: list[Finding] = []
         for primitive, instances in hits_by_primitive.items():
             severity, confidence = primitive_metadata[primitive]
+            # First hit drives code_snippet; the rest live in evidence["hits"].
+            first = instances[0]
+            code_snippet = {
+                "file": first["file"],
+                "line": first["line"],
+                "start_col": first["start_col"],
+                "end_col": first["end_col"],
+                "content": first["context"],
+            }
             findings.append(self._make_finding(
                 vuln_class=self.VULN_CLASS,
                 severity=severity,
                 confidence=confidence,
                 recommendation=self._build_recommendation(primitive),
+                code_snippet=code_snippet,
                 evidence={
                     "title": f"Weak Crypto Primitive: {primitive}",
                     "primitive": primitive,

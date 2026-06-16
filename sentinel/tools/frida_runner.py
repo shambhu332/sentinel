@@ -158,7 +158,11 @@ class FridaRunner:
     # Timeout for the adb pidof fallback in _find_pid.
     ADB_PIDOF_TIMEOUT_SECONDS = 5.0
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        evidence_dir: "Path | None" = None,
+        device_serial: Optional[str] = None,
+    ) -> None:
         self._device: Any = None
         self._session: Any = None
         self._script: Any = None
@@ -171,6 +175,14 @@ class FridaRunner:
         self._start_time: float = 0
         self._spawned: bool = False
         self._frida_unavailable_reason: Optional[str] = None
+        # Visual evidence — when ``evidence_dir`` is set, the runner
+        # captures a device screenshot at well-known checkpoints
+        # (post-resume, post-script-load) and accumulates the relative
+        # paths in ``self.screenshots`` so the calling agent can attach
+        # them to its Finding.
+        self._evidence_dir = evidence_dir
+        self._device_serial = device_serial
+        self.screenshots: list[str] = []
         try:
             import frida  # noqa: F401
         except ImportError as e:
@@ -397,10 +409,38 @@ class FridaRunner:
                 "Frida: resumed spawned PID %d (%s)",
                 self._target_pid, self._target_package,
             )
+            await self._capture_evidence("after_resume")
             return ToolResult.ok("resumed")
         except Exception as e:  # noqa: BLE001
             logger.exception("Frida resume failed")
             return ToolResult.from_exception(e)
+
+    async def _capture_evidence(self, label: str) -> None:
+        """Best-effort screenshot at a runtime checkpoint.
+
+        Silent no-op when ``evidence_dir`` wasn't configured. Failures
+        (adb missing, screencap timeout) are logged at debug — exploit
+        flows must never be derailed by a missed screenshot.
+        """
+        if self._evidence_dir is None:
+            return
+        try:
+            from sentinel.tools.adb_runner import AdbRunner
+
+            runner = AdbRunner()
+            # Give the UI ~700 ms to settle after the runtime event.
+            await asyncio.sleep(0.7)
+            result = await runner.screenshot(
+                self._evidence_dir, label=label, serial=self._device_serial,
+            )
+            if result.success and result.data is not None:
+                rel = f"evidence/{result.data.name}"
+                self.screenshots.append(rel)
+                logger.info("Frida evidence captured: %s", rel)
+            else:
+                logger.debug("Frida evidence capture (%s) failed: %s", label, result.error)
+        except Exception as e:  # noqa: BLE001
+            logger.debug("Frida evidence capture (%s) raised: %s", label, e)
 
     async def inject_script(self, script_source: str) -> ToolResult[str]:
         """Compile and load a Frida JS hook script."""
@@ -416,6 +456,7 @@ class FridaRunner:
             self._script.on("message", self._on_message)
             await self._loop.run_in_executor(None, self._script.load)
             logger.info("Frida script loaded for %s", self._target_package)
+            await self._capture_evidence("after_script_load")
             return ToolResult.ok("script_loaded")
         except Exception as e:  # noqa: BLE001
             logger.exception("Frida script injection failed")

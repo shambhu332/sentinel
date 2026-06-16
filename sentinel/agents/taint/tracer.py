@@ -141,6 +141,12 @@ class TraceHop:
     code: str
     kind: str        # source | sink | variable | call
     label: str = ""  # human-readable annotation (e.g. source name)
+    # Zero-based byte offsets within the line for the offending node.
+    # Both default to 0 when the upstream constructor didn't pass them
+    # (older callers / tests). The frontend treats start==end as "whole
+    # line" and falls back to highlighting the full row.
+    start_col: int = 0
+    end_col: int = 0
 
 
 @dataclass
@@ -208,6 +214,22 @@ def _text(node: Any, src: bytes) -> str:
 def _line(node: Any) -> int:
     """1-based line number of a node."""
     return node.start_point[0] + 1 if node is not None else 0
+
+
+def _cols(node: Any) -> tuple[int, int]:
+    """(start_col, end_col) zero-based within the start line.
+
+    When the node spans multiple lines, end_col is clamped to the end
+    of the start line so the frontend highlights to end-of-line
+    instead of jumping into wrong territory.
+    """
+    if node is None:
+        return (0, 0)
+    start_row, start_col = node.start_point
+    end_row, end_col = node.end_point
+    if end_row != start_row:
+        return (start_col, max(start_col, start_col + 80))
+    return (start_col, end_col)
 
 
 def _line_text(src: bytes, line_no: int) -> str:
@@ -582,12 +604,15 @@ class _Tracer:
                 if result.source_hop is None:
                     continue
 
+                _sc, _ec = _cols(call)
                 sink_hop = TraceHop(
                     file=str(method.file),
                     line=_line(call),
                     code=_line_text(src, _line(call)),
                     kind=_HOP_SINK,
                     label=sink_spec.method_name,
+                    start_col=_sc,
+                    end_col=_ec,
                 )
                 # Trace was built source-first as we recursed back; the
                 # caller side ends up at index 0, so the natural read
@@ -742,14 +767,15 @@ class _Tracer:
                 if r.sanitized:
                     return r
                 if r.tainted:
-                    # Record the variable hop so the trace explains the
-                    # data flow at this point.
+                    _sc, _ec = _cols(ident)
                     hop = TraceHop(
                         file=str(method.file),
                         line=_line(ident),
                         code=_line_text(src, _line(ident)),
                         kind=_HOP_VAR,
                         label=name,
+                        start_col=_sc,
+                        end_col=_ec,
                     )
                     return _SliceResult(
                         tainted=True,
@@ -785,12 +811,15 @@ class _Tracer:
         # 2. Source — terminates the chain with TAINTED.
         srcspec = _match_source(call, src)
         if srcspec is not None:
+            _sc, _ec = _cols(call)
             hop = TraceHop(
                 file=str(method.file),
                 line=_line(call),
                 code=_line_text(src, _line(call)),
                 kind=_HOP_SOURCE,
                 label=srcspec.label,
+                start_col=_sc,
+                end_col=_ec,
             )
             return _SliceResult(
                 tainted=True,
@@ -853,6 +882,7 @@ class _Tracer:
             if sub.sanitized:
                 return sub
             if sub.tainted:
+                _sc, _ec = _cols(call_node)
                 call_hop = TraceHop(
                     file=str(caller.file),
                     line=_line(call_node),
@@ -864,6 +894,8 @@ class _Tracer:
                         f"{caller.qualified_name} → "
                         f"{method.qualified_name} (arg #{param_idx})"
                     ),
+                    start_col=_sc,
+                    end_col=_ec,
                 )
                 return _SliceResult(
                     tainted=True,
