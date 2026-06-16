@@ -3,12 +3,12 @@
 import { el } from '../utils.js';
 import { citationsFor } from '../data/compliance.js';
 
-const FRAMEWORK_COLORS = {
-  'GDPR':    '#5b8def',
-  'HIPAA':   '#f97316',
-  'PCI-DSS': '#10b981',
-  'DPDP':    '#a855f7',
-  'CCPA':    '#eab308',
+const FRAMEWORK_VARS = {
+  'GDPR':    'var(--framework-gdpr)',
+  'HIPAA':   'var(--framework-hipaa)',
+  'PCI-DSS': 'var(--framework-pci)',
+  'DPDP':    'var(--framework-dpdp)',
+  'CCPA':    'var(--framework-ccpa)',
 };
 
 export function renderCompliancePanel(finding) {
@@ -17,12 +17,15 @@ export function renderCompliancePanel(finding) {
 
   const list = el('div', { class: 'compliance-list' });
   for (const c of cites) {
-    const color = FRAMEWORK_COLORS[c.framework] || '#888';
+    const color = FRAMEWORK_VARS[c.framework] || 'var(--framework-other)';
     list.appendChild(
       el('div', { class: 'compliance-row' },
         el('span', {
           class: 'compliance-badge',
-          style: `background:${color}22;color:${color};border:1px solid ${color}55`,
+          style:
+            `background:color-mix(in srgb, ${color} 13%, transparent);` +
+            `color:${color};` +
+            `border:1px solid color-mix(in srgb, ${color} 33%, transparent);`,
         }, c.framework),
         el('span', { class: 'compliance-ref mono' }, c.reference || ''),
         c.note

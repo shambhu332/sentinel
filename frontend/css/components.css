@@ -78,7 +78,7 @@
 }
 
 .btn-danger:hover:not(:disabled) {
-  background: #ff5147;
+  background: var(--sev-critical-hover);
   transform: translateY(-1px);
 }
 
@@ -622,7 +622,7 @@
 /* ---------- Code blocks ---------- */
 .code-block {
   position: relative;
-  background: #06091B;
+  background: var(--code-bg);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-md);
   padding: 16px;
@@ -668,11 +668,11 @@
 
 /* Syntax highlighting */
 .code-block .keyword { color: var(--accent-primary); }
-.code-block .string  { color: #7FE787; }
+.code-block .string  { color: var(--code-string); }
 .code-block .number  { color: var(--sev-medium); }
 .code-block .comment { color: var(--text-muted); font-style: italic; }
-.code-block .fn      { color: #C49AFF; }
-.code-block .prop    { color: #FFB76B; }
+.code-block .fn      { color: var(--code-fn); }
+.code-block .prop    { color: var(--code-prop); }
 .code-block .punc    { color: var(--text-secondary); }
 
 .code-block.with-highlight .highlight-line {
@@ -1143,10 +1143,10 @@ code.inline {
   vertical-align: middle;
   border: 1px solid transparent;
 }
-.impact-badge.impact-low      { background:#10b98122;color:#10b981;border-color:#10b98144; }
-.impact-badge.impact-medium   { background:#eab30822;color:#eab308;border-color:#eab30844; }
-.impact-badge.impact-high     { background:#f9731622;color:#f97316;border-color:#f9731644; }
-.impact-badge.impact-extreme  { background:#ef444422;color:#ef4444;border-color:#ef444444; }
+.impact-badge.impact-low      { background:color-mix(in srgb, var(--impact-low)    13%, transparent); color:var(--impact-low);     border-color:color-mix(in srgb, var(--impact-low)    27%, transparent); }
+.impact-badge.impact-medium   { background:color-mix(in srgb, var(--impact-medium) 13%, transparent); color:var(--impact-medium);  border-color:color-mix(in srgb, var(--impact-medium) 27%, transparent); }
+.impact-badge.impact-high     { background:color-mix(in srgb, var(--impact-high)   13%, transparent); color:var(--impact-high);    border-color:color-mix(in srgb, var(--impact-high)   27%, transparent); }
+.impact-badge.impact-extreme  { background:color-mix(in srgb, var(--impact-extreme) 13%, transparent); color:var(--impact-extreme); border-color:color-mix(in srgb, var(--impact-extreme) 27%, transparent); }
 
 /* Impact card inside detail */
 .impact-section .impact-headline {
@@ -1164,8 +1164,8 @@ code.inline {
   border-radius:3px;margin-right:4px;vertical-align:middle;
   letter-spacing:0.5px;
 }
-.swarm-section h4 .swarm-pill.red  { background:#ef444433;color:#ef4444; }
-.swarm-section h4 .swarm-pill.blue { background:#3b82f633;color:#3b82f6; }
+.swarm-section h4 .swarm-pill.red  { background:color-mix(in srgb, var(--swarm-red)  20%, transparent); color:var(--swarm-red); }
+.swarm-section h4 .swarm-pill.blue { background:color-mix(in srgb, var(--swarm-blue) 20%, transparent); color:var(--swarm-blue); }
 .swarm-cols {
   display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:6px;
 }
@@ -1178,14 +1178,14 @@ code.inline {
   padding: 10px 12px;
   border-left: 3px solid;
 }
-.swarm-col-red  { border-left-color: #ef4444; }
-.swarm-col-blue { border-left-color: #3b82f6; }
+.swarm-col-red  { border-left-color: var(--swarm-red); }
+.swarm-col-blue { border-left-color: var(--swarm-blue); }
 .swarm-col h5 {
   margin: 0 0 6px 0;font-size:12px;font-weight:600;
   text-transform: uppercase;letter-spacing:0.5px;
 }
-.swarm-col-red h5  { color:#ef4444; }
-.swarm-col-blue h5 { color:#3b82f6; }
+.swarm-col-red h5  { color:var(--swarm-red); }
+.swarm-col-blue h5 { color:var(--swarm-blue); }
 .swarm-steps {
   margin: 6px 0 0 16px;padding:0;font-size:12px;
 }
@@ -1199,14 +1199,16 @@ code.inline {
 .swarm-purple {
   margin-top: 12px;
   padding: 12px;
-  background: linear-gradient(135deg, #a855f722, #6366f122);
-  border-left: 3px solid #a855f7;
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--swarm-purple) 13%, transparent),
+    color-mix(in srgb, var(--swarm-indigo) 13%, transparent));
+  border-left: 3px solid var(--swarm-purple);
   border-radius: var(--radius-sm);
 }
 .swarm-purple h5 {
   margin: 0 0 8px 0;font-size:12px;font-weight:600;
   text-transform: uppercase;letter-spacing:0.5px;
-  color: #c084fc;
+  color: var(--swarm-purple-text);
 }
 .swarm-purple p { margin: 4px 0; font-size: 13px; line-height: 1.5; }
 .swarm-stakeholders {
@@ -1217,8 +1219,8 @@ code.inline {
   font-size:11px;
   padding:2px 8px;
   margin:2px 4px 2px 0;
-  background: rgba(168, 85, 247, 0.15);
-  color: #c084fc;
-  border:1px solid rgba(168, 85, 247, 0.3);
+  background: color-mix(in srgb, var(--swarm-purple) 15%, transparent);
+  color: var(--swarm-purple-text);
+  border:1px solid color-mix(in srgb, var(--swarm-purple) 30%, transparent);
   border-radius:12px;
 }

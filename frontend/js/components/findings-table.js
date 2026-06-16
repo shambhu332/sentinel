@@ -47,7 +47,11 @@ export function renderFindingsTable(container, findings) {
       inlineBadges.push(el('span', {
         class: 'badge dynamic-target',
         title: 'Forwarded to Frida agent as a runtime bypass target',
-        style: 'background:#7c3aed22;color:#a78bfa;border:1px solid #7c3aed55;font-size:10px;margin-left:6px;',
+        style:
+          'background:color-mix(in srgb, var(--badge-dynamic) 13%, transparent);' +
+          'color:var(--badge-dynamic-text);' +
+          'border:1px solid color-mix(in srgb, var(--badge-dynamic) 33%, transparent);' +
+          'font-size:10px;margin-left:6px;',
       }, '⚡ Dynamic Target'));
     }
     const cPill = complianceInlinePill(finding);
@@ -60,13 +64,17 @@ export function renderFindingsTable(container, findings) {
     // bands so it reads instantly.
     const cvssScore = finding.evidence?.cvss_v3_score;
     if (typeof cvssScore === 'number') {
-      const band = cvssScore >= 9 ? '#dc2626' : cvssScore >= 7 ? '#f97316'
-        : cvssScore >= 4 ? '#eab308' : '#3b82f6';
+      const band = cvssScore >= 9 ? 'var(--cvss-critical)'
+        : cvssScore >= 7 ? 'var(--cvss-high)'
+        : cvssScore >= 4 ? 'var(--cvss-medium)'
+        : 'var(--cvss-low)';
       inlineBadges.push(el('span', {
         class: 'badge cvss',
         title: finding.cvss_vector || `CVSS:3.1 score ${cvssScore}`,
         style:
-          `background:${band}22;color:${band};border:1px solid ${band}55;` +
+          `background:color-mix(in srgb, ${band} 13%, transparent);` +
+          `color:${band};` +
+          `border:1px solid color-mix(in srgb, ${band} 33%, transparent);` +
           'font-size:10px;margin-left:6px;font-family:var(--font-mono);',
       }, `CVSS ${cvssScore.toFixed(1)}`));
     }
@@ -81,7 +89,9 @@ export function renderFindingsTable(container, findings) {
         target: '_blank',
         title: 'Download the runnable PoC for this finding',
         style:
-          'background:#10b98122;color:#34d399;border:1px solid #10b98155;' +
+          'background:color-mix(in srgb, var(--badge-poc) 13%, transparent);' +
+          'color:var(--badge-poc-text);' +
+          'border:1px solid color-mix(in srgb, var(--badge-poc) 33%, transparent);' +
           'font-size:10px;margin-left:6px;text-decoration:none;',
         onclick: (e) => e.stopPropagation(),
       }, '⬇ PoC');

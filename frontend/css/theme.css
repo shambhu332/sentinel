@@ -102,6 +102,54 @@
   --z-dropdown: 200;
   --z-modal:   500;
   --z-toast:   600;
+
+  /* Compliance frameworks */
+  --framework-gdpr:   #5b8def;
+  --framework-hipaa:  #f97316;
+  --framework-pci:    #10b981;
+  --framework-dpdp:   #a855f7;
+  --framework-ccpa:   #eab308;
+  --framework-other:  #888888;
+
+  /* Impact bands (low → extreme) */
+  --impact-low:       #10b981;
+  --impact-medium:    #eab308;
+  --impact-high:      #f97316;
+  --impact-extreme:   #ef4444;
+
+  /* Swarm panel — red team vs blue team vs synthesis */
+  --swarm-red:        #ef4444;
+  --swarm-blue:       #3b82f6;
+  --swarm-purple:     #a855f7;
+  --swarm-indigo:     #6366f1;
+  --swarm-purple-text:#c084fc;
+
+  /* CVSS v3.1 severity bands */
+  --cvss-critical:    #dc2626;
+  --cvss-high:        #f97316;
+  --cvss-medium:      #eab308;
+  --cvss-low:         #3b82f6;
+
+  /* Dynamic target & PoC badges */
+  --badge-dynamic:    #7c3aed;
+  --badge-dynamic-text:#a78bfa;
+  --badge-poc:        #10b981;
+  --badge-poc-text:   #34d399;
+
+  /* Device pool states */
+  --device-online:        #10b981;
+  --device-unauthorized:  #eab308;
+  --device-offline:       #6b7280;
+  --device-other:         #3b82f6;
+
+  /* Code block syntax */
+  --code-bg:          #06091B;
+  --code-string:      #7FE787;
+  --code-fn:          #C49AFF;
+  --code-prop:        #FFB76B;
+
+  /* Severity hover variants */
+  --sev-critical-hover: #ff5147;
 }
 
 /* Subtle radial-gradient backdrop applied on the body for that Djini glow */

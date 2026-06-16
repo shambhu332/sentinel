@@ -83,14 +83,16 @@ async function loadAndRender(container) {
 
 function buildDeviceCard(d) {
   const stateColor =
-      d.state === 'device' ? '#10b981'
-    : d.state === 'unauthorized' ? '#eab308'
-    : d.state === 'offline' ? '#6b7280'
-    : '#3b82f6';
+      d.state === 'device' ? 'var(--device-online)'
+    : d.state === 'unauthorized' ? 'var(--device-unauthorized)'
+    : d.state === 'offline' ? 'var(--device-offline)'
+    : 'var(--device-other)';
   const stateBadge = el('span', {
     class: 'badge',
     style:
-      `background:${stateColor}22;color:${stateColor};border:1px solid ${stateColor}55;` +
+      `background:color-mix(in srgb, ${stateColor} 13%, transparent);` +
+      `color:${stateColor};` +
+      `border:1px solid color-mix(in srgb, ${stateColor} 33%, transparent);` +
       'font-size:10px;text-transform:uppercase;letter-spacing:0.05em;',
   }, d.state);
 

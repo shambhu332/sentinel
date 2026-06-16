@@ -287,7 +287,10 @@ function buildRecentScans() {
       el('td', {}, statusBadge(scan.status, statusLabel(scan.status))),
       el('td', {}, el('span', { class: 'text-muted', style: 'font-size: 12px;' }, timeAgo(scan.startedAt))),
       el('td', {}, el('span', { class: 'mono text-muted', style: 'font-size: 12px;' }, scan.duration || '—')),
-      el('td', {}, el('button', { class: 'btn-icon', onclick: (ev) => ev.stopPropagation() },
+      el('td', {}, el('button', {
+        class: 'btn-icon', 'aria-label': 'Row actions',
+        onclick: (ev) => ev.stopPropagation(),
+      },
         el('i', { 'data-lucide': 'more-horizontal' }))),
     );
     tbody.appendChild(tr);
