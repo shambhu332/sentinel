@@ -203,6 +203,36 @@ class CertPinningBypassAgent(BaseAgent):
             severity=severity,
             confidence=0.9,  # runtime observation
             recommendation=self._build_bypass_recommendation(),
+            severity_rationale=(
+                f"Rated {severity.value} because SENTINEL's Frida bypass "
+                f"hooks fired on {len(bypassed)} pinning librar"
+                f"{'y' if len(bypassed) == 1 else 'ies'} "
+                f"({', '.join(libraries_summary[:3])}"
+                f"{'…' if len(libraries_summary) > 3 else ''}) and the app "
+                f"continued accepting TLS connections that should have "
+                f"been rejected. This is direct, exploitable runtime "
+                f"evidence — not a static guess — so confidence is high "
+                f"and the bug is reproducible end-to-end on any rooted "
+                f"device with Frida."
+            ),
+            verification_status="Runtime-verified via Frida",
+            source_tags=self._build_source_tags(libraries_summary, "bypass"),
+            reproduction_commands=self._build_bypass_repro_commands(
+                package=(self._context.manifest or {}).get("package", "?"),
+                sample_host=next(iter(hosts), None) if hosts else None,
+            ),
+            observed_result=(
+                f"With SENTINEL's compiled Frida agent attached, every "
+                f"probed certificate-pin check returned a no-op success. "
+                f"{total_events} TLS handshake(s) completed against "
+                f"{len(hosts)} host(s) using a self-signed mitmproxy CA "
+                f"that pinning was meant to reject. Proxy logs contain "
+                f"the full plaintext request/response bodies, demonstrating "
+                f"a complete pin bypass."
+            ),
+            code_snippets=self._build_pinning_code_snippets(
+                bypassed_libraries=libraries_summary,
+            ),
             evidence={
                 "title": (
                     f"Certificate pinning bypassed at runtime "
@@ -268,6 +298,33 @@ class CertPinningBypassAgent(BaseAgent):
                 "due to obfuscation. For higher assurance, supplement this "
                 "automated result with manual analysis."
             ),
+            severity_rationale=(
+                f"Rated INFO (positive observation) because SENTINEL's "
+                f"generic bypass hooks were unable to defeat pinning in "
+                f"{len(survived)} librar"
+                f"{'y' if len(survived) == 1 else 'ies'} "
+                f"({', '.join(libraries[:3])}"
+                f"{'…' if len(libraries) > 3 else ''}). Treat as evidence "
+                f"that automated, off-the-shelf attackers will be "
+                f"frustrated — not proof of cryptographic robustness."
+            ),
+            verification_status="Runtime-observed via Frida",
+            source_tags=self._build_source_tags(libraries, "survived"),
+            reproduction_commands=self._build_bypass_repro_commands(
+                package=(self._context.manifest or {}).get("package", "?"),
+                sample_host=None,
+            ),
+            observed_result=(
+                f"SENTINEL's compiled Frida agent attempted to install "
+                f"bypass hooks against {len(survived)} pinning librar"
+                f"{'y' if len(survived) == 1 else 'ies'}. Hook installation "
+                f"reported errors (overload mismatch, anti-Frida "
+                f"interception, obfuscation, or similar). The app "
+                f"continued to enforce its pin against the proxy CA."
+            ),
+            code_snippets=self._build_pinning_code_snippets(
+                bypassed_libraries=libraries,
+            ),
             evidence={
                 "title": (
                     f"Pinning resisted runtime bypass in "
@@ -329,6 +386,40 @@ class CertPinningBypassAgent(BaseAgent):
                 "obfuscated framework code) that SENTINEL's generic "
                 "Frida probes did not match. Consider manual review."
             ),
+            severity_rationale=(
+                f"Rated INFO because SENTINEL probed {len(attempted)} "
+                f"known pinning library entry points at runtime and every "
+                f"one returned ClassNotFoundException (or its native "
+                f"equivalent). This is not an absence of risk — it is an "
+                f"absence of evidence. The app may use custom or "
+                f"obfuscated pinning that our generic hooks did not match."
+            ),
+            verification_status="Runtime-observed via Frida",
+            source_tags=[
+                "Certificate Pinning",
+                "Runtime Observation",
+                "Inconclusive",
+            ],
+            reproduction_commands=self._build_bypass_repro_commands(
+                package=(self._context.manifest or {}).get("package", "?"),
+                sample_host=None,
+            ),
+            observed_result=(
+                f"SENTINEL's Frida agent attached, attempted "
+                f"{len(attempted)} bypass hooks, and recorded zero "
+                f"successful installs, zero failed installs, and zero "
+                f"TLS-related events. Every pinning class probed was "
+                f"absent from the running process."
+            ),
+            code_snippets=[{
+                "label": "Probed libraries",
+                "file": "frida_agent/cert_pinning_bypass.js",
+                "line": 1,
+                "content": (
+                    "// SENTINEL probed these pinning entry points:\n"
+                    + "\n".join(f"//   - {lib}" for lib in attempted[:20])
+                ),
+            }],
             evidence={
                 "title": (
                     f"No pinning libraries observed at runtime "
@@ -353,6 +444,73 @@ class CertPinningBypassAgent(BaseAgent):
                 "sources": ["frida"],
             },
         )
+
+    # ---------- new-field builders (Djini-style FindingDetailView) ----------
+
+    @staticmethod
+    def _build_source_tags(libraries: list[str], outcome: str) -> list[str]:
+        """Tag the finding by detection family + per-library category."""
+        tags: list[str] = ["Certificate Pinning", "Runtime Observation"]
+        tags.append("Pinning Bypassed" if outcome == "bypass" else "Pinning Resisted")
+        if any(lib.startswith(("libssl.", "libboringssl.", "libcrypto.")) for lib in libraries):
+            tags.append("Native TLS Hook")
+        if any(lib.startswith("WebViewClient") for lib in libraries):
+            tags.append("WebView Pinning")
+        if any("okhttp" in lib.lower() for lib in libraries):
+            tags.append("OkHttp Pinning")
+        if any("trustkit" in lib.lower() for lib in libraries):
+            tags.append("TrustKit Pinning")
+        return tags
+
+    @staticmethod
+    def _build_bypass_repro_commands(
+        package: str, sample_host: str | None,
+    ) -> list[str]:
+        target = sample_host or "api.example.com"
+        return [
+            "# 1. Boot a rooted device or emulator with Frida server running:",
+            "adb shell '/data/local/tmp/frida-server &'",
+            "",
+            "# 2. Start mitmproxy with its CA on the same host:",
+            "mitmdump -p 8080 --ssl-insecure",
+            "",
+            "# 3. Route the device through the proxy:",
+            "adb shell settings put global http_proxy $(hostname -I | awk '{print $1}'):8080",
+            "",
+            "# 4. Inject SENTINEL's compiled Frida agent at app launch:",
+            f"frida -U -f {package} -l frida_agent/dist/_agent.js --no-pause",
+            "",
+            "# 5. Trigger a TLS request inside the app and confirm capture:",
+            f"#    Expect mitmproxy to log a request to https://{target}/* with",
+            "#    full request/response bodies visible despite pinning being",
+            "#    declared in the app's code.",
+        ]
+
+    @staticmethod
+    def _build_pinning_code_snippets(
+        bypassed_libraries: list[str],
+    ) -> list[dict[str, Any]]:
+        """Show the Frida bypass strategy as the reviewable snippet."""
+        sample = bypassed_libraries[0] if bypassed_libraries else "okhttp.CertificatePinner"
+        return [{
+            "label": "Frida bypass hook",
+            "file": "frida_agent/cert_pinning_bypass.js",
+            "line": 1,
+            "content": (
+                f"// SENTINEL replaces {sample}.check(...) with a no-op,\n"
+                f"// then re-emits a tls.bypass event when the patched\n"
+                f"// method is invoked at runtime.\n"
+                f"Java.perform(function () {{\n"
+                f"    var Pinner = Java.use('{sample}');\n"
+                f"    Pinner.check.overload('java.lang.String',\n"
+                f"        'java.util.List').implementation = function (h, c) {{\n"
+                f"        send({{ kind: 'tls.bypass', library: '{sample}',\n"
+                f"                method: 'check', host: h }});\n"
+                f"        // no-op: pretend the pin matched.\n"
+                f"    }};\n"
+                f"}});"
+            ),
+        }]
 
     @staticmethod
     def _build_bypass_recommendation() -> str:

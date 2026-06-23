@@ -12,11 +12,12 @@ then this is what makes "click scan -> see findings" actually work.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 # Optional D_07x / D_08x — resolved by attribute lookup so missing
 # entries don't crash the API import.
@@ -57,7 +58,6 @@ from sentinel.agents.crypto import (
 )
 from sentinel.agents.data_storage import WorldReadableStorageAgent
 from sentinel.agents.dynamic import (
-    CertPinningBypassAgent,
     DeepLinkBombAgent,
     FileProviderFuzzerAgent,
     HiddenApiHunterAgent,
@@ -69,7 +69,6 @@ from sentinel.agents.dynamic import (
     ProviderLfiAgent,
     ProviderSqliAgent,
     RaceConditionTargetAgent,
-    RuntimeCryptoAgent,
     ServiceLeakerAgent,
     SymbolicIntentAgent,
     WebViewUniversalXssAgent,
@@ -227,6 +226,117 @@ _HYBRID_OPTIONAL = [
 ]
 
 
+_DYNAMIC_MITM_NAMES = [
+    "ImproperTLSAgent",
+    "DataInTransitAgent",
+    "RaceConditionCandidateAgent",
+    "IdorCandidateAgent",
+    "JwtWeaknessAgent",
+    "ThirdPartyPiiLeakAgent",
+    "CookieHardeningAgent",
+    "GraphqlPersistedQueryAgent",
+]
+
+_FRIDA_RUNTIME_NAMES = [
+    "RuntimeCryptoAgent",
+    "CertPinningBypassAgent",
+    "ClipboardLeakAgent",
+    "FlagSecureMissingAgent",
+    "BiometricWeakAgent",
+    "AntiTamperCoverageAgent",
+    "DynamicCodeLoadingAgent",
+    "StaticIvReuseAgent",
+    "IapBypassAgent",
+    "WebViewRuntimeAgent",
+    "NotificationLeakAgent",
+    "ImplicitIntentLeakAgent",
+    "AccessibilityAbuseAgent",
+    "SmsPermissionAbuseAgent",
+    "ScreenCaptureAgent",
+    "DynamicReceiverExportAgent",
+    "PendingIntentMutableAgent",
+    "LocalSocketServerAgent",
+    "ContentProviderUriExposureAgent",
+    "FileProviderTraversalAgent",
+    "BackgroundLocationLeakAgent",
+    "InsecureKeystoreUsageAgent",
+    "ZipPathTraversalAgent",
+    "InsecureRandomRuntimeAgent",
+    "InsecureHostnameVerifierAgent",
+    "InAppUpdateInsecureAgent",
+    "UnsafeJsonDeserializationAgent",
+    "SqliteCommandInjectionAgent",
+    "UnsafeReflectionInvokeAgent",
+    "ExportedActivityResultLeakAgent",
+    "LocalFileLogLeakAgent",
+    "ClipboardListenerSnoopAgent",
+    "BroadcastWiretapAgent",
+    "InsecureTrustManagerRuntimeAgent",
+    "OkHttpLoggingRuntimeAgent",
+    "BiometricDeviceCredentialFallbackAgent",
+    "NotificationFloodAgent",
+]
+
+
+def _dynamic_agents_by_name(names: list[str]) -> list[type]:
+    out: list[type] = []
+    for name in names:
+        cls = getattr(_dyn_mod, name, None)
+        if cls is None:
+            logger.debug("scan-roster: dynamic agent missing: %s", name)
+            continue
+        out.append(cls)
+    return out
+
+
+_DYNAMIC_MITM_AGENTS = _dynamic_agents_by_name(_DYNAMIC_MITM_NAMES)
+_FRIDA_RUNTIME_AGENTS = _dynamic_agents_by_name(_FRIDA_RUNTIME_NAMES)
+
+_FAST_AGENT_IDS = {
+    "META_001",
+    "META_002",
+    "TEST_001",
+    "A_001",
+    "A_004",
+    "A_007",
+    "B_001",
+    "B_007",
+    "C_001",
+    "C_002",
+    "C_004",
+    "C_005",
+    "C_006",
+    "C_007",
+    "F_001",
+    "F_002",
+    "N_001",
+    "N_002",
+    "N_006",
+    "N_008",
+    "N_010",
+    "P_001",
+    "P_004",
+    "P_005",
+    "P_006",
+    "P_010",
+    "P_012",
+    "P_015",
+    "IPC_001",
+    "SCA_001",
+    "STG_006",
+    "STG_007",
+    "STG_008",
+    "STG_009",
+}
+
+_FAST_DYNAMIC_AGENT_IDS = {
+    "N_003",
+    "N_004",
+    "A_003",
+    "N_005",
+}
+
+
 def _discover_all_agents() -> list[type]:
     """Walk every sentinel.agents.* package and return all BaseAgent
     subclasses. Mirrors the discovery used by /agents so the scan
@@ -260,18 +370,28 @@ def _discover_all_agents() -> list[type]:
     return list(seen.values())
 
 
-def _build_full_roster(dynamic: bool, frida: bool) -> list[type]:
+def _build_full_roster(
+    dynamic: bool,
+    frida: bool,
+    scan_profile: str = "standard",
+) -> list[type]:
     """Build the per-scan agent list from the live class registry.
 
-    Phase 2 SAST agents always run. Pure-dynamic observers (the D_001..
-    D_041 batch + ImproperTLSAgent / DataInTransitAgent / pinning-bypass
-    crew that need a live device) are only scheduled when --dynamic
-    is on. Hybrid SAST→DAST agents are scheduled whenever --dynamic
-    is on so the Phase 4.5 dispatcher has something to fire.
+    Static agents always run. mitmproxy-backed dynamic agents only run
+    when dynamic scanning is enabled. Frida-backed observers and
+    SAST-to-DAST target producers only run when Frida is enabled too.
     """
     # Start from the curated SAST list so its ordering is preserved.
     roster: list[type] = list(SAST_AGENTS)
     seen_ids = {getattr(c, "AGENT_ID", id(c)) for c in roster}
+
+    def add_agents(classes: Sequence[type]) -> None:
+        for cls in classes:
+            aid = getattr(cls, "AGENT_ID", None)
+            if not aid or aid in seen_ids:
+                continue
+            roster.append(cls)
+            seen_ids.add(aid)
 
     discovered = _discover_all_agents()
     dynamic_module_prefix = "sentinel.agents.dynamic."
@@ -279,22 +399,33 @@ def _build_full_roster(dynamic: bool, frida: bool) -> list[type]:
         aid = getattr(cls, "AGENT_ID", None)
         if not aid or aid in seen_ids:
             continue
-        is_dynamic_only = cls.__module__.startswith(dynamic_module_prefix)
-        if is_dynamic_only and not dynamic:
-            continue  # device-required agent, no point scheduling it
+        if cls.__module__.startswith(dynamic_module_prefix):
+            continue
         roster.append(cls)
         seen_ids.add(aid)
 
+    if dynamic:
+        add_agents(_DYNAMIC_MITM_AGENTS)
+
     if dynamic and frida:
-        # Frida-only agents that need the script bundle injected.
-        for extra in (RuntimeCryptoAgent, CertPinningBypassAgent):
-            if getattr(extra, "AGENT_ID", None) not in seen_ids:
-                roster.append(extra)
-                seen_ids.add(extra.AGENT_ID)
+        add_agents(_FRIDA_RUNTIME_AGENTS)
+        add_agents(_HYBRID_DAST_AGENTS)
+        add_agents(_HYBRID_OPTIONAL)
+
+    if scan_profile == "fast":
+        allowed = set(_FAST_AGENT_IDS)
+        if dynamic:
+            allowed.update({"N_003", "N_004"})
+        if dynamic and frida:
+            allowed.update(_FAST_DYNAMIC_AGENT_IDS)
+        roster = [
+            cls for cls in roster
+            if getattr(cls, "AGENT_ID", "") in allowed
+        ]
 
     logger.info(
-        "Scan roster: %d agents (dynamic=%s, frida=%s)",
-        len(roster), dynamic, frida,
+        "Scan roster: %d agents (dynamic=%s, frida=%s, profile=%s)",
+        len(roster), dynamic, frida, scan_profile,
     )
     return roster
 
@@ -322,10 +453,66 @@ class ScanJob:
         self.warnings: list[str] = []
         self.findings: list[Finding] = []
         self.phase_timings: dict[str, float] = {}
+        self.tool_health: dict[str, Any] = {}
         self.manifest: dict[str, Any] = {}
         self.apk_sha256: str = ""
         self.apk_size_bytes: int = 0
-        self.task: asyncio.Task | None = None
+        self.task: asyncio.Task[Any] | None = None
+
+    def to_state(self) -> dict[str, Any]:
+        return {
+            "schema_version": 1,
+            "session_id": self.session_id,
+            "apk_path": str(self.apk_path),
+            "apk_filename": self.apk_filename,
+            "options": self.options,
+            "status": self.status,
+            "phase": self.phase,
+            "created_at": self.created_at.isoformat(),
+            "started_at": (
+                self.started_at.isoformat() if self.started_at else None
+            ),
+            "completed_at": (
+                self.completed_at.isoformat() if self.completed_at else None
+            ),
+            "error": self.error,
+            "warnings": self.warnings,
+            "phase_timings": self.phase_timings,
+            "tool_health": self.tool_health,
+            "manifest": self.manifest,
+            "apk_sha256": self.apk_sha256,
+            "apk_size_bytes": self.apk_size_bytes,
+            "findings": [f.model_dump(mode="json") for f in self.findings],
+        }
+
+    @classmethod
+    def from_state(cls, state: dict[str, Any], workspace: Path) -> "ScanJob":
+        session_id = str(state["session_id"])
+        fallback_apk = workspace / session_id / "uploaded.apk"
+        job = cls(
+            session_id=session_id,
+            apk_path=Path(str(state.get("apk_path") or fallback_apk)),
+            apk_filename=str(state.get("apk_filename") or "unknown.apk"),
+            options=_dict_or_empty(state.get("options")),
+        )
+        job.status = str(state.get("status") or "failed")
+        if job.status in {"queued", "running"}:
+            job.status = "interrupted"
+            job.error = "Scan interrupted before completion"
+        else:
+            job.error = _optional_str(state.get("error"))
+        job.phase = str(state.get("phase") or "done")
+        job.created_at = _parse_dt(state.get("created_at")) or job.created_at
+        job.started_at = _parse_dt(state.get("started_at"))
+        job.completed_at = _parse_dt(state.get("completed_at"))
+        job.warnings = _str_list(state.get("warnings"))
+        job.phase_timings = _float_map(state.get("phase_timings"))
+        job.tool_health = _dict_or_empty(state.get("tool_health"))
+        job.manifest = _dict_or_empty(state.get("manifest"))
+        job.apk_sha256 = str(state.get("apk_sha256") or "")
+        job.apk_size_bytes = int(state.get("apk_size_bytes") or 0)
+        job.findings = _load_state_findings(state.get("findings"))
+        return job
 
     def to_summary(self) -> dict[str, Any]:
         return {
@@ -342,6 +529,7 @@ class ScanJob:
             "warnings_count": len(self.warnings),
             "findings_count": len(self.findings),
             "phase_timings": self.phase_timings,
+            "tool_health": self.tool_health,
             "apk_sha256": self.apk_sha256,
             "apk_size_bytes": self.apk_size_bytes,
             "manifest": {
@@ -386,21 +574,17 @@ class ScanJob:
                 if isinstance(triage, dict)
                 else "skipped"
             )
-            out.append({
+            row = f.model_dump(mode="json")
+            row.update({
                 "finding_id": f.finding_id,
-                "agent_id": f.agent_id,
-                "vuln_class": f.vuln_class,
                 "severity": f.severity.value.lower(),
                 "severity_label": f.severity.value,
-                "confidence": f.confidence,
+                "review_state": f.triage.value,
                 "triage": outcome or "skipped",
-                "recommendation": f.recommendation,
                 "evidence": _clean_evidence(ev),
-                "cvss_vector": f.cvss_vector,
-                "owasp": f.owasp,
-                "masvs": f.masvs,
                 "created_at": f.created_at.isoformat(),
             })
+            out.append(row)
         return out
 
 
@@ -418,15 +602,18 @@ def _clean_evidence(ev: dict[str, Any]) -> dict[str, Any]:
 
 
 class ScanRegistry:
-    """Thin in-memory registry of scan jobs."""
+    """Registry of scan jobs with file-backed completed-state restore."""
 
-    def __init__(self) -> None:
+    def __init__(self, workspace: Path | None = None) -> None:
         self._jobs: dict[str, ScanJob] = {}
         self._lock = asyncio.Lock()
+        self._workspace = (workspace or get_settings().workspace).resolve()
+        self._load_persisted_jobs()
 
     async def add(self, job: ScanJob) -> None:
         async with self._lock:
             self._jobs[job.session_id] = job
+        self.persist(job)
 
     def get(self, session_id: str) -> ScanJob | None:
         return self._jobs.get(session_id)
@@ -454,7 +641,28 @@ class ScanRegistry:
                 job.apk_path.unlink()
             except OSError:
                 logger.warning("Could not remove APK for session %s", session_id)
+        _state_path(self._workspace, session_id).unlink(missing_ok=True)
         return job is not None
+
+    def persist(self, job: ScanJob) -> None:
+        path = _state_path(self._workspace, job.session_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        try:
+            tmp.write_text(json.dumps(job.to_state(), indent=2, sort_keys=True))
+            tmp.replace(path)
+        except OSError:
+            logger.exception("Could not persist scan state for %s", job.session_id)
+
+    def _load_persisted_jobs(self) -> None:
+        if not self._workspace.exists():
+            return
+        for session_dir in self._workspace.iterdir():
+            if not session_dir.is_dir():
+                continue
+            job = _load_persisted_job(self._workspace, session_dir)
+            if job is not None:
+                self._jobs[job.session_id] = job
 
 
 _registry: ScanRegistry | None = None
@@ -466,6 +674,114 @@ def get_registry() -> ScanRegistry:
     if _registry is None:
         _registry = ScanRegistry()
     return _registry
+
+
+def _state_path(workspace: Path, session_id: str) -> Path:
+    return workspace / session_id / "reports" / "scan_state.json"
+
+
+def _load_persisted_job(workspace: Path, session_dir: Path) -> ScanJob | None:
+    state_path = session_dir / "reports" / "scan_state.json"
+    if state_path.exists():
+        try:
+            return ScanJob.from_state(
+                json.loads(state_path.read_text(errors="replace")),
+                workspace,
+            )
+        except (OSError, json.JSONDecodeError, KeyError, ValueError):
+            logger.exception("Could not restore scan state from %s", state_path)
+            return None
+    return _load_legacy_report_job(workspace, session_dir)
+
+
+def _load_legacy_report_job(workspace: Path, session_dir: Path) -> ScanJob | None:
+    session_id = session_dir.name
+    report_path = (
+        session_dir / "reports" / f"VAPT_Report_{session_id}.json"
+    )
+    if not report_path.exists():
+        return None
+    try:
+        doc = json.loads(report_path.read_text(errors="replace"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+    job = ScanJob(
+        session_id=session_id,
+        apk_path=workspace / session_id / "uploaded.apk",
+        apk_filename=str(doc.get("apk_filename") or "unknown.apk"),
+        options={},
+    )
+    generated_at = _parse_dt(doc.get("generated_at"))
+    mtime = datetime.fromtimestamp(report_path.stat().st_mtime, tz=timezone.utc)
+    job.status = "completed"
+    job.phase = "done"
+    job.created_at = generated_at or mtime
+    job.started_at = generated_at or mtime
+    job.completed_at = generated_at or mtime
+    job.apk_sha256 = str(doc.get("apk_sha256") or "")
+    job.apk_size_bytes = int(doc.get("apk_size_bytes") or 0)
+    job.manifest = {
+        "package": doc.get("package"),
+        "version_name": doc.get("version"),
+    }
+    job.findings = _load_state_findings(doc.get("findings"))
+    return job
+
+
+def _load_state_findings(raw_findings: object) -> list[Finding]:
+    if not isinstance(raw_findings, list):
+        return []
+    findings: list[Finding] = []
+    for raw in raw_findings:
+        if not isinstance(raw, dict):
+            continue
+        row = dict(raw)
+        row.pop("finding_id", None)
+        row.pop("rag_mapping", None)
+        row.pop("rag_passage_ids", None)
+        row.pop("triage_explanation", None)
+        try:
+            findings.append(Finding.model_validate(row))
+        except ValueError:
+            logger.debug("Skipping invalid persisted finding", exc_info=True)
+    return findings
+
+
+def _parse_dt(value: object) -> datetime | None:
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _optional_str(value: object) -> str | None:
+    return None if value is None else str(value)
+
+
+def _dict_or_empty(value: object) -> dict[str, Any]:
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def _str_list(value: object) -> list[str]:
+    return [str(v) for v in value] if isinstance(value, list) else []
+
+
+def _float_map(value: object) -> dict[str, float]:
+    if not isinstance(value, dict):
+        return {}
+    out: dict[str, float] = {}
+    for key, raw in value.items():
+        try:
+            out[str(key)] = float(raw)
+        except (TypeError, ValueError):
+            continue
+    return out
 
 
 async def launch_scan(
@@ -485,9 +801,11 @@ async def launch_scan(
 async def _run_job(job: ScanJob) -> None:
     """The actual work — runs the orchestrator end-to-end."""
     settings = get_settings()
+    registry = get_registry()
     job.status = "running"
     job.started_at = datetime.now(timezone.utc)
     job.phase = "ingestion"
+    registry.persist(job)
 
     memory = LightweightMemory(data_dir=settings.workspace.parent / "data")
     router: FreeProviderRouter | None = None
@@ -540,6 +858,8 @@ async def _run_job(job: ScanJob) -> None:
         dynamic = bool(job.options.get("dynamic", False))
         frida = bool(job.options.get("frida", False))
         no_proxy = bool(job.options.get("no_proxy", False))
+        scan_profile = _scan_profile(job.options)
+        job.options["scan_profile"] = scan_profile
 
         # Single source of truth: walk every BaseAgent subclass on disk
         # so the /scans roster matches the /agents catalog the UI shows.
@@ -547,7 +867,11 @@ async def _run_job(job: ScanJob) -> None:
         # of the SAST tier; everything else discovered via introspection
         # is appended after de-dup. Dynamic-only agents are excluded
         # unless --dynamic was passed (they require a live device).
-        agent_list = _build_full_roster(dynamic=dynamic, frida=frida)
+        agent_list = _build_full_roster(
+            dynamic=dynamic,
+            frida=frida,
+            scan_profile=scan_profile,
+        )
 
         orch = Orchestrator(
             context=ctx,
@@ -572,6 +896,7 @@ async def _run_job(job: ScanJob) -> None:
         job.findings = result.findings
         job.warnings.extend(result.warnings)
         job.phase_timings = result.phase_timings
+        job.tool_health = result.tool_health
         job.manifest = ctx.manifest or {}
         job.apk_sha256 = ctx.apk_sha256
         job.apk_size_bytes = ctx.apk_size_bytes
@@ -580,6 +905,7 @@ async def _run_job(job: ScanJob) -> None:
         )
         job.error = result.error
         job.phase = "done"
+        registry.persist(job)
         logger.info(
             "Scan %s finished: status=%s findings=%d warnings=%d",
             job.session_id, job.status, len(job.findings), len(job.warnings),
@@ -605,6 +931,7 @@ async def _run_job(job: ScanJob) -> None:
             logger.exception("Scan %s: memory.close() failed", job.session_id)
         if ctx is not None and not bool(job.options.get("keep_workspace", False)):
             _cleanup_web_scan_artifacts(ctx.workspace, job.apk_path)
+        registry.persist(job)
 
 
 def _cleanup_web_scan_artifacts(session_workspace: Path, uploaded_apk: Path) -> None:
@@ -626,3 +953,12 @@ def _cleanup_web_scan_artifacts(session_workspace: Path, uploaded_apk: Path) -> 
                 child.unlink(missing_ok=True)
         except OSError:
             logger.warning("Could not remove scan artifact: %s", child)
+
+
+def _scan_profile(options: dict[str, Any]) -> str:
+    raw = str(options.get("scan_profile") or "").strip().lower()
+    if not raw and bool(options.get("fast", False)):
+        raw = "fast"
+    if raw in {"fast", "standard", "deep"}:
+        return raw
+    return "standard"

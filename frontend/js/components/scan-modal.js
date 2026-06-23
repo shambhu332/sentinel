@@ -17,11 +17,12 @@ export function openScanModal(prefill = {}) {
     fileSize: prefill.fileSize || (prefill.file ? prefill.file.size / (1024 * 1024) : null),
     uploading: false,
     options: {
+      scanProfile: 'fast',
       dynamic: false,
       frida: false,
       noProxy: false,
       privacy: false,
-      llmTriage: true,
+      llmTriage: false,
       allowLivePoc: false,
       planner: false,
       fuzz: false,
@@ -190,17 +191,24 @@ function renderStepOptions() {
     return btn;
   }
   presetBar.append(
+    mkPreset('Fast batch',
+      'High-signal static checks for scanning many APKs quickly',
+      { scanProfile: 'fast', dynamic: false, frida: false, noProxy: false,
+        llmTriage: false, allowLivePoc: false, planner: false, fuzz: false,
+        mlStrategy: false, dynamicDuration: 10, fridaDuration: 10 }),
     mkPreset('SAST only',
-      'Pure static — no device required',
-      { dynamic: false, frida: false, noProxy: false, llmTriage: true }),
+      'Full static roster — no device required',
+      { scanProfile: 'standard', dynamic: false, frida: false,
+        noProxy: false, llmTriage: false, allowLivePoc: false,
+        planner: false, fuzz: false, mlStrategy: false }),
     mkPreset('Full VAPT',
       'SAST + DAST + Frida hybrid dispatch + runnable PoC scripts + adaptive planner + ML strategy + AFL++ fuzzing (device + frida-server + AFL++ toolchain required)',
-      { dynamic: true, frida: true, noProxy: false, llmTriage: true,
+      { scanProfile: 'deep', dynamic: true, frida: true, noProxy: false, llmTriage: true,
         allowLivePoc: true, planner: true, fuzz: true, mlStrategy: true,
         dynamicDuration: 60, fridaDuration: 45, fuzzTime: 60 }),
     mkPreset('Stealth VAPT',
       'Full VAPT with anti-MITM apps — skips proxy, still emits PoCs + fuzzes',
-      { dynamic: true, frida: true, noProxy: true, llmTriage: true,
+      { scanProfile: 'deep', dynamic: true, frida: true, noProxy: true, llmTriage: true,
         allowLivePoc: true, planner: true, fuzz: true, mlStrategy: true,
         dynamicDuration: 60, fridaDuration: 45, fuzzTime: 60 }),
     mkPreset('Privacy mode',
@@ -239,6 +247,19 @@ function renderStepOptions() {
     toggleRow('mlStrategy', 'ML strategy', 'Use the GradientBoostingClassifier in sentinel.learning.ml_strategy instead of the rule-based map. Falls back to the map when sklearn is missing.', 'sklearn'),
   );
   wrap.appendChild(card);
+
+  wrap.appendChild(el('div', { class: 'field', style: 'margin-top: 12px;' },
+    el('label', { class: 'field-label' }, 'Scan profile'),
+    el('select', {
+      class: 'input',
+      value: state.options.scanProfile,
+      onchange: (e) => { state.options.scanProfile = e.target.value; },
+    },
+      el('option', { value: 'fast', selected: state.options.scanProfile === 'fast' ? true : null }, 'Fast'),
+      el('option', { value: 'standard', selected: state.options.scanProfile === 'standard' ? true : null }, 'Standard'),
+      el('option', { value: 'deep', selected: state.options.scanProfile === 'deep' ? true : null }, 'Deep'),
+    ),
+  ));
 
   // Optional device picker — populated by /devices when reachable.
   wrap.appendChild(el('div', { class: 'field', style: 'margin-top: 12px;' },
@@ -305,6 +326,7 @@ function renderStepReview() {
   const rows = [
     ['App',             state.fileName || '(none)'],
     ['Size',            state.fileSize ? state.fileSize.toFixed(1) + ' MB' : '—'],
+    ['Scan profile',    state.options.scanProfile],
     ['Dynamic',         state.options.dynamic ? `Yes (${state.options.dynamicDuration}s)` : 'No'],
     ['Frida',           state.options.frida ? `Yes (${state.options.fridaDuration}s)` : 'No'],
     ['No-proxy',        state.options.noProxy ? 'Yes' : 'No'],
@@ -368,6 +390,7 @@ async function startScan() {
 
   try {
     const options = {
+      scan_profile: state.options.scanProfile,
       dynamic: state.options.dynamic,
       frida: state.options.frida,
       no_proxy: state.options.noProxy,

@@ -318,6 +318,19 @@ function sevCard(cls, label, count) {
   );
 }
 
+// Mirror of R_001._classify_section so the UI splits findings into the
+// same two buckets the JSON report uses. Keep these two in sync.
+function findingBucket(f) {
+  const ev = f.evidence || {};
+  if (f.severity_rationale) return 'ai_powered';
+  if (f.verification_status && f.verification_status !== 'Code-level only') return 'ai_powered';
+  if (ev._verify && ev._verify.outcome) return 'ai_powered';
+  if (ev._swarm) return 'ai_powered';
+  if (ev.dynamic_target) return 'ai_powered';
+  if (f.llm_rationale || ev.llm_rationale) return 'ai_powered';
+  return 'static_tool';
+}
+
 function renderFindingsPane(findings, status, summary) {
   const pane = document.querySelector('[data-pane="findings"]');
   pane.innerHTML = '';
@@ -351,10 +364,36 @@ function renderFindingsPane(findings, status, summary) {
   const rows = [...findings].sort((a, b) =>
     (sevOrder[a.severity] ?? 9) - (sevOrder[b.severity] ?? 9) || (b.confidence - a.confidence));
 
-  pane.appendChild(el('div', { style: 'display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; gap: 12px; flex-wrap: wrap;' },
+  // Bucket split — same predicate the report layer uses.
+  rows.forEach((f) => { f._bucket = findingBucket(f); });
+  const aiCount = rows.filter((f) => f._bucket === 'ai_powered').length;
+  const staticCount = rows.length - aiCount;
+  let activeBucket = 'all'; // 'all' | 'ai_powered' | 'static_tool'
+
+  const bucketBtn = (key, label, count) => {
+    const btn = el('button', {
+      class: `tab ${activeBucket === key ? 'active' : ''}`,
+      'data-bucket': key,
+    }, label, el('span', { class: 'tab-count' }, String(count)));
+    btn.addEventListener('click', () => {
+      activeBucket = key;
+      document.querySelectorAll('[data-bucket]').forEach((b) =>
+        b.classList.toggle('active', b.dataset.bucket === key));
+      applyBucketFilter();
+    });
+    return btn;
+  };
+
+  const filterRow = el('div', { style: 'display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; gap: 12px; flex-wrap: wrap;' },
+    el('div', { class: 'tabs', style: 'border: none; padding: 0;' },
+      bucketBtn('all', 'All findings', rows.length),
+      bucketBtn('ai_powered', 'AI-Powered AppSec', aiCount),
+      bucketBtn('static_tool', 'Static Tool', staticCount),
+    ),
     el('div', { class: 'text-secondary', style: 'font-size: 13px;' },
       `${rows.length} finding${rows.length !== 1 ? 's' : ''}`),
-  ));
+  );
+  pane.appendChild(filterRow);
 
   const wrap = el('div', { class: 'table-wrap' });
   const table = el('table', { class: 'table' });
@@ -369,7 +408,16 @@ function renderFindingsPane(findings, status, summary) {
   )));
   const tbody = el('tbody');
   rows.forEach(f => {
-    const tr = el('tr', { class: 'clickable', onclick: () => showFindingDetail(f, summary) });
+    const isStaticOnly = (f.verification_status === 'Code-level only')
+      || (f._bucket === 'static_tool' && !f.verification_status);
+    const classes = ['clickable'];
+    if (isStaticOnly) classes.push('row-static-only');
+    const tr = el('tr', {
+      class: classes.join(' '),
+      'data-row-bucket': f._bucket,
+      'data-static-only': isStaticOnly ? 'true' : 'false',
+      onclick: () => showFindingDetail(f, summary),
+    });
     tr.append(
       el('td', {}, sevBadge(f.severity, f.severity_label || f.severity)),
       el('td', {}, el('span', { class: 'mono', style: 'font-size: 12px;' }, f.agent_id)),
@@ -385,6 +433,14 @@ function renderFindingsPane(findings, status, summary) {
   table.appendChild(tbody);
   wrap.appendChild(table);
   pane.appendChild(wrap);
+
+  function applyBucketFilter() {
+    pane.querySelectorAll('tr[data-row-bucket]').forEach((tr) => {
+      const show = activeBucket === 'all' || tr.dataset.rowBucket === activeBucket;
+      tr.style.display = show ? '' : 'none';
+    });
+  }
+
   refreshIcons();
 }
 
@@ -404,6 +460,17 @@ function verifyChip(f) {
   // Outcomes: verified / refuted / inconclusive / unsupported.
   const v = (f.evidence && f.evidence._verify) || null;
   if (!v) {
+    // Agent self-reports verification_status when no runtime verifier ran
+    // (typical for SAST agents like P_015, N_002). Show a small pill so
+    // reviewers can see at a glance that this row is code-level only.
+    if (f.verification_status === 'Code-level only') {
+      return el('span', { class: 'badge badge-static', style: 'font-size: 11px;', title: 'static analysis only — no runtime verification' },
+        'static');
+    }
+    if (f.verification_status) {
+      return el('span', { class: 'badge badge-warning', style: 'font-size: 11px;', title: f.verification_status },
+        f.verification_status.length > 14 ? f.verification_status.slice(0, 14) + '…' : f.verification_status);
+    }
     return el('span', { class: 'badge badge-muted', style: 'font-size: 11px;', title: 'no verifier ran' },
       '—');
   }

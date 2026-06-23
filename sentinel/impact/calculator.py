@@ -248,8 +248,11 @@ def attach_impact(
 ) -> Finding:
     """Score a finding and return a copy with the score attached.
 
-    Sets `Finding.financial_impact_score` to the USD estimate and
-    appends the rationale to evidence['_impact'].
+    Sets `Finding.financial_impact_score`, appends the rationale to
+    evidence['_impact'], and derives ``context_factors`` (exposure /
+    controls / impact / likelihood) from the same signals the score
+    uses — so the Finding Detail View's Context grid has consistent
+    inputs without IMPACT_001 needing a second pass.
     """
     result = score(finding, tenant_plan=tenant_plan, hvt_endpoints=hvt_endpoints)
     new_evidence = dict(finding.evidence or {})
@@ -257,7 +260,48 @@ def attach_impact(
     return finding.model_copy(update={
         "financial_impact_score": round(result.estimate_usd, 2),
         "evidence": new_evidence,
+        "context_factors": _derive_context_factors(finding, result),
     })
+
+
+def _derive_context_factors(finding: Finding, result: ImpactResult) -> dict[str, str]:
+    """Map score inputs onto the four user-facing context labels.
+
+    Heuristic, intentionally short — the goal is a glanceable summary,
+    not a quantitative model. The Finding Detail View renders these as
+    cards under "Context."
+    """
+    sev = finding.severity.value
+    likelihood_by_sev = {
+        "Critical": "High", "High": "High", "Medium": "Medium",
+        "Low": "Low", "Info": "Low",
+    }
+    exposure_by_asset = {
+        "payment":  "Payment-flow surface",
+        "admin":    "Privileged / admin surface",
+        "kyc":      "KYC / identity data path",
+        "wallet":   "Wallet / crypto custody path",
+        "vault":    "Secrets-storage path",
+        "transfer": "Money-movement surface",
+        "auth":     "Authentication surface",
+        "api":      "Public API surface",
+        "default":  "Application-internal",
+    }
+    # Confidence proxies "controls in place against this finding": a
+    # high-confidence finding means existing controls failed to stop
+    # the analyzer from confirming it.
+    if finding.confidence >= 0.85:
+        controls = "Insufficient"
+    elif finding.confidence >= 0.6:
+        controls = "Partial"
+    else:
+        controls = "Likely present (low-confidence finding)"
+    return {
+        "exposure":   exposure_by_asset.get(result.asset_category, "Application-internal"),
+        "controls":   controls,
+        "impact":     f"{sev} — ${result.estimate_usd:,.0f} est. single-incident loss",
+        "likelihood": likelihood_by_sev.get(sev, "Medium"),
+    }
 
 
 __all__ = [

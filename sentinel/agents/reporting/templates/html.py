@@ -492,6 +492,103 @@ table.tbl td.mono { font-family: 'JetBrains Mono', monospace; font-size: 9.5pt; 
   body { background: #ECEEF3; }
   .doc { background: white; box-shadow: 0 4px 20px rgba(15,23,42,.08); margin-top: 12px; margin-bottom: 12px; }
 }
+
+/* ---- bucket banners (between TOC and the per-bucket findings) ---- */
+.bucket-banner {
+  page-break-before: always;
+  padding: 32px 36px 24px;
+  margin: 24px 0 0;
+  border-top: 4px solid var(--ink);
+  background: #F7F9FC;
+}
+.bucket-banner h1 {
+  font-family: 'EB Garamond', serif;
+  font-size: 28pt;
+  margin: 6px 0 12px;
+  color: var(--ink);
+}
+.bucket-banner .eyebrow {
+  font-size: 9pt;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+.bucket-banner .blurb {
+  font-size: 11pt;
+  line-height: 1.55;
+  color: var(--ink-mid);
+  max-width: 680px;
+}
+.bucket-banner.bucket-ai-powered { border-top-color: #2563EB; }
+.bucket-banner.bucket-static-tool { border-top-color: #64748B; }
+
+/* ---- severity rationale block prepended to Section 1 ---- */
+.rationale-block {
+  background: #F8FAFC;
+  border-left: 3px solid #94A3B8;
+  padding: 12px 16px;
+  margin: 0 0 12px;
+}
+.rationale-block .rationale-label {
+  font-size: 9pt;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  margin-bottom: 4px;
+}
+
+/* ---- source-tag chips in the masthead ---- */
+.src-tag {
+  display: inline-block;
+  font-size: 9pt;
+  font-weight: 600;
+  padding: 2px 9px;
+  margin: 0 4px 4px 0;
+  border-radius: 999px;
+  border: 1px solid #CBD5E1;
+  background: #F1F5F9;
+  color: #334155;
+}
+
+/* ---- code snippets under Affected Components ---- */
+.code-snippets { margin-top: 10px; }
+.code-snippets .snip { margin: 0 0 10px; }
+.code-snippets .snip:last-child { margin-bottom: 0; }
+.code-snippets .snip-header {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  font-size: 10pt;
+  margin-bottom: 4px;
+  color: var(--ink-mid);
+}
+.code-snippets .snip-header .idx { font-weight: 700; color: var(--ink); }
+.code-snippets .snip-header .snip-label {
+  font-size: 9pt; font-weight: 600;
+  padding: 1px 8px; border-radius: 4px;
+  background: #E2E8F0; color: #334155;
+  text-transform: uppercase; letter-spacing: 0.06em;
+}
+.code-snippets .snip-header .snip-file {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10pt;
+  word-break: break-all;
+}
+.code-snippets .snip-header .snip-line {
+  margin-left: auto;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9pt;
+  color: var(--ink-dim);
+}
+
+/* ---- verifier commands + observed result in Steps to Reproduce ---- */
+.repro-cmds, .observed { margin-top: 10px; }
+.repro-cmds .repro-label,
+.observed .observed-label {
+  font-size: 9pt;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  margin-bottom: 4px;
+}
 """
 
 
@@ -511,7 +608,18 @@ _SHIELD_SVG = (
 
 
 def render_html(data: ReportData) -> str:
-    """Render ``ReportData`` as a single self-contained advisory bundle."""
+    """Render ``ReportData`` as a single self-contained advisory bundle.
+
+    Findings are split into two top-level groups — AI-Powered AppSec
+    Findings and Static Tool Findings — each preceded by a banner that
+    explains what landed in that bucket. Numbering within each bucket
+    uses ``A1, A2…`` for AI-Powered and ``S1, S2…`` for Static so cross-
+    references between the JSON / Markdown / HTML reports line up.
+    """
+    from sentinel.agents.reporting.models import (
+        BUCKET_AI_POWERED, BUCKET_LABELS, BUCKET_STATIC_TOOL,
+        split_sections_by_bucket,
+    )
     parts: list[str] = []
     parts.append(_doc_head(data))
     parts.append(f"<body data-target='{html.escape(data.package)}'>")
@@ -519,12 +627,45 @@ def render_html(data: ReportData) -> str:
     parts.append(_cover(data))
     parts.append(_toc(data))
     parts.append(_executive_summary(data))
-    for idx, section in enumerate(_order_sections(data), start=1):
-        parts.append(_advisory(section, idx, data))
+
+    ai_sections, static_sections = split_sections_by_bucket(
+        _order_sections(data),
+    )
+    parts.append(_bucket_banner(
+        BUCKET_LABELS[BUCKET_AI_POWERED],
+        len(ai_sections),
+        kind="ai-powered",
+    ))
+    for n, section in enumerate(ai_sections, start=1):
+        parts.append(_advisory(section, f"A{n}", data))
+    parts.append(_bucket_banner(
+        BUCKET_LABELS[BUCKET_STATIC_TOOL],
+        len(static_sections),
+        kind="static-tool",
+    ))
+    for n, section in enumerate(static_sections, start=1):
+        parts.append(_advisory(section, f"S{n}", data))
+
     parts.append(_appendix(data))
     parts.append("</div>")
     parts.append("</body></html>")
     return "".join(parts)
+
+
+def _bucket_banner(title: str, count: int, *, kind: str) -> str:
+    """Big section divider before each bucket's findings."""
+    from sentinel.agents.reporting.models import (
+        BUCKET_AI_POWERED, BUCKET_BLURBS, BUCKET_STATIC_TOOL,
+    )
+    blurb_key = BUCKET_AI_POWERED if kind == "ai-powered" else BUCKET_STATIC_TOOL
+    blurb = BUCKET_BLURBS[blurb_key]
+    return (
+        f"<section class='bucket-banner bucket-{kind}'>"
+        f"<div class='eyebrow'>SECTION · {count} finding(s)</div>"
+        f"<h1>{html.escape(title)}</h1>"
+        f"<p class='blurb'>{html.escape(blurb)}</p>"
+        "</section>"
+    )
 
 
 # ---------- ordering ----------
@@ -598,29 +739,50 @@ def _cover(data: ReportData) -> str:
 
 
 def _toc(data: ReportData) -> str:
-    sections = _order_sections(data)
-    items: list[str] = []
-    items.append(
-        "<li><span class='lbl'>Executive Summary</span>"
-        "<span class='num'>3</span></li>"
+    from sentinel.agents.reporting.models import (
+        BUCKET_AI_POWERED, BUCKET_LABELS, BUCKET_STATIC_TOOL,
+        split_sections_by_bucket,
     )
-    for idx, s in enumerate(sections, start=1):
-        title = html.escape(s.finding.vuln_class)
-        sev = _SEVERITY_LABEL[s.finding.severity]
-        items.append(
-            f"<li><span class='lbl'>F{idx}. {title} "
-            f"<span class='muted'>({sev})</span></span>"
-            f"<span class='num'>—</span></li>"
-        )
-    items.append(
-        "<li><span class='lbl'>Appendix</span>"
-        "<span class='num'>—</span></li>"
+    ai_sections, static_sections = split_sections_by_bucket(
+        _order_sections(data),
     )
+
+    def _items(sections, prefix):
+        rendered = []
+        for n, s in enumerate(sections, start=1):
+            title = html.escape(s.finding.vuln_class)
+            sev = _SEVERITY_LABEL[s.finding.severity]
+            rendered.append(
+                f"<li><span class='lbl'>{prefix}{n}. {title} "
+                f"<span class='muted'>({sev})</span></span>"
+                f"<span class='num'>—</span></li>"
+            )
+        if not rendered:
+            rendered.append(
+                "<li><span class='lbl muted'>No findings in this section.</span>"
+                "<span class='num'>—</span></li>"
+            )
+        return "".join(rendered)
+
     return (
         "<section class='toc'>"
         "<h2>Table of Contents</h2>"
         "<div class='grp-title'>Bundle</div>"
-        f"<ul>{''.join(items)}</ul>"
+        "<ul>"
+        "<li><span class='lbl'>Executive Summary</span>"
+        "<span class='num'>3</span></li>"
+        "</ul>"
+        f"<div class='grp-title'>{BUCKET_LABELS[BUCKET_AI_POWERED]} "
+        f"<span class='muted'>({len(ai_sections)})</span></div>"
+        f"<ul>{_items(ai_sections, 'A')}</ul>"
+        f"<div class='grp-title'>{BUCKET_LABELS[BUCKET_STATIC_TOOL]} "
+        f"<span class='muted'>({len(static_sections)})</span></div>"
+        f"<ul>{_items(static_sections, 'S')}</ul>"
+        "<div class='grp-title'>Closing</div>"
+        "<ul>"
+        "<li><span class='lbl'>Appendix</span>"
+        "<span class='num'>—</span></li>"
+        "</ul>"
         "</section>"
     )
 
@@ -711,24 +873,43 @@ def _executive_summary(data: ReportData) -> str:
 # ---------- advisory ----------
 
 
-def _advisory(section: FindingSection, idx: int, data: ReportData) -> str:
+def _advisory(
+    section: FindingSection,
+    label: str | int,
+    data: ReportData,
+) -> str:
     f = section.finding
     sev_label = _SEVERITY_LABEL[f.severity]
     narrative = section.narrative or {}
 
-    masthead = _advisory_masthead(section, idx, data, sev_label)
+    masthead = _advisory_masthead(section, label, data, sev_label)
 
-    sec1 = _section_block(
-        1, "Summary",
-        f"<p>{html.escape(narrative.get('summary') or section.triage_explanation or f.vuln_class)}</p>",
+    # Sec 1 — Summary, prepended with severity rationale when present.
+    summary_body = (
+        f"<p>{html.escape(narrative.get('summary') or section.triage_explanation or f.vuln_class)}</p>"
     )
-    sec2 = _section_block(2, "Affected Components", _affected_html(section))
+    if f.severity_rationale:
+        summary_body = (
+            "<div class='rationale-block'>"
+            f"<div class='rationale-label'>Severity rationale</div>"
+            f"<p>{html.escape(f.severity_rationale.strip())}</p>"
+            "</div>"
+        ) + summary_body
+    sec1 = _section_block(1, "Summary", summary_body)
+
+    sec2 = _section_block(
+        2,
+        "Affected Components",
+        _affected_html(section) + _code_snippets_html(f),
+    )
     sec3 = _section_block(
         3, "Evidence in the APK", _evidence_html(section),
     )
-    sec4 = _section_block(
-        4, "Steps to Reproduce", _repro_html(narrative),
-    )
+
+    # Sec 4 — Steps to Reproduce, augmented with verifier commands + observed.
+    repro_body = _repro_html(narrative) + _repro_extra_html(f)
+    sec4 = _section_block(4, "Steps to Reproduce", repro_body)
+
     sec5 = _section_block(
         5, "Proof of Concept", _poc_html(section),
     )
@@ -756,14 +937,39 @@ def _advisory(section: FindingSection, idx: int, data: ReportData) -> str:
 
 
 def _advisory_masthead(
-    section: FindingSection, idx: int, data: ReportData, sev_label: str,
+    section: FindingSection,
+    label: str | int,
+    data: ReportData,
+    sev_label: str,
 ) -> str:
     f = section.finding
+    # Render the label verbatim — it already carries the A/S bucket
+    # prefix (e.g. "A1", "S3"). Numeric fallback keeps any older
+    # call-site working without producing "FA1" / "FS1" oddities.
+    label_str = str(label)
+    if label_str.isdigit():
+        label_str = f"F{label_str}"
+
+    verification_row = ""
+    if f.verification_status:
+        verification_row = (
+            "<dt>Verification</dt>"
+            f"<dd>{html.escape(f.verification_status)}</dd>"
+        )
+
+    tag_row = ""
+    if f.source_tags:
+        chips = "".join(
+            f"<span class='src-tag'>{html.escape(t)}</span>"
+            for t in f.source_tags
+        )
+        tag_row = f"<dt>Source tags</dt><dd>{chips}</dd>"
+
     return (
         "<div class='masthead'>"
         "<div class='head-row'>"
         "<div class='left'>"
-        f"<div class='findingId'>F{idx}</div>"
+        f"<div class='findingId'>{html.escape(label_str)}</div>"
         "<div class='label'>FINDING</div>"
         "</div>"
         "<div class='classification'>CONFIDENTIAL</div>"
@@ -775,6 +981,8 @@ def _advisory_masthead(
         f"<dt>CVSS Vector</dt><dd>{html.escape(f.cvss_vector or 'n/a')}</dd>"
         f"<dt>OWASP</dt><dd>{html.escape(f.owasp or '—')}</dd>"
         f"<dt>MASVS</dt><dd>{html.escape(f.masvs or '—')}</dd>"
+        f"{verification_row}"
+        f"{tag_row}"
         f"<dt>Target</dt>"
         f"<dd>{html.escape(data.package)} "
         f"<span class='muted'>v{html.escape(data.version)}</span></dd>"
@@ -787,6 +995,67 @@ def _advisory_masthead(
         "</dl>"
         "</div>"
     )
+
+
+def _code_snippets_html(finding) -> str:
+    """Render Finding.code_snippets (or the legacy singular field) as
+    numbered code blocks under Affected Components."""
+    snippets = list(getattr(finding, "code_snippets", None) or [])
+    if not snippets and getattr(finding, "code_snippet", None):
+        snippets = [finding.code_snippet]
+    if not snippets:
+        return ""
+    out = ["<div class='code-snippets'>"]
+    for i, cs in enumerate(snippets, start=1):
+        if not isinstance(cs, dict):
+            continue
+        file_path = cs.get("file") or "(no file)"
+        line_no = cs.get("line")
+        cs_label = cs.get("label")
+        content = cs.get("content") or ""
+        header_bits = [f"<span class='idx'>{i}.</span>"]
+        if cs_label:
+            header_bits.append(
+                f"<span class='snip-label'>{html.escape(str(cs_label))}</span>"
+            )
+        header_bits.append(
+            f"<code class='snip-file'>{html.escape(str(file_path))}</code>"
+        )
+        if line_no:
+            header_bits.append(
+                f"<span class='snip-line'>line {int(line_no)}</span>"
+            )
+        out.append(
+            "<div class='snip'>"
+            f"<div class='snip-header'>{''.join(header_bits)}</div>"
+            f"<pre><code>{html.escape(str(content))}</code></pre>"
+            "</div>"
+        )
+    out.append("</div>")
+    return "".join(out)
+
+
+def _repro_extra_html(finding) -> str:
+    """Render reproduction_commands + observed_result under Steps to Reproduce."""
+    parts: list[str] = []
+    cmds = list(getattr(finding, "reproduction_commands", None) or [])
+    if cmds:
+        body = "\n".join(html.escape(str(c)) for c in cmds)
+        parts.append(
+            "<div class='repro-cmds'>"
+            "<div class='repro-label'>Commands used by the verifier</div>"
+            f"<pre><code>{body}</code></pre>"
+            "</div>"
+        )
+    observed = getattr(finding, "observed_result", None)
+    if observed:
+        parts.append(
+            "<div class='observed'>"
+            "<div class='observed-label'>Observed result</div>"
+            f"<p><em>{html.escape(observed.strip())}</em></p>"
+            "</div>"
+        )
+    return "".join(parts)
 
 
 def _section_block(num: int, title: str, body: str) -> str:

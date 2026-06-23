@@ -1,12 +1,13 @@
-// FindingDetailView — Djini-style multi-section finding panel.
-// Renders, in order:
-//   1. Header banner       (app, package, version, severity, CVSS)
-//   2. Description         (LLM rationale + summary)
-//   3. Steps to reproduce  (numbered, with screenshots + commands)
-//   4. Affected code       (file path + snippet + line/col highlight)
-//   5. Context factors     (exposure, controls, impact, likelihood)
-//   6. Remediation         (developer-focused fix)
-//   7. References          (CWE / MASVS / OWASP)
+// FindingDetailView — vertically stacked finding panel.
+// Section order (matches the structure the report layer ships):
+//   1. Header banner       (severity + title + CVSS chip)
+//   2. Description         (summary + LLM rationale + severity rationale)
+//   3. Context factors     (exposure / controls / impact / likelihood)
+//   4. Metadata tags       (Source tags / CWE / MASVS / OWASP / references)
+//   5. Affected code       (one or more numbered snippets w/ file path)
+//   6. Steps to reproduce  (steps + reproduction_commands + observed_result
+//                           + screenshots; verification-failure callout)
+//   7. Remediation         (developer-focused fix)
 import { el, refreshIcons } from '../utils.js';
 import { sevBadge } from './severity-badge.js';
 import { codeBlock } from './code-block.js';
@@ -15,32 +16,28 @@ import { renderCompliancePanel } from './compliance-panel.js';
 import { renderImpactCard } from './impact-badge.js';
 import { renderSwarmPanel } from './swarm-panel.js';
 
-// Render a finding detail panel. `ctx` is the scan summary
-// (session_id, appName, package, version) needed for image URLs and
-// the header banner. `agent` is the catalog entry for this finding's
-// agent_id (description, category) — may be null.
 export function renderFindingDetailView(finding, agent, ctx) {
   const root = el('div', { class: 'finding-detail-v2' });
   root.appendChild(headerBanner(finding, ctx));
   root.appendChild(descriptionSection(finding, agent));
 
-  const repro = stepsToReproduceSection(finding, ctx);
-  if (repro) root.appendChild(repro);
+  const ctxFactors = contextFactorsSection(finding);
+  if (ctxFactors) root.appendChild(ctxFactors);
+
+  const meta = metadataTagsSection(finding);
+  if (meta) root.appendChild(meta);
 
   const code = affectedCodeSection(finding);
   if (code) root.appendChild(code);
 
-  const ctxFactors = contextFactorsSection(finding);
-  if (ctxFactors) root.appendChild(ctxFactors);
+  const repro = stepsToReproduceSection(finding, ctx);
+  if (repro) root.appendChild(repro);
 
   root.appendChild(remediationSection(finding));
 
-  const refs = referencesSection(finding);
-  if (refs) root.appendChild(refs);
-
-  // Existing supplementary panels (compliance / impact / swarm) keep
-  // working — pinned under the references section so the primary
-  // narrative reads top-down without distraction.
+  // Supplementary panels (compliance / impact / swarm) hang at the
+  // bottom so the canonical 7-section narrative reads top-down without
+  // distraction.
   const supp = el('div', { class: 'finding-supplementary' });
   const compliance = renderCompliancePanel(finding);
   if (compliance) supp.appendChild(compliance);
@@ -58,6 +55,7 @@ export function renderFindingDetailView(finding, agent, ctx) {
 function headerBanner(finding, ctx) {
   const cvss = finding.evidence?.cvss_v3_score;
   const sev = finding.severity || 'Info';
+  const vector = finding.cvss_vector || finding.evidence?.cvss_vector;
   return el('div', { class: 'fd-banner', 'data-sev': sev },
     el('div', { class: 'fd-banner-left' },
       el('div', { class: 'fd-banner-title' }, finding.vulnClass || finding.vuln_class || 'Finding'),
@@ -70,11 +68,12 @@ function headerBanner(finding, ctx) {
     el('div', { class: 'fd-banner-right' },
       sevBadge(sev.toLowerCase(), sev),
       typeof cvss === 'number'
-        ? el('div', { class: 'fd-cvss-chip', title: finding.cvss_vector || `CVSS:3.1 ${cvss}` },
+        ? el('div', { class: 'fd-cvss-chip', title: vector || `CVSS:3.1 ${cvss}` },
             el('span', { class: 'fd-cvss-label' }, 'CVSS'),
             el('span', { class: 'fd-cvss-score' }, cvss.toFixed(1)),
           )
         : null,
+      vector ? el('div', { class: 'fd-cvss-vector mono', title: 'CVSS v3.1 vector' }, vector) : null,
     ),
   );
 }
@@ -84,6 +83,8 @@ function descriptionSection(finding, agent) {
   const rationale = finding.llmRationale || finding.llm_rationale
     || finding.evidence?.llm_rationale || '';
   const summary = finding.evidence?.summary || finding.evidence?.description || '';
+  const sevRationale = finding.severity_rationale
+    || finding.evidence?.severity_rationale || '';
   return el('section', { class: 'fd-section' },
     el('h3', {}, el('i', { 'data-lucide': 'file-text', 'aria-hidden': 'true' }), 'Description'),
     summary ? el('p', { class: 'fd-prose' }, summary) : null,
@@ -91,123 +92,17 @@ function descriptionSection(finding, agent) {
       el('div', { class: 'fd-rationale-label' }, 'Why it matters'),
       el('p', { class: 'fd-prose' }, rationale),
     ) : null,
+    sevRationale ? el('div', { class: 'fd-rationale fd-rationale-severity' },
+      el('div', { class: 'fd-rationale-label' }, `Severity rationale (${finding.severity})`),
+      el('p', { class: 'fd-prose' }, sevRationale),
+    ) : null,
     agent ? el('div', { class: 'fd-agent-attribution text-muted' },
       `Detected by ${agent.id}${agent.name ? ' — ' + agent.name : ''}`,
     ) : null,
   );
 }
 
-// ---------- 3. Steps to reproduce ----------
-function stepsToReproduceSection(finding, ctx) {
-  const steps = collectSteps(finding);
-  const shots = Array.isArray(finding.screenshots) ? finding.screenshots
-    : (finding.evidence?.screenshots || []);
-  if (!steps.length && !shots.length) return null;
-
-  const section = el('section', { class: 'fd-section' },
-    el('h3', {}, el('i', { 'data-lucide': 'list-checks', 'aria-hidden': 'true' }), 'Steps to reproduce'),
-  );
-
-  if (steps.length) {
-    const ol = el('ol', { class: 'fd-steps' });
-    steps.forEach((step, i) => {
-      const li = el('li', {});
-      li.appendChild(el('div', { class: 'fd-step-text' }, step.text));
-      if (step.command) {
-        li.appendChild(el('pre', { class: 'fd-step-cmd' },
-          el('code', {}, step.command),
-        ));
-      }
-      // Inline screenshot for this step if the path includes a matching label.
-      const stepShot = matchScreenshot(shots, step.label, i);
-      if (stepShot && ctx?.session_id) {
-        const carousel = screenshotCarousel([stepShot], ctx.session_id);
-        if (carousel) li.appendChild(carousel);
-      }
-      ol.appendChild(li);
-    });
-    section.appendChild(ol);
-  }
-
-  // Any screenshots not matched to a numbered step → standalone carousel.
-  if (shots.length && ctx?.session_id) {
-    const matchedSet = new Set();
-    steps.forEach((s, i) => {
-      const m = matchScreenshot(shots, s.label, i);
-      if (m) matchedSet.add(m);
-    });
-    const leftover = shots.filter((p) => !matchedSet.has(p));
-    if (leftover.length) {
-      const car = screenshotCarousel(leftover, ctx.session_id, {
-        caption: steps.length ? 'Additional captures' : 'Captured during exploit run',
-      });
-      if (car) section.appendChild(car);
-    }
-  }
-
-  return section;
-}
-
-function collectSteps(finding) {
-  // Preferred shape: evidence.repro_steps = [{text, command?, label?}, ...]
-  const raw = finding.evidence?.repro_steps;
-  if (Array.isArray(raw) && raw.length) {
-    return raw
-      .filter((s) => s && (s.text || s.command))
-      .map((s) => ({
-        text: s.text || '',
-        command: s.command || '',
-        label: s.label || '',
-      }));
-  }
-  // Fallback: synthesise from adb / frida command hints in evidence.
-  const synth = [];
-  const ev = finding.evidence || {};
-  if (ev.adb_command) synth.push({ text: 'Trigger via ADB', command: ev.adb_command, label: 'adb' });
-  if (ev.frida_payload) synth.push({ text: 'Attach Frida hook', command: typeof ev.frida_payload === 'string' ? ev.frida_payload : JSON.stringify(ev.frida_payload, null, 2), label: 'frida' });
-  if (ev.curl) synth.push({ text: 'Replay request', command: ev.curl, label: 'curl' });
-  return synth;
-}
-
-function matchScreenshot(paths, label, idx) {
-  if (!paths.length) return null;
-  if (label) {
-    const m = paths.find((p) => p.toLowerCase().includes(label.toLowerCase()));
-    if (m) return m;
-  }
-  return paths[idx] || null;
-}
-
-// ---------- 4. Affected code ----------
-function affectedCodeSection(finding) {
-  const cs = finding.code_snippet || finding.evidence?.code_snippet;
-  if (!cs && !finding.evidence?.snippet) return null;
-
-  const file = cs?.file || finding.evidence?.file || '';
-  const line = cs?.line || finding.evidence?.line || 0;
-  const content = cs?.content || finding.evidence?.snippet || '';
-  const startCol = cs?.start_col;
-  const endCol = cs?.end_col;
-
-  const section = el('section', { class: 'fd-section' },
-    el('h3', {}, el('i', { 'data-lucide': 'code-2', 'aria-hidden': 'true' }), 'Affected code'),
-    el('div', { class: 'fd-code-path mono text-muted' },
-      file || '(no file)',
-      line ? el('span', { class: 'fd-code-line-tag' }, `line ${line}`) : null,
-    ),
-    codeBlock(content || '// (no snippet)', {
-      showLineNumbers: true,
-      startLine: line || 1,
-      highlightLines: line ? [line] : [],
-      columnHighlight: (Number.isInteger(startCol) && Number.isInteger(endCol))
-        ? { start: startCol, end: endCol }
-        : null,
-    }),
-  );
-  return section;
-}
-
-// ---------- 5. Context factors ----------
+// ---------- 3. Context factors ----------
 function contextFactorsSection(finding) {
   const cf = finding.context_factors || finding.evidence?.context_factors;
   if (!cf || typeof cf !== 'object') return null;
@@ -222,8 +117,8 @@ function contextFactorsSection(finding) {
 
   return el('section', { class: 'fd-section' },
     el('h3', {}, el('i', { 'data-lucide': 'sliders-horizontal', 'aria-hidden': 'true' }), 'Context'),
-    el('div', { class: 'fd-context-grid' },
-      ...factors.map((f) => el('div', { class: 'fd-context-card' },
+    el('div', { class: 'fd-context-grid fd-context-grid-flat' },
+      ...factors.map((f) => el('div', { class: 'fd-context-card fd-context-card-flat' },
         el('div', { class: 'fd-context-label' },
           el('i', { 'data-lucide': f.icon, 'aria-hidden': 'true' }),
           el('span', {}, f.label),
@@ -234,53 +129,280 @@ function contextFactorsSection(finding) {
   );
 }
 
-// ---------- 6. Remediation ----------
-function remediationSection(finding) {
-  return el('section', { class: 'fd-section fd-section-remediation' },
-    el('h3', {}, el('i', { 'data-lucide': 'wrench', 'aria-hidden': 'true' }), 'Remediation'),
-    el('p', { class: 'fd-prose' }, finding.recommendation || '—'),
-  );
-}
-
-// ---------- 7. References ----------
-function referencesSection(finding) {
-  const refs = [];
+// ---------- 4. Metadata tags ----------
+function metadataTagsSection(finding) {
   const ev = finding.evidence || {};
+  const tags = [];
+
+  // Source tags — agent-supplied taxonomy badges.
+  const sources = Array.isArray(finding.source_tags) ? finding.source_tags
+    : (Array.isArray(ev.source_tags) ? ev.source_tags : []);
+  sources.forEach((s) => {
+    if (s) tags.push({ kind: 'source', label: String(s) });
+  });
 
   // CWE
   const cwe = ev.cwe || finding.cwe;
   if (cwe) {
     const id = String(cwe).replace(/^CWE-?/i, '');
-    refs.push({ label: `CWE-${id}`, href: `https://cwe.mitre.org/data/definitions/${id}.html` });
-  }
-  // OWASP Mobile Top 10
-  if (finding.owasp) {
-    refs.push({
-      label: `OWASP ${finding.owasp}`,
-      href: 'https://owasp.org/www-project-mobile-top-10/',
-    });
+    tags.push({ kind: 'cwe', label: `CWE-${id}`,
+      href: `https://cwe.mitre.org/data/definitions/${id}.html` });
   }
   // MASVS
   if (finding.masvs) {
-    refs.push({
-      label: `MASVS ${finding.masvs}`,
-      href: 'https://mas.owasp.org/MASVS/',
-    });
+    tags.push({ kind: 'masvs', label: `MASVS ${finding.masvs}`,
+      href: 'https://mas.owasp.org/MASVS/' });
   }
-  // Free-form additional refs from evidence.references = [{label,href},...]
+  // OWASP Mobile Top 10
+  if (finding.owasp) {
+    tags.push({ kind: 'owasp', label: `OWASP ${finding.owasp}`,
+      href: 'https://owasp.org/www-project-mobile-top-10/' });
+  }
+  // Free-form references
   if (Array.isArray(ev.references)) {
     ev.references.forEach((r) => {
-      if (r && r.href) refs.push({ label: r.label || r.href, href: r.href });
+      if (r && r.href) tags.push({ kind: 'ref', label: r.label || r.href, href: r.href });
     });
   }
 
-  if (!refs.length) return null;
-  return el('section', { class: 'fd-section' },
-    el('h3', {}, el('i', { 'data-lucide': 'book-open', 'aria-hidden': 'true' }), 'References'),
-    el('ul', { class: 'fd-refs' },
-      ...refs.map((r) => el('li', {},
-        el('a', { href: r.href, target: '_blank', rel: 'noopener noreferrer' }, r.label),
-      )),
+  if (!tags.length) return null;
+  return el('section', { class: 'fd-section fd-section-tags' },
+    el('h3', {}, el('i', { 'data-lucide': 'tags', 'aria-hidden': 'true' }), 'Metadata'),
+    el('div', { class: 'fd-tag-row' },
+      ...tags.map((t) => t.href
+        ? el('a', { class: `fd-tag fd-tag-${t.kind}`,
+            href: t.href, target: '_blank', rel: 'noopener noreferrer' }, t.label)
+        : el('span', { class: `fd-tag fd-tag-${t.kind}` }, t.label)),
+    ),
+  );
+}
+
+// ---------- 5. Affected code ----------
+function affectedCodeSection(finding) {
+  // Prefer the multi-snippet field; fall back to the legacy singular one.
+  let snippets = Array.isArray(finding.code_snippets) ? finding.code_snippets.slice()
+    : (Array.isArray(finding.evidence?.code_snippets) ? finding.evidence.code_snippets.slice() : []);
+  const single = finding.code_snippet || finding.evidence?.code_snippet;
+  if (!snippets.length && single) snippets = [single];
+  if (!snippets.length && finding.evidence?.snippet) {
+    snippets = [{
+      file: finding.evidence.file,
+      line: finding.evidence.line,
+      content: finding.evidence.snippet,
+    }];
+  }
+  if (!snippets.length) return null;
+
+  const section = el('section', { class: 'fd-section' },
+    el('h3', {}, el('i', { 'data-lucide': 'code-2', 'aria-hidden': 'true' }),
+      `Affected code${snippets.length > 1 ? ` (${snippets.length})` : ''}`),
+  );
+
+  snippets.forEach((cs, idx) => {
+    const file = cs?.file || '';
+    const line = cs?.line || 0;
+    const content = cs?.content || '// (no snippet)';
+    const startCol = cs?.start_col;
+    const endCol = cs?.end_col;
+
+    const wrap = el('div', { class: 'fd-snippet' });
+    wrap.appendChild(el('div', { class: 'fd-code-path mono' },
+      snippets.length > 1
+        ? el('span', { class: 'fd-snippet-index' }, `${idx + 1}.`)
+        : null,
+      cs?.label ? el('span', { class: 'fd-snippet-label' }, cs.label) : null,
+      el('span', { class: 'fd-snippet-file' }, file || '(no file)'),
+      line ? el('span', { class: 'fd-code-line-tag' }, `line ${line}`) : null,
+    ));
+    wrap.appendChild(codeBlock(content, {
+      showLineNumbers: true,
+      startLine: line || 1,
+      highlightLines: line ? [line] : [],
+      columnHighlight: (Number.isInteger(startCol) && Number.isInteger(endCol))
+        ? { start: startCol, end: endCol }
+        : null,
+    }));
+    section.appendChild(wrap);
+  });
+
+  return section;
+}
+
+// ---------- 6. Steps to reproduce ----------
+function stepsToReproduceSection(finding, ctx) {
+  const steps = collectSteps(finding);
+  const shots = normaliseScreenshots(finding);
+  const reproCmds = Array.isArray(finding.reproduction_commands)
+    ? finding.reproduction_commands.filter(Boolean) : [];
+  const observed = finding.observed_result || finding.evidence?.observed_result || '';
+  const verStatus = finding.verification_status
+    || finding.evidence?.verification_status || '';
+
+  if (!steps.length && !shots.length && !reproCmds.length && !observed && !verStatus) {
+    return null;
+  }
+
+  const section = el('section', { class: 'fd-section' },
+    el('h3', {}, el('i', { 'data-lucide': 'list-checks', 'aria-hidden': 'true' }), 'Steps to reproduce'),
+  );
+
+  // Verification-failure callout (e.g. "Unverified due to auth gating").
+  if (verStatus && /unverified|fail|block|auth/i.test(verStatus)) {
+    section.appendChild(el('div', { class: 'fd-verify-callout', role: 'note' },
+      el('i', { 'data-lucide': 'alert-triangle', 'aria-hidden': 'true' }),
+      el('div', {},
+        el('div', { class: 'fd-verify-title' }, verStatus),
+        el('div', { class: 'fd-verify-body text-muted' },
+          'A blocking state prevented full runtime verification. Screenshots below show the observed state at the point the verifier halted.'),
+      ),
+    ));
+  } else if (verStatus) {
+    section.appendChild(el('div', { class: 'fd-verify-badge' },
+      el('i', { 'data-lucide': 'badge-check', 'aria-hidden': 'true' }),
+      el('span', {}, verStatus),
+    ));
+  }
+
+  if (steps.length) {
+    const ol = el('ol', { class: 'fd-steps' });
+    steps.forEach((step, i) => {
+      const li = el('li', {});
+      li.appendChild(el('div', { class: 'fd-step-text' }, step.text));
+      if (step.command) {
+        li.appendChild(el('pre', { class: 'fd-step-cmd' },
+          el('code', {}, step.command),
+        ));
+      }
+      // Match screenshot — by explicit step_index, then label, then position.
+      const stepShot = pickShot(shots, i, step.label);
+      if (stepShot && ctx?.session_id) {
+        const car = screenshotCarousel(
+          [stepShot.path],
+          ctx.session_id,
+          { caption: stepShot.caption || step.label || '' },
+        );
+        if (car) li.appendChild(car);
+      }
+      ol.appendChild(li);
+    });
+    section.appendChild(ol);
+  }
+
+  // Verifier-supplied raw commands. Renders as a single fenced block so
+  // a developer can copy-paste the whole exploit reproduction.
+  if (reproCmds.length) {
+    section.appendChild(el('div', { class: 'fd-repro-cmds' },
+      el('div', { class: 'fd-repro-cmds-label' }, 'Commands used by the verifier'),
+      el('pre', { class: 'fd-step-cmd' },
+        el('code', {}, reproCmds.join('\n')),
+      ),
+    ));
+  }
+
+  if (observed) {
+    section.appendChild(el('div', { class: 'fd-observed' },
+      el('div', { class: 'fd-observed-label' }, 'Observed result'),
+      el('p', { class: 'fd-observed-text' }, observed),
+    ));
+  }
+
+  // Any screenshots not matched to a numbered step → standalone carousel.
+  if (shots.length && ctx?.session_id) {
+    const used = new Set();
+    steps.forEach((s, i) => {
+      const m = pickShot(shots, i, s.label);
+      if (m) used.add(m);
+    });
+    const leftover = shots.filter((s) => !used.has(s));
+    if (leftover.length) {
+      const paths = leftover.map((s) => s.path);
+      const captionByPath = new Map(leftover.map((s) => [s.path, s.caption || '']));
+      const car = screenshotCarousel(paths, ctx.session_id, {
+        caption: steps.length ? 'Additional captures' : 'Captured during exploit run',
+      });
+      if (car) {
+        // Per-image caption hints (rendered via figcaption on the carousel itself).
+        car.querySelectorAll('figure.screenshot-item').forEach((fig, i) => {
+          const c = captionByPath.get(paths[i]);
+          if (c) {
+            const cap = fig.querySelector('.screenshot-label');
+            if (cap) cap.textContent = c;
+          }
+        });
+        section.appendChild(car);
+      }
+    }
+  }
+
+  return section;
+}
+
+function collectSteps(finding) {
+  const raw = finding.evidence?.repro_steps;
+  if (Array.isArray(raw) && raw.length) {
+    return raw
+      .filter((s) => s && (s.text || s.command))
+      .map((s) => ({
+        text: s.text || '',
+        command: s.command || '',
+        label: s.label || '',
+      }));
+  }
+  const synth = [];
+  const ev = finding.evidence || {};
+  if (ev.adb_command) synth.push({ text: 'Trigger via ADB', command: ev.adb_command, label: 'adb' });
+  if (ev.frida_payload) synth.push({ text: 'Attach Frida hook', command: typeof ev.frida_payload === 'string' ? ev.frida_payload : JSON.stringify(ev.frida_payload, null, 2), label: 'frida' });
+  if (ev.curl) synth.push({ text: 'Replay request', command: ev.curl, label: 'curl' });
+  return synth;
+}
+
+// Normalise screenshots into [{path, caption, step_index, label}] form.
+// Failed-capture entries (path === null) are filtered out so the
+// carousel never renders a broken image; the warning callout already
+// surfaces the verification failure.
+function normaliseScreenshots(finding) {
+  const raw = Array.isArray(finding.screenshots) ? finding.screenshots
+    : (Array.isArray(finding.evidence?.screenshots) ? finding.evidence.screenshots : []);
+  const out = [];
+  raw.forEach((entry, i) => {
+    if (typeof entry === 'string') {
+      out.push({ path: entry, caption: '', step_index: null, label: '' });
+    } else if (entry && typeof entry === 'object' && entry.path) {
+      out.push({
+        path: entry.path,
+        caption: entry.caption || '',
+        step_index: Number.isInteger(entry.step_index) ? entry.step_index : null,
+        label: entry.label || '',
+      });
+    }
+  });
+  return out;
+}
+
+function pickShot(shots, idx, label) {
+  if (!shots.length) return null;
+  // 1. explicit step_index wins
+  const byIdx = shots.find((s) => s.step_index === idx);
+  if (byIdx) return byIdx;
+  // 2. label substring match
+  if (label) {
+    const byLabel = shots.find((s) =>
+      (s.label && s.label.toLowerCase().includes(label.toLowerCase())) ||
+      (s.path && s.path.toLowerCase().includes(label.toLowerCase())));
+    if (byLabel) return byLabel;
+  }
+  // 3. positional fallback only when no step_indices are present anywhere
+  const anyIndexed = shots.some((s) => s.step_index != null);
+  if (!anyIndexed) return shots[idx] || null;
+  return null;
+}
+
+// ---------- 7. Remediation ----------
+function remediationSection(finding) {
+  return el('section', { class: 'fd-section fd-section-remediation' },
+    el('h3', {}, el('i', { 'data-lucide': 'wrench', 'aria-hidden': 'true' }), 'Remediation'),
+    el('div', { class: 'fd-remediation-box' },
+      el('p', { class: 'fd-prose' }, finding.recommendation || '—'),
     ),
   );
 }

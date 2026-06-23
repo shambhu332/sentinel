@@ -460,6 +460,14 @@ class FridaRunner:
             return ToolResult.ok("script_loaded")
         except Exception as e:  # noqa: BLE001
             logger.exception("Frida script injection failed")
+            if "connection is closed" in str(e).lower():
+                return ToolResult.fail(
+                    "Frida transport closed during script injection. "
+                    "Restart frida-server on the device, confirm the "
+                    "Frida Python package and frida-server versions match, "
+                    "then retry with --frida-spawn disabled if attach mode "
+                    "is more stable on this ROM.",
+                )
             return ToolResult.from_exception(e)
 
     async def dispatch_rpc(

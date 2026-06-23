@@ -1560,3 +1560,218 @@ code.inline {
 
 /* Modal needs an XL size for the new detail view */
 .modal-xl { max-width: 1100px; width: 95vw; }
+
+/* ============================================================
+   FindingDetailView — additions for tags row, multi-snippet,
+   verification callout, observed result, remediation box.
+   Uses existing theme tokens (theme.css) — no new hex literals.
+   ============================================================ */
+
+/* CVSS vector chip (sits next to the score) */
+.fd-cvss-vector {
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Severity rationale — distinct from the generic "why it matters" block */
+.fd-rationale-severity {
+  border-left-color: var(--sev-high);
+}
+
+/* Context grid — flat variant (no card borders, like the spec) */
+.fd-context-grid-flat {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+@media (max-width: 720px) {
+  .fd-context-grid-flat { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.fd-context-card-flat {
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+
+/* Metadata tags row */
+.fd-section-tags h3 { color: var(--text-secondary); }
+.fd-tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.fd-tag {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  text-decoration: none;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.fd-tag:hover { color: var(--text-primary); background: var(--bg-elevated); }
+.fd-tag-source { color: var(--accent-primary); border-color: var(--border-accent); background: var(--accent-bg-soft); }
+.fd-tag-cwe    { color: var(--framework-pci); border-color: rgba(16, 185, 129, 0.35); }
+.fd-tag-masvs  { color: var(--framework-dpdp); border-color: rgba(168, 85, 247, 0.35); }
+.fd-tag-owasp  { color: var(--framework-hipaa); border-color: rgba(249, 115, 22, 0.35); }
+.fd-tag-ref    { color: var(--text-muted); }
+
+/* Multi-snippet wrapper — numbered, file-pathed code blocks */
+.fd-snippet { margin-bottom: var(--space-4); }
+.fd-snippet:last-child { margin-bottom: 0; }
+.fd-snippet-index {
+  display: inline-block;
+  min-width: 18px;
+  color: var(--accent-primary);
+  font-weight: 600;
+  margin-right: 6px;
+}
+.fd-snippet-label {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  margin-right: var(--space-2);
+}
+.fd-snippet-file {
+  color: var(--text-secondary);
+  font-size: 12px;
+  word-break: break-all;
+}
+.fd-code-path {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-2);
+  padding: 6px 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  border-bottom: none;
+}
+.fd-code-line-tag {
+  font-size: 11px;
+  color: var(--accent-primary);
+  background: var(--accent-bg-soft);
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  margin-left: auto;
+}
+
+/* Verification callout — warning style for blocking states */
+.fd-verify-callout {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+  padding: var(--space-3) var(--space-4);
+  background: var(--warning-bg);
+  border: 1px solid var(--warning);
+  border-left-width: 4px;
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--space-4);
+}
+.fd-verify-callout i { color: var(--warning); flex-shrink: 0; margin-top: 2px; }
+.fd-verify-title { font-weight: 600; color: var(--warning); margin-bottom: 4px; }
+.fd-verify-body  { font-size: 13px; }
+
+/* Verify badge — success style for the verified path */
+.fd-verify-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--success);
+  background: var(--success-bg);
+  border: 1px solid rgba(52, 199, 89, 0.4);
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  margin-bottom: var(--space-3);
+}
+.fd-verify-badge i { width: 13px; height: 13px; }
+
+/* Reproduction commands block */
+.fd-repro-cmds { margin-top: var(--space-3); }
+.fd-repro-cmds-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+.fd-step-cmd {
+  background: var(--code-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  font-size: 12px;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  overflow-x: auto;
+  white-space: pre;
+  margin: 0;
+}
+
+/* Observed result — italicised evidence statement */
+.fd-observed { margin-top: var(--space-4); }
+.fd-observed-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.fd-observed-text {
+  font-style: italic;
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.55;
+}
+
+/* Remediation — distinct callout box, developer-focused */
+.fd-remediation-box {
+  background: var(--success-bg);
+  border: 1px solid rgba(52, 199, 89, 0.35);
+  border-left: 4px solid var(--success);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3) var(--space-4);
+}
+.fd-remediation-box .fd-prose { color: var(--text-primary); margin: 0; }
+
+/* Down-rank "Code-level only" rows in the findings table — slightly
+   muted so the eye lands on dynamically verified findings first. */
+.table tr.row-static-only > td {
+  color: var(--text-secondary);
+}
+.table tr.row-static-only:hover > td {
+  color: var(--text-primary);
+}
+.table tr.row-static-only .badge {
+  opacity: 0.85;
+}
+.badge-static {
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+}

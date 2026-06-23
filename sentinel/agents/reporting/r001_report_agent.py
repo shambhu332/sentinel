@@ -27,7 +27,12 @@ from pathlib import Path
 from sentinel.agents.base import BaseAgent
 from sentinel.agents.reporting.builder import build_report_data
 from sentinel.agents.reporting.enrich import enrich_sections
-from sentinel.agents.reporting.models import ReportData
+from sentinel.agents.reporting.models import (
+    BUCKET_AI_POWERED,
+    BUCKET_STATIC_TOOL,
+    ReportData,
+    bucket_for_section,
+)
 from sentinel.agents.reporting.templates import render_html, render_markdown
 from sentinel.core.finding import Finding, Severity, TriageState
 
@@ -171,8 +176,29 @@ class ReportGeneratorAgent(BaseAgent):
             "json": json_path, "sarif": sarif_path,
         }
 
-    @staticmethod
-    def _json_payload(data: ReportData) -> dict:
+    # Bucket classification lives in sentinel.agents.reporting.models so
+    # the renderers, this agent, and the frontend predicate all agree.
+    # Re-exposed as a static method for back-compat with existing callers.
+    _classify_section = staticmethod(bucket_for_section)
+
+    @classmethod
+    def _json_payload(cls, data: ReportData) -> dict:
+        sections_serialised: list[dict] = []
+        ai_powered: list[dict] = []
+        static_tool: list[dict] = []
+        for s in data.sections:
+            bucket = cls._classify_section(s)
+            entry = {
+                **s.finding.model_dump(mode="json"),
+                "finding_id": s.finding.finding_id,
+                "rag_mapping": s.rag_mapping,
+                "rag_passage_ids": s.rag_passage_ids,
+                "triage_explanation": s.triage_explanation,
+                "report_bucket": bucket,
+            }
+            sections_serialised.append(entry)
+            (ai_powered if bucket == BUCKET_AI_POWERED else static_tool).append(entry)
+
         return {
             "package": data.package,
             "version": data.version,
@@ -190,22 +216,15 @@ class ReportGeneratorAgent(BaseAgent):
                 {"source": r.source, "control_id": r.control_id, "title": r.title}
                 for r in data.references
             ],
-            "findings": [
-                {
-                    "agent_id": s.finding.agent_id,
-                    "vuln_class": s.finding.vuln_class,
-                    "severity": s.finding.severity.value,
-                    "confidence": s.finding.confidence,
-                    "owasp": s.finding.owasp,
-                    "masvs": s.finding.masvs,
-                    "cvss_vector": s.finding.cvss_vector,
-                    "recommendation": s.finding.recommendation,
-                    "rag_mapping": s.rag_mapping,
-                    "rag_passage_ids": s.rag_passage_ids,
-                    "triage_explanation": s.triage_explanation,
-                }
-                for s in data.sections
-            ],
+            "findings": sections_serialised,
+            "findings_by_bucket": {
+                "ai_powered": ai_powered,
+                "static_tool": static_tool,
+            },
+            "bucket_counts": {
+                "ai_powered": len(ai_powered),
+                "static_tool": len(static_tool),
+            },
         }
 
     def _meta_finding(

@@ -75,6 +75,7 @@ class ScanResult:
         self.phase_timings: dict[str, float] = {}
         self.error: str | None = None
         self.warnings: list[str] = []
+        self.tool_health: dict[str, Any] = {}
         self.started_at = datetime.now(timezone.utc)
         self.completed_at: datetime | None = None
 
@@ -86,6 +87,7 @@ class ScanResult:
             "phase_timings": self.phase_timings,
             "error": self.error,
             "warnings": self.warnings,
+            "tool_health": self.tool_health,
             "started_at": self.started_at.isoformat(),
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
         }
@@ -572,9 +574,27 @@ class Orchestrator:
             self._context.session_id, "phase.started",
             {"phase": 4, "proxy_enabled": self._proxy_enabled},
         )
+        health = scan_result.tool_health.setdefault("dynamic", {
+            "requested": True,
+            "status": "started",
+            "proxy_enabled": self._proxy_enabled,
+            "device_serial": None,
+            "apk_installed": None,
+            "app_started": False,
+            "proxy_configured": False,
+            "mitmproxy": "not_requested" if not self._proxy_enabled else "pending",
+            "flows_captured": 0,
+            "cleanup": {},
+        })
+        scan_result.tool_health.setdefault("frida", {
+            "requested": self._frida_enabled,
+            "status": "pending" if self._frida_enabled else "not_requested",
+        })
 
         package = (self._context.manifest or {}).get("package")
         if not package:
+            health["status"] = "skipped"
+            health["reason"] = "package name not in manifest"
             scan_result.warnings.append(
                 "Phase 4 skipped: package name not in manifest",
             )
@@ -627,6 +647,8 @@ class Orchestrator:
             # Fallback path: original AdbRunner-first device.
             device_result = await adb.get_first_device()
             if not device_result.success:
+                health["status"] = "skipped"
+                health["reason"] = f"no Android device: {device_result.error}"
                 scan_result.warnings.append(
                     f"Phase 4 skipped: no Android device. {device_result.error}",
                 )
@@ -634,6 +656,7 @@ class Orchestrator:
             device = device_result.data
             logger.info("Phase 4 device: %s (%s)",
                         device.serial, device.properties.get("model", "?"))
+        health["device_serial"] = device.serial
 
         # 2) Install the APK ONLY if it's not already on the device.
         # `adb install -r` force-stops the existing app as a side effect,
@@ -646,6 +669,7 @@ class Orchestrator:
             package, serial=device.serial,
         )
         if already_installed.success and already_installed.data:
+            health["apk_installed"] = "already_present"
             logger.info(
                 "Package %s already installed on device, skipping install",
                 package,
@@ -655,6 +679,7 @@ class Orchestrator:
                 self._context.apk_path, serial=device.serial, replace=True,
             )
             if not install_result.success:
+                health["apk_installed"] = "warning"
                 logger.warning(
                     "APK install failed (may already be installed): %s",
                     install_result.error,
@@ -662,6 +687,8 @@ class Orchestrator:
                 scan_result.warnings.append(
                     f"Phase 4: APK install warning: {install_result.error}",
                 )
+            else:
+                health["apk_installed"] = "installed"
 
         # 3) Start mitmproxy (only in proxy mode)
         mitm_started = False
@@ -672,6 +699,9 @@ class Orchestrator:
                 self._context.workspace / "dynamic",
             )
             if not mitm_start.success:
+                health["status"] = "failed"
+                health["mitmproxy"] = "failed"
+                health["mitmproxy_error"] = mitm_start.error
                 scan_result.warnings.append(
                     f"Phase 4: mitmproxy start failed: {mitm_start.error}",
                 )
@@ -680,7 +710,9 @@ class Orchestrator:
             proxy_host = mitm_start.data["host"]
             proxy_port = mitm_start.data["port"]
             logger.info("mitmproxy listening on %s:%d", proxy_host, proxy_port)
+            health["mitmproxy"] = "running"
         else:
+            health["mitmproxy"] = "skipped"
             logger.info(
                 "Phase 4: --no-proxy mode, skipping mitmproxy + device proxy",
             )
@@ -696,19 +728,28 @@ class Orchestrator:
                 )
                 proxy_set = proxy_result.success
                 if not proxy_set:
+                    health["status"] = "failed"
+                    health["proxy_configured"] = False
+                    health["proxy_error"] = proxy_result.error
                     scan_result.warnings.append(
                         f"Phase 4: proxy config failed: {proxy_result.error}",
                     )
                     return
+                health["proxy_configured"] = True
 
             # 5) Launch app
             launch_result = await adb.start_app(package, serial=device.serial)
             app_started = launch_result.success
             if not app_started:
+                health["status"] = "failed"
+                health["app_started"] = False
+                health["app_error"] = launch_result.error
                 scan_result.warnings.append(
                     f"Phase 4: app launch failed: {launch_result.error}",
                 )
                 return
+            health["app_started"] = True
+            health["status"] = "capturing"
 
             # 6) Capture window — user interacts during this time
             logger.info(
@@ -748,12 +789,14 @@ class Orchestrator:
             # 7) Teardown — always run, even on failure
             if app_started:
                 stop_result = await adb.force_stop(package, serial=device.serial)
+                health["cleanup"]["force_stop"] = stop_result.success
                 if not stop_result.success:
                     logger.warning("force-stop returned non-success: %s",
                                    stop_result.error)
 
             if proxy_set:
                 clear_result = await adb.clear_global_proxy(serial=device.serial)
+                health["cleanup"]["clear_proxy"] = clear_result.success
                 if not clear_result.success:
                     logger.warning("proxy clear returned non-success: %s",
                                    clear_result.error)
@@ -763,32 +806,55 @@ class Orchestrator:
                 mitm_stop = await mitmproxy.stop()
                 if mitm_stop.success:
                     capture = mitm_stop.data
-                    self._context.sources["mitmproxy"] = capture
-                    logger.info(
-                        "Phase 4: captured %d flows in %.1fs",
-                        capture.flow_count, capture.duration_seconds,
-                    )
-                    await self._memory.publish_event(
-                        self._context.session_id, "phase.completed",
-                        {
-                            "phase": 4,
-                            "flow_count": capture.flow_count,
-                            "tls_failed_count": sum(
-                                1 for f in capture.flows if f.tls_failed
-                            ),
-                            "https_success_count": sum(
-                                1 for f in capture.flows
-                                if f.scheme == "https" and not f.tls_failed
-                            ),
-                            "http_count": sum(
-                                1 for f in capture.flows if f.scheme == "http"
-                            ),
-                        },
-                    )
+                    if capture is None:
+                        scan_result.warnings.append(
+                            "Phase 4: mitmproxy stop returned no capture",
+                        )
+                        health["status"] = "failed"
+                        health["mitmproxy"] = "failed"
+                        health["mitmproxy_error"] = "missing capture data"
+                    else:
+                        self._context.sources["mitmproxy"] = capture
+                        tls_failed_count = len([
+                            f for f in capture.flows if f.tls_failed
+                        ])
+                        https_success_count = len([
+                            f for f in capture.flows
+                            if f.scheme == "https" and not f.tls_failed
+                        ])
+                        http_count = len([
+                            f for f in capture.flows if f.scheme == "http"
+                        ])
+                        health["mitmproxy"] = "completed"
+                        health["flows_captured"] = capture.flow_count
+                        health["tls_failed_count"] = tls_failed_count
+                        health["https_success_count"] = https_success_count
+                        health["http_count"] = http_count
+                        if health.get("status") == "capturing":
+                            health["status"] = "completed"
+                        logger.info(
+                            "Phase 4: captured %d flows in %.1fs",
+                            capture.flow_count, capture.duration_seconds,
+                        )
+                        await self._memory.publish_event(
+                            self._context.session_id, "phase.completed",
+                            {
+                                "phase": 4,
+                                "flow_count": capture.flow_count,
+                                "tls_failed_count": tls_failed_count,
+                                "https_success_count": https_success_count,
+                                "http_count": http_count,
+                            },
+                        )
                 else:
                     scan_result.warnings.append(
                         f"Phase 4: mitmproxy stop failed: {mitm_stop.error}",
                     )
+                    health["status"] = "failed"
+                    health["mitmproxy"] = "failed"
+                    health["mitmproxy_error"] = mitm_stop.error
+            elif health.get("status") == "capturing":
+                health["status"] = "completed"
 
     # ---------- Phase 4.5: Frida sub-phase (Sprint 8.2) ----------
 
@@ -823,6 +889,18 @@ class Orchestrator:
                 "package": package,
             },
         )
+        health = scan_result.tool_health.setdefault("frida", {
+            "requested": True,
+        })
+        health.update({
+            "requested": True,
+            "status": "attaching",
+            "package": package,
+            "device_serial": serial,
+            "events_captured": 0,
+            "script_errors": 0,
+            "screenshots": 0,
+        })
 
         # Re-launch the target app right before attach
         relaunch = await adb.start_app(package, serial=serial)
@@ -839,9 +917,14 @@ class Orchestrator:
                 package, relaunch.error,
             )
 
-        frida = FridaRunner()
+        frida = FridaRunner(
+            evidence_dir=self._context.workspace / "evidence",
+            device_serial=getattr(self._context, "device_serial", "") or None,
+        )
         attach_result = await frida.attach(package, spawn=self._frida_spawn)
         if not attach_result.success:
+            health["status"] = "failed"
+            health["error"] = attach_result.error
             scan_result.warnings.append(
                 f"Phase 4.5 Frida attach failed: {attach_result.error}",
             )
@@ -849,12 +932,15 @@ class Orchestrator:
 
         inject_result = await frida.inject_script(ALL_RUNTIME_HOOKS)
         if not inject_result.success:
+            health["status"] = "failed"
+            health["error"] = inject_result.error
             scan_result.warnings.append(
                 f"Phase 4.5 Frida script injection failed: "
                 f"{inject_result.error}",
             )
             await frida.detach()
             return
+        health["status"] = "capturing"
 
         # In spawn mode the target was started paused so the hook
         # script could load before any app code ran; release it now.
@@ -876,12 +962,37 @@ class Orchestrator:
         detach_result = await frida.detach()
         if detach_result.success:
             capture = detach_result.data
+            if capture is None:
+                health["status"] = "failed"
+                health["error"] = "missing capture data"
+                scan_result.warnings.append(
+                    "Phase 4.5 Frida detach returned no capture",
+                )
+                return
             self._context.sources["frida"] = capture
+            # Surface evidence captures so downstream agents / the
+            # report layer can attach them to runtime findings.
+            if frida.screenshots:
+                self._context.sources["frida_screenshots"] = list(frida.screenshots)
+            health.update({
+                "status": "completed",
+                "events_captured": len(capture.events),
+                "script_errors": len(capture.script_errors),
+                "screenshots": len(frida.screenshots),
+            })
+            crypto_events = len([
+                e for e in capture.events if e.kind.startswith("crypto.")
+            ])
+            tls_events = len([
+                e for e in capture.events if e.kind.startswith("tls.")
+            ])
             logger.info(
-                "Phase 4.5: %d Frida events captured (%d crypto, %d tls)",
+                "Phase 4.5: %d Frida events captured "
+                "(%d crypto, %d tls, %d screenshots)",
                 len(capture.events),
-                sum(1 for e in capture.events if e.kind.startswith("crypto.")),
-                sum(1 for e in capture.events if e.kind.startswith("tls.")),
+                crypto_events,
+                tls_events,
+                len(frida.screenshots),
             )
             await self._memory.publish_event(
                 self._context.session_id, "phase.progress",
@@ -893,6 +1004,8 @@ class Orchestrator:
                 },
             )
         else:
+            health["status"] = "failed"
+            health["error"] = detach_result.error
             scan_result.warnings.append(
                 f"Phase 4.5 Frida detach failed: {detach_result.error}",
             )
@@ -935,7 +1048,10 @@ class Orchestrator:
                 f"Phase 4.6 app launch warning: {relaunch.error}",
             )
 
-        frida = FridaRunner()
+        frida = FridaRunner(
+            evidence_dir=self._context.workspace / "evidence",
+            device_serial=getattr(self._context, "device_serial", "") or None,
+        )
         attach_result = await frida.attach(package, spawn=self._frida_spawn)
         if not attach_result.success:
             scan_result.warnings.append(

@@ -472,6 +472,102 @@ class AdbRunner:
                 e, duration=time.monotonic() - start,
             )
 
+    async def capture_evidence(
+        self,
+        out_dir: Path,
+        label: str,
+        *,
+        step_index: int | None = None,
+        caption: str | None = None,
+        serial: Optional[str] = None,
+        webp: bool = True,
+    ) -> dict:
+        """Capture a checkpoint screenshot and return a Finding-ready dict.
+
+        Convenience wrapper around ``screenshot()`` for the dynamic
+        analysis pipeline. Always returns a dict — never raises and
+        never returns None — so an agent can ``finding.screenshots.append(...)``
+        without conditional logic.
+
+        Success shape::
+
+            {"path": "evidence/screenshots/after_resume_<ts>.webp",
+             "caption": "App home screen after deep-link trigger",
+             "step_index": 2,
+             "label": "after_resume",
+             "captured_at": "<iso8601>"}
+
+        Failure shape (use to document blocking states explicitly so the
+        UI can render the "Unverified due to ..." callout instead of
+        silently dropping the step)::
+
+            {"path": None, "failed": True,
+             "reason": "screencap timed out", "label": label,
+             "step_index": step_index, "caption": caption}
+
+        Args:
+            out_dir: directory to write into (typically
+                ``workspace/<session>/evidence/screenshots/``).
+            label: short tag for the filename + UI lookup.
+            step_index: optional 0-based index of the repro step this
+                screenshot evidences. The frontend uses this to inline
+                the image under the matching step.
+            caption: human-readable description rendered under the image.
+            serial: device serial; None = default device.
+            webp: if True (default) and Pillow is available, transcode
+                the PNG to WebP for ~30% smaller payloads. Falls back
+                to the raw PNG on any encoder failure.
+        """
+        from datetime import datetime, timezone
+
+        base = {
+            "label": label,
+            "caption": caption or "",
+            "step_index": step_index,
+        }
+
+        shot = await self.screenshot(out_dir, label=label, serial=serial)
+        if not shot.success or shot.data is None:
+            base["path"] = None
+            base["failed"] = True
+            base["reason"] = shot.error or "screenshot capture failed"
+            return base
+
+        png_path: Path = shot.data
+        final_path: Path = png_path
+
+        if webp:
+            webp_path = png_path.with_suffix(".webp")
+            try:
+                # Pillow is optional — if it's not installed we just keep PNG.
+                from PIL import Image  # type: ignore[import-not-found]
+
+                with Image.open(png_path) as im:
+                    im.save(webp_path, format="WEBP", quality=82, method=4)
+                # Only replace if the WebP is genuinely smaller.
+                if webp_path.exists() and webp_path.stat().st_size < png_path.stat().st_size:
+                    try:
+                        png_path.unlink()
+                    except OSError:
+                        pass
+                    final_path = webp_path
+                else:
+                    try:
+                        webp_path.unlink()
+                    except OSError:
+                        pass
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("WebP transcode skipped: %s", exc)
+
+        try:
+            relative = final_path.relative_to(out_dir.parent.parent)
+        except ValueError:
+            relative = final_path  # absolute fallback
+
+        base["path"] = str(relative)
+        base["captured_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        return base
+
     # ---------- Log capture ----------
 
     async def logcat_clear(self,

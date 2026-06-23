@@ -10,9 +10,14 @@ import json
 from typing import Iterable
 
 from sentinel.agents.reporting.models import (
+    BUCKET_AI_POWERED,
+    BUCKET_BLURBS,
+    BUCKET_LABELS,
+    BUCKET_STATIC_TOOL,
     FindingSection,
     ReferenceBlock,
     ReportData,
+    split_sections_by_bucket,
 )
 from sentinel.core.finding import Severity
 
@@ -105,27 +110,88 @@ def _scope_methodology(lines: list[str]) -> None:
 
 
 def _findings(lines: list[str], data: ReportData) -> None:
+    """Render findings split into AI-Powered AppSec and Static Tool sections.
+
+    Each bucket gets its own H2 (so the TOC reads as two distinct top-
+    level findings sections) and inside each bucket findings are
+    grouped by severity, deterministically ordered, and numbered F#-N
+    so cross-references stay stable across renders.
+    """
     lines.extend(["## Findings", ""])
+    ai_sections, static_sections = split_sections_by_bucket(data.sections)
+
+    # Quick split summary so a reader skimming the report sees the
+    # bucket counts before diving into individual findings.
+    lines.extend([
+        "| Section | Count |",
+        "| --- | ---: |",
+        f"| {BUCKET_LABELS[BUCKET_AI_POWERED]} | {len(ai_sections)} |",
+        f"| {BUCKET_LABELS[BUCKET_STATIC_TOOL]} | {len(static_sections)} |",
+        "",
+    ])
+
+    _bucket_section(
+        lines,
+        prefix="A",
+        title=BUCKET_LABELS[BUCKET_AI_POWERED],
+        blurb=BUCKET_BLURBS[BUCKET_AI_POWERED],
+        sections=ai_sections,
+    )
+    _bucket_section(
+        lines,
+        prefix="S",
+        title=BUCKET_LABELS[BUCKET_STATIC_TOOL],
+        blurb=BUCKET_BLURBS[BUCKET_STATIC_TOOL],
+        sections=static_sections,
+    )
+
+    lines.extend(["---", ""])
+
+
+def _bucket_section(
+    lines: list[str],
+    *,
+    prefix: str,
+    title: str,
+    blurb: str,
+    sections: list[FindingSection],
+) -> None:
+    lines.extend([
+        f"## {title}",
+        "",
+        f"_{blurb}_",
+        "",
+    ])
+    if not sections:
+        lines.extend(["_No findings in this section._", "", "---", ""])
+        return
+
+    counter = 0
     for severity in (
         Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM,
         Severity.LOW, Severity.INFO,
     ):
-        bucket = data.by_severity(severity)
+        bucket = [s for s in sections if s.finding.severity == severity]
         if not bucket:
             continue
         lines.extend([
             f"### {_SEVERITY_BADGE[severity]} — {len(bucket)} finding(s)",
             "",
         ])
-        for idx, section in enumerate(bucket, 1):
-            _finding_card(lines, idx, section)
+        for section in bucket:
+            counter += 1
+            _finding_card(lines, f"{prefix}{counter}", section)
     lines.extend(["---", ""])
 
 
-def _finding_card(lines: list[str], idx: int, section: FindingSection) -> None:
+def _finding_card(
+    lines: list[str],
+    label: str | int,
+    section: FindingSection,
+) -> None:
     f = section.finding
     lines.extend([
-        f"#### {idx}. {f.vuln_class}",
+        f"#### {label}. {f.vuln_class}",
         "",
         f"- **Agent:** `{f.agent_id}`",
         f"- **Severity:** {_SEVERITY_BADGE[f.severity]}",
@@ -133,8 +199,23 @@ def _finding_card(lines: list[str], idx: int, section: FindingSection) -> None:
         f"- **OWASP:** {f.owasp or '—'}",
         f"- **MASVS:** {f.masvs or '—'}",
         f"- **CVSS:** `{f.cvss_vector or 'n/a'}`",
-        "",
     ])
+    if f.verification_status:
+        lines.append(f"- **Verification:** {f.verification_status}")
+    if f.source_tags:
+        lines.append(
+            f"- **Source tags:** {', '.join(f'`{t}`' for t in f.source_tags)}"
+        )
+    lines.append("")
+
+    if f.severity_rationale:
+        lines.extend([
+            "**Severity rationale:**",
+            "",
+            f.severity_rationale.strip(),
+            "",
+        ])
+
     if section.triage_explanation:
         lines.extend([
             "**LLM triage:**",
@@ -150,6 +231,60 @@ def _finding_card(lines: list[str], idx: int, section: FindingSection) -> None:
         for cid, title in sorted(section.rag_mapping.items()):
             lines.append(f"- `{cid}` — {title}")
         lines.append("")
+
+    # Code snippets — render multi-snippet field if populated, otherwise
+    # fall back to the legacy singular code_snippet.
+    snippets = list(f.code_snippets or [])
+    if not snippets and f.code_snippet:
+        snippets = [f.code_snippet]
+    if snippets:
+        lines.extend(["**Affected code:**", ""])
+        for i, cs in enumerate(snippets, 1):
+            file_path = (cs or {}).get("file", "(no file)")
+            line_no = (cs or {}).get("line")
+            cs_label = (cs or {}).get("label")
+            header = f"`{file_path}`"
+            if line_no:
+                header += f" — line {line_no}"
+            if cs_label:
+                header = f"_{cs_label}_ · " + header
+            lines.append(f"{i}. {header}")
+            lines.extend([
+                "",
+                "```",
+                str((cs or {}).get("content", "")),
+                "```",
+                "",
+            ])
+
+    # Steps to reproduce — verifier commands + observed result.
+    if f.reproduction_commands:
+        lines.extend(["**Steps to reproduce:**", "", "```"])
+        lines.extend(str(c) for c in f.reproduction_commands)
+        lines.extend(["```", ""])
+    if f.observed_result:
+        lines.extend([
+            "**Observed result:**",
+            "",
+            f"_{f.observed_result.strip()}_",
+            "",
+        ])
+
+    # Visual evidence list (paths only — Markdown renders elsewhere may
+    # not have access to the workspace, so we link rather than embed).
+    if f.screenshots:
+        lines.extend(["**Visual evidence:**", ""])
+        for entry in f.screenshots:
+            if isinstance(entry, str):
+                lines.append(f"- `{entry}`")
+            elif isinstance(entry, dict) and entry.get("path"):
+                caption = entry.get("caption") or entry.get("label") or ""
+                if caption:
+                    lines.append(f"- `{entry['path']}` — {caption}")
+                else:
+                    lines.append(f"- `{entry['path']}`")
+        lines.append("")
+
     lines.extend([
         "**Evidence:**",
         "",

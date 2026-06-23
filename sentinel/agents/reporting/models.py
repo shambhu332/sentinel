@@ -114,3 +114,72 @@ class ReportData:
 
     def by_severity(self, severity: Severity) -> list[FindingSection]:
         return [s for s in self.sections if s.finding.severity == severity]
+
+
+# ---------- bucket classification ----------
+
+# Sentinel values for the two top-level report buckets. Kept as module-
+# level constants so the renderers, R_001._classify_section, the JSON
+# payload, and (mirrored) the frontend predicate all agree on the spelling.
+BUCKET_AI_POWERED = "ai_powered"
+BUCKET_STATIC_TOOL = "static_tool"
+
+BUCKET_LABELS: dict[str, str] = {
+    BUCKET_AI_POWERED: "AI-Powered AppSec Findings",
+    BUCKET_STATIC_TOOL: "Static Tool Findings",
+}
+
+BUCKET_BLURBS: dict[str, str] = {
+    BUCKET_AI_POWERED: (
+        "Findings that an LLM triager verified, that a runtime "
+        "verifier reproduced, or that a multi-agent swarm enriched. "
+        "Each one carries narrative rationale and reproduction evidence "
+        "beyond what the originating detector emitted."
+    ),
+    BUCKET_STATIC_TOOL: (
+        "Findings produced by static analysis alone — manifest, "
+        "decompiled-source, and configuration-file checks. They have "
+        "not been verified at runtime and may require manual review "
+        "to confirm exploitability in your deployment."
+    ),
+}
+
+
+def bucket_for_section(section: FindingSection) -> str:
+    """Return the report bucket for a single section.
+
+    Mirrored by ``R_001._classify_section`` and by the frontend's
+    ``findingBucket()`` in ``scan-detail.js``. Keep all three predicates
+    in sync — they decide which top-level section a finding lands in.
+    """
+    f = section.finding
+    ev = f.evidence if isinstance(f.evidence, dict) else {}
+
+    if f.severity_rationale:
+        return BUCKET_AI_POWERED
+    if f.verification_status and f.verification_status != "Code-level only":
+        return BUCKET_AI_POWERED
+    verify = ev.get("_verify")
+    if isinstance(verify, dict) and verify.get("outcome"):
+        return BUCKET_AI_POWERED
+    if ev.get("_swarm"):
+        return BUCKET_AI_POWERED
+    if ev.get("dynamic_target"):
+        return BUCKET_AI_POWERED
+    if section.triage_explanation:
+        return BUCKET_AI_POWERED
+    return BUCKET_STATIC_TOOL
+
+
+def split_sections_by_bucket(
+    sections: list[FindingSection],
+) -> tuple[list[FindingSection], list[FindingSection]]:
+    """Partition sections into (ai_powered, static_tool) preserving order."""
+    ai: list[FindingSection] = []
+    static: list[FindingSection] = []
+    for s in sections:
+        if bucket_for_section(s) == BUCKET_AI_POWERED:
+            ai.append(s)
+        else:
+            static.append(s)
+    return ai, static

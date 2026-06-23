@@ -230,6 +230,7 @@ def get_result(
         "apk_size_bytes": job.apk_size_bytes,
         "manifest": job.manifest,
         "phase_timings": job.phase_timings,
+        "tool_health": job.tool_health,
         "started_at": job.started_at.isoformat() if job.started_at else None,
         "completed_at": (
             job.completed_at.isoformat() if job.completed_at else None

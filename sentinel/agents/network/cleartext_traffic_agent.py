@@ -23,6 +23,7 @@ from __future__ import annotations
 import logging
 import re
 from pathlib import Path
+from typing import Any
 
 from sentinel.agents.base.base_agent import BaseAgent
 from sentinel.core.finding import Finding, Severity
@@ -92,6 +93,7 @@ class CleartextTrafficAgent(BaseAgent):
         # Scan decompiled source for http:// URLs (only if available)
         http_urls: set[str] = set()
         url_locations: dict[str, list[str]] = {}
+        self._first_hit: dict[str, Any] | None = None
 
         if ctx.decompiled_dir and ctx.decompiled_dir.exists():
             self._scan_directory(ctx.decompiled_dir, http_urls, url_locations, ".java")
@@ -145,6 +147,23 @@ class CleartextTrafficAgent(BaseAgent):
                     locations[url] = []
                 if rel not in locations[url]:
                     locations[url].append(rel)
+                # First occurrence drives the FindingDetailView code
+                # snippet — line/col derived from the regex span.
+                if not hasattr(self, "_first_hit") or self._first_hit is None:
+                    line_start = max(0, text.rfind("\n", 0, match.start()) + 1)
+                    line_end = text.find("\n", match.end())
+                    if line_end == -1:
+                        line_end = len(text)
+                    self._first_hit = {
+                        "file": rel,
+                        "line": text.count("\n", 0, match.start()) + 1,
+                        "start_col": match.start() - line_start,
+                        "end_col": (
+                            match.start() - line_start
+                            + (match.end() - match.start())
+                        ),
+                        "content": text[line_start:line_end].strip()[:200],
+                    }
 
     def _make_finding_for_results(
         self,
@@ -190,11 +209,42 @@ class CleartextTrafficAgent(BaseAgent):
                 "locations": locations[:3],  # cap files-per-url
             })
 
+        first_hit = getattr(self, "_first_hit", None)
+        code_snippets = self._build_code_snippets(
+            first_hit=first_hit,
+            manifest_flag=manifest_flag,
+            evidence_urls=evidence_urls,
+        )
+
+        sample_url = sample_urls[0] if sample_urls else None
+
+        source_tags = ["Cleartext Traffic", "Network Misconfiguration"]
+        if manifest_flag:
+            source_tags.append("Manifest Flag")
+        if url_count > 0:
+            source_tags.append("Hardcoded URL")
+
         return self._make_finding(
             vuln_class=self.VULN_CLASS,
             severity=severity,
             confidence=confidence,
             recommendation=self._build_recommendation(manifest_flag, url_count),
+            code_snippet=first_hit,
+            code_snippets=code_snippets or None,
+            severity_rationale=self._build_severity_rationale(
+                severity, manifest_flag, url_count, package,
+            ),
+            verification_status="Code-level only",
+            source_tags=source_tags,
+            reproduction_commands=self._build_repro_commands(
+                manifest_flag, sample_url, package,
+            ),
+            observed_result=self._build_observed_result(
+                manifest_flag, url_count, sample_url,
+            ),
+            cvss_vector="CVSS:3.1/AV:A/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N",
+            owasp="M3: Insecure Communication",
+            masvs="MSTG-NETWORK-1",
             evidence={
                 "title": f"Cleartext Traffic in {package}",
                 "summary": summary,
@@ -208,6 +258,143 @@ class CleartextTrafficAgent(BaseAgent):
                     "is visible in plaintext and can be modified by the attacker."
                 ),
             },
+        )
+
+    # ---------- new-field builders ----------
+
+    @staticmethod
+    def _build_code_snippets(
+        *,
+        first_hit: dict[str, Any] | None,
+        manifest_flag: bool,
+        evidence_urls: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Materialise the offending sources as numbered snippets.
+
+        First snippet (if available): the actual Java line that hits the
+        regex, with line/column highlight so the detail view points at
+        the exact substring. Second snippet (when the manifest flag is
+        on): the synthesised <application> declaration so reviewers can
+        see the global opt-in alongside the local example.
+        """
+        out: list[dict[str, Any]] = []
+        if first_hit:
+            out.append({
+                "label": "Hardcoded URL",
+                "file": first_hit.get("file", ""),
+                "line": first_hit.get("line", 1),
+                "start_col": first_hit.get("start_col"),
+                "end_col": first_hit.get("end_col"),
+                "content": first_hit.get("content", ""),
+            })
+        if manifest_flag:
+            out.append({
+                "label": "Manifest opt-in",
+                "file": "AndroidManifest.xml",
+                "line": 1,
+                "content": (
+                    "<application\n"
+                    "    android:usesCleartextTraffic=\"true\"\n"
+                    "    ... >\n"
+                    "    <!-- All HTTP traffic permitted app-wide -->\n"
+                    "</application>"
+                ),
+            })
+        return out
+
+    @staticmethod
+    def _build_severity_rationale(
+        severity: Severity,
+        manifest_flag: bool,
+        url_count: int,
+        package: str,
+    ) -> str:
+        if manifest_flag and url_count > 0:
+            return (
+                f"Rated {severity.value} because {package} both opts into "
+                f"cleartext traffic at the manifest level AND ships "
+                f"{url_count} hardcoded http:// endpoint(s) that exercise "
+                f"that opt-in. An on-path attacker on the user's WiFi can "
+                f"read and modify every request flowing through these "
+                f"endpoints — including any tokens, session IDs, or PII "
+                f"the app sends in headers or bodies."
+            )
+        if manifest_flag:
+            return (
+                f"Rated {severity.value} because the manifest globally "
+                f"permits cleartext traffic. No http:// endpoints were "
+                f"found in decompiled code, so the actual attack surface "
+                f"depends on runtime calls (WebViews, dynamically built "
+                f"URLs, third-party SDKs). Treat the manifest flag as a "
+                f"latent risk that becomes exploitable the moment any "
+                f"plaintext request is issued."
+            )
+        return (
+            f"Rated {severity.value} because {url_count} hardcoded "
+            f"http:// URL(s) were found in decompiled code without an "
+            f"accompanying manifest opt-in. On API 28+ these requests "
+            f"will be blocked at runtime — but a Network Security Config "
+            f"or a debug build can re-enable them silently. Treat this "
+            f"as evidence of a development pattern that needs to be "
+            f"removed before it ships globally."
+        )
+
+    @staticmethod
+    def _build_repro_commands(
+        manifest_flag: bool,
+        sample_url: str | None,
+        package: str,
+    ) -> list[str]:
+        target = sample_url or "http://api.example.com/endpoint"
+        cmds = [
+            "# 1. Start mitmproxy on the laptop (port 8080):",
+            "mitmdump -p 8080",
+            "",
+            "# 2. Route the device's traffic through the laptop:",
+            "adb shell settings put global http_proxy $(hostname -I | awk '{print $1}'):8080",
+            "",
+            f"# 3. Launch the target app:",
+            f"adb shell monkey -p {package} -c android.intent.category.LAUNCHER 1",
+            "",
+            "# 4. Confirm the request is visible in plaintext:",
+            f"#    Expect mitmproxy to log a GET/POST to {target}",
+        ]
+        if manifest_flag:
+            cmds += [
+                "",
+                "# 5. Verify the manifest opt-in is what permits this:",
+                "aapt dump xmltree app.apk AndroidManifest.xml | grep -i cleartext",
+            ]
+        return cmds
+
+    @staticmethod
+    def _build_observed_result(
+        manifest_flag: bool,
+        url_count: int,
+        sample_url: str | None,
+    ) -> str:
+        target = sample_url or "the configured HTTP endpoint"
+        if manifest_flag and url_count > 0:
+            return (
+                f"With the device proxy pointed at mitmproxy, the request "
+                f"to {target} appears in the proxy log unencrypted. All "
+                f"request and response headers, the URL query string, "
+                f"and any body content are readable and modifiable."
+            )
+        if manifest_flag:
+            return (
+                "The manifest's usesCleartextTraffic=\"true\" flag is "
+                "confirmed; no specific plaintext request was captured "
+                "during static analysis. Any runtime HTTP request will "
+                "succeed (where it would otherwise be blocked by the "
+                "Android 9+ default)."
+            )
+        return (
+            f"Decompiled source contains hardcoded http:// URLs "
+            f"({target}). On API 28+ these specific requests will fail "
+            f"unless the app also adds a Network Security Config "
+            f"exemption — but the URLs themselves disclose backend "
+            f"endpoints that may not yet be hardened."
         )
 
     def _build_recommendation(self, manifest_flag: bool, url_count: int) -> str:

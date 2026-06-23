@@ -249,7 +249,7 @@ def _load_findings_for_session(session_id: str):
     """
     import json as _json
 
-    from sentinel.core.finding import Finding, Severity
+    from sentinel.core.finding import Finding
     json_path = (
         Path(get_settings().workspace)
         / session_id / "reports"
@@ -261,22 +261,38 @@ def _load_findings_for_session(session_id: str):
         doc = _json.loads(json_path.read_text(errors="replace"))
     except (_json.JSONDecodeError, OSError):
         return []
-    sev_map = {s.value: s for s in Severity}
     out = []
     for raw in doc.get("findings", []) or []:
         try:
-            out.append(Finding(
-                agent_id=raw.get("agent_id", "?"),
-                vuln_class=raw.get("vuln_class", "Unknown"),
-                severity=sev_map.get(raw.get("severity", "info"), Severity.INFO),
-                confidence=float(raw.get("confidence") or 0.5),
-                recommendation=raw.get("recommendation") or "",
-                evidence=raw.get("evidence") or {},
-                cvss_vector=raw.get("cvss_vector"),
-            ))
-        except Exception:  # noqa: BLE001
+            if not isinstance(raw, dict):
+                continue
+            row = dict(raw)
+            row["session_id"] = row.get("session_id") or session_id
+            row["severity"] = _coerce_severity(row.get("severity")).value
+            row["confidence"] = float(row.get("confidence") or 0.5)
+            row["recommendation"] = row.get("recommendation") or ""
+            row["evidence"] = row.get("evidence") or {}
+            row.pop("finding_id", None)
+            row.pop("rag_mapping", None)
+            row.pop("rag_passage_ids", None)
+            row.pop("triage_explanation", None)
+            out.append(Finding.model_validate(row))
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(
+                "failed to rehydrate finding for SIEM bundle: %s", exc,
+            )
             continue
     return out
+
+
+def _coerce_severity(value: object):
+    from sentinel.core.finding import Severity
+
+    text = str(value or "").strip().lower()
+    for severity in Severity:
+        if text in {severity.value.lower(), severity.name.lower()}:
+            return severity
+    return Severity.INFO
 
 
 

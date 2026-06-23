@@ -67,20 +67,47 @@ class Finding(BaseModel):
     # is a free-form "framework reference" string; rendering happens in
     # the report layer.
     compliance_tags: list[str] = Field(default_factory=list, max_length=50)
-    # Visual evidence — relative paths under workspace/{session}/evidence/.
-    # Captured by adb_runner.screenshot() around dynamic exploit triggers
-    # and rendered as a carousel in the finding detail view.
-    screenshots: list[str] | None = Field(default=None, max_length=20)
+    # Visual evidence. Two accepted shapes:
+    #   - list[str]:  legacy — relative paths under workspace/{session}/evidence/
+    #   - list[dict]: rich   — {path, caption, step_index} per screenshot
+    # The frontend handles both. New code should emit dicts (via
+    # AdbRunner.capture_evidence) so screenshots can be tied to repro steps.
+    screenshots: list[Any] | None = Field(default=None, max_length=40)
     # Precise vulnerable-line metadata emitted by SAST agents. Keys:
     #   file (str), line (int), start_col (int), end_col (int),
     #   content (str, the snippet itself, max ~4 KB).
-    # The frontend uses start_col/end_col to highlight the exact range.
+    # Single-snippet field kept for back-compat with existing agents.
     code_snippet: dict[str, Any] | None = Field(default=None)
+    # Multi-snippet variant. Each entry has the same keys as code_snippet
+    # plus an optional `label` for the section header (e.g.
+    # "Activity declaration" / "Intent-filter handler"). The detail view
+    # renders these as numbered, file-pathed code blocks.
+    code_snippets: list[dict[str, Any]] | None = Field(default=None, max_length=20)
     # Five-point qualitative ratings produced by IMPACT_001 / triage.
     # Keys: exposure, controls, impact, likelihood (each a short string
     # like "Network-reachable" or "None"). Free-form so different
     # rating systems can coexist.
     context_factors: dict[str, str] | None = Field(default=None)
+    # LLM-generated narrative explaining *why* this finding earned its
+    # severity rating. Surfaced under the description in the detail view
+    # so reviewers can sanity-check the scoring without re-reading evidence.
+    severity_rationale: str | None = Field(default=None, max_length=4000)
+    # Verification outcome for dynamic findings. Free-form so we can grow
+    # the vocabulary without a migration; today the common values are
+    # "Verified", "Unverified due to auth gating", "Code-level only".
+    verification_status: str | None = Field(default=None, max_length=120)
+    # Exact ADB / Frida / curl commands the verifier ran. Renders as a
+    # monospace block under the repro steps so a developer can re-run
+    # the exploit locally without reading the verifier source.
+    reproduction_commands: list[str] = Field(default_factory=list, max_length=20)
+    # What actually happened when the exploit was attempted, in plain
+    # English. Renders italicised under reproduction_commands so it
+    # reads as evidence, not instruction.
+    observed_result: str | None = Field(default=None, max_length=4000)
+    # Free-form taxonomy tags (e.g. "Deep Link / URL Scheme",
+    # "Untrusted Web Content"). Rendered as the metadata-row source
+    # badges in the detail view.
+    source_tags: list[str] = Field(default_factory=list, max_length=20)
     triage: TriageState = TriageState.UNREVIEWED
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -103,6 +130,21 @@ class Finding(BaseModel):
     def _validate_evidence(cls, v: dict[str, Any]) -> dict[str, Any]:
         if len(v) > MAX_EVIDENCE_FIELDS:
             raise ValueError(f"evidence has too many fields (max {MAX_EVIDENCE_FIELDS})")
+        return v
+
+    @field_validator("screenshots")
+    @classmethod
+    def _validate_screenshots(cls, v: list[Any] | None) -> list[Any] | None:
+        if v is None:
+            return v
+        for entry in v:
+            if isinstance(entry, str):
+                continue
+            if isinstance(entry, dict) and "path" in entry:
+                continue
+            raise ValueError(
+                "screenshots entries must be str paths or dicts with a 'path' key"
+            )
         return v
 
     @property

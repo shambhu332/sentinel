@@ -106,6 +106,14 @@ class LLMTriager:
                     and tr.verdict and tr.verdict.adjusted_severity):
                 self._apply_severity_adjustment(finding, tr.verdict.adjusted_severity)
 
+        # Surface the triage verdict onto first-class Finding fields so the
+        # detail view / classifier can use it without poking into evidence.
+        # This is what flips a finding out of the "Static Tool" bucket and
+        # into "AI-Powered AppSec" downstream.
+        for finding in findings:
+            tr = self._get_result(finding)
+            self._apply_triage_to_finding(finding, tr)
+
         verified = sum(1 for f in findings if self._is_outcome(f, TriageOutcome.VERIFIED))
         filtered = sum(1 for f in findings if self._is_outcome(f, TriageOutcome.FILTERED))
         uncertain = sum(1 for f in findings if self._is_outcome(f, TriageOutcome.UNCERTAIN))
@@ -312,6 +320,73 @@ class LLMTriager:
         """Convenience: is this finding's triage outcome X?"""
         result = LLMTriager._get_result(finding)
         return result is not None and result.outcome == outcome
+
+    @staticmethod
+    def _apply_triage_to_finding(
+        finding: Finding,
+        result: Optional[TriageResult],
+    ) -> None:
+        """Lift the triage verdict onto Finding's first-class fields.
+
+        - ``severity_rationale`` gets the LLM's explanation so the
+          detail view's "Severity rationale" block has authoritative
+          narrative (overrides any agent-supplied default — the LLM
+          read the code, the agent didn't).
+        - ``verification_status`` carries the LLM's outcome so the
+          bucket classifier (frontend + R_001) can route the finding
+          into "AI-Powered AppSec" instead of "Static Tool".
+
+        Filtered findings keep ``verification_status="Code-level only"``
+        (and retain whatever rationale the agent set) because the
+        report layer strips them; touching their first-class fields
+        would only confuse downstream consumers if they ever leak.
+        """
+        if result is None:
+            return
+        if result.outcome == TriageOutcome.SKIPPED:
+            return
+
+        verdict = result.verdict
+        if verdict is None and result.outcome != TriageOutcome.UNCERTAIN:
+            return
+
+        if result.outcome == TriageOutcome.VERIFIED and verdict is not None:
+            explanation = verdict.explanation.strip()
+            if verdict.adjusted_severity:
+                explanation = (
+                    f"{explanation}\n\nSeverity adjusted by LLM triage to "
+                    f"{verdict.adjusted_severity}."
+                )
+            try:
+                finding.severity_rationale = explanation
+                finding.verification_status = "Verified by LLM triage"
+            except Exception as exc:  # noqa: BLE001
+                logger.debug(
+                    "[triage] could not apply verified verdict to %s: %s",
+                    finding.agent_id, exc,
+                )
+        elif result.outcome == TriageOutcome.FILTERED and verdict is not None:
+            # Don't touch verification_status — agent default ("Code-level
+            # only") is correct; the finding is being filtered out anyway.
+            # But do persist the FP reasoning into evidence so reviewers
+            # who unhide filtered findings can see why the LLM dropped it.
+            if finding.evidence is None:
+                finding.evidence = {}
+            finding.evidence["_filter_reason"] = (
+                verdict.false_positive_reason or verdict.explanation
+            )
+        elif result.outcome == TriageOutcome.UNCERTAIN:
+            try:
+                finding.verification_status = (
+                    "LLM triage uncertain — needs human review"
+                )
+                if verdict is not None:
+                    finding.severity_rationale = verdict.explanation.strip()
+            except Exception as exc:  # noqa: BLE001
+                logger.debug(
+                    "[triage] could not apply uncertain verdict to %s: %s",
+                    finding.agent_id, exc,
+                )
 
     @staticmethod
     def _apply_severity_adjustment(finding: Finding, adjusted: str) -> None:
