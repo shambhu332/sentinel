@@ -29,6 +29,15 @@ _SEVERITY_BADGE: dict[Severity, str] = {
     Severity.INFO: "ℹ️ Info",
 }
 
+# Human-readable badge for the discrete verification_state enum so the
+# bucket the finding belongs to is immediately visible above the body.
+_VERIFICATION_STATE_BADGE: dict[str, str] = {
+    "verified":       "✅ Runtime-verified",
+    "auth_gated":     "🔐 Auth-gated (residual risk)",
+    "code_only":      "📄 Code-level only",
+    "runtime_failed": "⚠️ Runtime probe failed",
+}
+
 
 def render_markdown(data: ReportData) -> str:
     """Render ``ReportData`` as Markdown."""
@@ -200,13 +209,40 @@ def _finding_card(
         f"- **MASVS:** {f.masvs or '—'}",
         f"- **CVSS:** `{f.cvss_vector or 'n/a'}`",
     ])
-    if f.verification_status:
-        lines.append(f"- **Verification:** {f.verification_status}")
+    if f.verification_status or f.verification_state:
+        state_badge = _VERIFICATION_STATE_BADGE.get(
+            f.verification_state or "", "",
+        )
+        status_text = f.verification_status or ""
+        if state_badge and status_text:
+            lines.append(
+                f"- **Verification:** {state_badge} — {status_text}"
+            )
+        elif state_badge:
+            lines.append(f"- **Verification:** {state_badge}")
+        else:
+            lines.append(f"- **Verification:** {status_text}")
+    if f.test_credentials_used:
+        lines.append("- **Authenticated test:** yes (test credentials used)")
     if f.source_tags:
         lines.append(
             f"- **Source tags:** {', '.join(f'`{t}`' for t in f.source_tags)}"
         )
     lines.append("")
+
+    # Blocking-state callout — Djini-style. When a runtime probe was
+    # blocked we render the dedicated screenshot above the standard
+    # evidence list so reviewers see *why* the bug is unverified before
+    # they read the full evidence.
+    if f.blocking_state_screenshot:
+        lines.extend([
+            "> **Blocking state captured.** The runtime probe could not "
+            "reach the vulnerable surface; the screenshot below shows "
+            "the device state at the moment dispatch was blocked.",
+            "",
+            f"![Blocking state]({f.blocking_state_screenshot})",
+            "",
+        ])
 
     if f.severity_rationale:
         lines.extend([

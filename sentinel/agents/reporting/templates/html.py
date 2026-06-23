@@ -52,6 +52,16 @@ _SEVERITY_ORDER = (
     Severity.LOW, Severity.INFO,
 )
 
+# HTML badge for the discrete verification_state enum. Rendered next to
+# the free-form verification_status string in the masthead so reviewers
+# see the routing bucket at a glance.
+_VERIFICATION_STATE_HTML: dict[str, str] = {
+    "verified":       "<span class='ver-chip ver-verified'>✓ Runtime-verified</span>",
+    "auth_gated":     "<span class='ver-chip ver-gated'>🔐 Auth-gated</span>",
+    "code_only":      "<span class='ver-chip ver-code'>Code-level only</span>",
+    "runtime_failed": "<span class='ver-chip ver-failed'>⚠ Runtime probe failed</span>",
+}
+
 
 _CSS = """\
 @page {
@@ -537,6 +547,56 @@ table.tbl td.mono { font-family: 'JetBrains Mono', monospace; font-size: 9.5pt; 
   margin-bottom: 4px;
 }
 
+/* ---- verification-state chips in the masthead ---- */
+.ver-chip {
+  display: inline-block;
+  font-size: 9pt;
+  font-weight: 700;
+  padding: 2px 10px;
+  border-radius: 999px;
+  letter-spacing: 0.02em;
+}
+.ver-chip.ver-verified { background: #DCFCE7; color: #166534; border: 1px solid #86EFAC; }
+.ver-chip.ver-gated    { background: #FEF3C7; color: #92400E; border: 1px solid #FCD34D; }
+.ver-chip.ver-code     { background: #E2E8F0; color: #475569; border: 1px solid #CBD5E1; }
+.ver-chip.ver-failed   { background: #FEE2E2; color: #B91C1C; border: 1px solid #FCA5A5; }
+
+/* ---- authenticated-test chip ---- */
+.auth-chip {
+  display: inline-block;
+  font-size: 9pt;
+  font-weight: 600;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: #EFF6FF;
+  color: #1E40AF;
+  border: 1px solid #BFDBFE;
+}
+
+/* ---- Djini-style blocking-state figure ---- */
+.blocking-state {
+  margin: 0 0 16px;
+  padding: 10px;
+  background: #FFFBEB;
+  border: 1px solid #FCD34D;
+  border-radius: 6px;
+}
+.blocking-state img {
+  max-width: 100%;
+  max-height: 360px;
+  display: block;
+  margin: 0 auto 8px;
+  border: 1px solid #E5E7EB;
+  border-radius: 4px;
+  background: #fff;
+}
+.blocking-state figcaption {
+  font-size: 9.5pt;
+  color: #78350F;
+  text-align: center;
+  font-style: italic;
+}
+
 /* ---- source-tag chips in the masthead ---- */
 .src-tag {
   display: inline-block;
@@ -895,6 +955,19 @@ def _advisory(
             f"<p>{html.escape(f.severity_rationale.strip())}</p>"
             "</div>"
         ) + summary_body
+    if f.blocking_state_screenshot:
+        # Djini-style: render the blocking-state hero image right under
+        # the rationale so reviewers see *why* the bug is unverified
+        # before they read the rest of the narrative.
+        path = html.escape(f.blocking_state_screenshot)
+        summary_body = (
+            "<figure class='blocking-state'>"
+            f"<img src='{path}' alt='Blocking state captured during runtime probe'/>"
+            "<figcaption>Blocking state captured at runtime — the probe "
+            "could not reach the vulnerable surface, but the residual risk "
+            "documented in the rationale still applies.</figcaption>"
+            "</figure>"
+        ) + summary_body
     sec1 = _section_block(1, "Summary", summary_body)
 
     sec2 = _section_block(
@@ -951,10 +1024,22 @@ def _advisory_masthead(
         label_str = f"F{label_str}"
 
     verification_row = ""
-    if f.verification_status:
-        verification_row = (
-            "<dt>Verification</dt>"
-            f"<dd>{html.escape(f.verification_status)}</dd>"
+    if f.verification_status or f.verification_state:
+        badge = _VERIFICATION_STATE_HTML.get(f.verification_state or "", "")
+        status_text = html.escape(f.verification_status or "")
+        if badge and status_text:
+            inner = f"{badge} <span class='muted'>· {status_text}</span>"
+        elif badge:
+            inner = badge
+        else:
+            inner = status_text
+        verification_row = f"<dt>Verification</dt><dd>{inner}</dd>"
+
+    auth_row = ""
+    if f.test_credentials_used:
+        auth_row = (
+            "<dt>Authenticated test</dt>"
+            "<dd><span class='auth-chip'>Yes — test credentials used</span></dd>"
         )
 
     tag_row = ""
@@ -982,6 +1067,7 @@ def _advisory_masthead(
         f"<dt>OWASP</dt><dd>{html.escape(f.owasp or '—')}</dd>"
         f"<dt>MASVS</dt><dd>{html.escape(f.masvs or '—')}</dd>"
         f"{verification_row}"
+        f"{auth_row}"
         f"{tag_row}"
         f"<dt>Target</dt>"
         f"<dd>{html.escape(data.package)} "
