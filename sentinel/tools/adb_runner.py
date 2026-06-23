@@ -568,6 +568,34 @@ class AdbRunner:
         base["captured_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
         return base
 
+    async def capture_evidence_for_session(
+        self,
+        session_id: str,
+        context: str,
+        *,
+        workspace: Path,
+        caption: str | None = None,
+        step_index: int | None = None,
+        serial: Optional[str] = None,
+    ) -> dict:
+        """Djini-spec alias for ``capture_screenshot``.
+
+        The public spec calls this ``capture_evidence(session_id, context)``
+        — that name already belongs to the lower-level (out_dir, label)
+        method, so this thin wrapper carries the session-aware
+        signature under a non-clashing name. Delegates to
+        ``capture_screenshot`` so the underlying behaviour stays in
+        exactly one place.
+        """
+        return await self.capture_screenshot(
+            session_id=session_id,
+            filename=context,
+            workspace=workspace,
+            caption=caption,
+            step_index=step_index,
+            serial=serial,
+        )
+
     async def capture_screenshot(
         self,
         session_id: str,

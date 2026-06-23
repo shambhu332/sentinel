@@ -157,6 +157,10 @@ def bucket_for_section(section: FindingSection) -> str:
 
     if f.severity_rationale:
         return BUCKET_AI_POWERED
+    # New: discrete state takes precedence over the free-form string.
+    # Anything that isn't "code_only" is AI-Powered material.
+    if f.verification_state and f.verification_state != "code_only":
+        return BUCKET_AI_POWERED
     if f.verification_status and f.verification_status != "Code-level only":
         return BUCKET_AI_POWERED
     verify = ev.get("_verify")

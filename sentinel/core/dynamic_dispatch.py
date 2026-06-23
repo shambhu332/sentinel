@@ -81,6 +81,8 @@ async def dispatch_dynamic_targets(
     *,
     session_id: str | None = None,
     workspace: Path | None = None,
+    credential_manager: Any | None = None,
+    rationale_router: Any | None = None,
 ) -> dict[str, Any]:
     """Fire each dynamic_target finding's frida_payload via Frida RPC.
 
@@ -135,6 +137,82 @@ async def dispatch_dynamic_targets(
         finding.screenshots = list(finding.screenshots or []) + [shot]
         return shot
 
+    async def _attempt_login(finding: Finding) -> Any | None:
+        """Try auto-login for screenshot-worthy agents.
+
+        Returns the AuthResult (truthy) when an attempt was made — even
+        on auth_gated outcomes. Returns None when there's no credential
+        manager wired or the agent isn't in the screenshot allow-list.
+        """
+        if credential_manager is None:
+            return None
+        if finding.agent_id not in _SCREENSHOT_AGENTS:
+            return None
+        package = (finding.evidence or {}).get("package") or (
+            (finding.evidence or {}).get("frida_payload") or {}
+        ).get("package", "")
+        if not package:
+            return None
+        try:
+            result = await credential_manager.auto_login(
+                package, frida=frida,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "[dispatch] auto_login crashed for %s: %s",
+                finding.agent_id, exc,
+            )
+            return None
+        finding.test_credentials_used = True
+        return result
+
+    async def _mark_auth_gated(
+        finding: Finding, login_result: Any,
+    ) -> dict[str, Any]:
+        """Set the Djini-style auth-gated fields on the finding."""
+        reason = getattr(login_result, "reason", "") or "auto-login blocked"
+        finding.verification_state = "auth_gated"
+        finding.verification_status = (
+            f"Unverified due to auth gating — {reason[:96]}"
+        )
+        blocked = await _capture(
+            finding, "auth_blocked", step_index=0,
+            caption=(
+                f"Login gate blocked {finding.agent_id} runtime probe"
+            ),
+        )
+        if blocked and blocked.get("path"):
+            finding.blocking_state_screenshot = blocked["path"]
+        # LLM rationale — graceful fallback if router not wired.
+        try:
+            from sentinel.llm.severity_rationale import (
+                RationaleInput, generate_auth_gated_rationale,
+            )
+            rationale = await generate_auth_gated_rationale(
+                RationaleInput(
+                    vuln_class=finding.vuln_class,
+                    static_evidence=finding.evidence or {},
+                    observed_runtime_behavior=(
+                        finding.observed_result
+                        or "Probe blocked before reaching vulnerable surface"
+                    ),
+                    blocking_reason=reason,
+                ),
+                router=rationale_router,
+            )
+            finding.severity_rationale = rationale
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("[dispatch] rationale generation failed: %s", exc)
+        return {
+            "agent_id": finding.agent_id,
+            "finding_id": finding.finding_id,
+            "method": _AGENT_TO_RPC[finding.agent_id],
+            "ok": False,
+            "auth_gated": True,
+            "error": reason,
+            "screenshots": [blocked] if blocked else [],
+        }
+
     async def _fire(finding: Finding) -> dict[str, Any]:
         async with semaphore:
             method = _AGENT_TO_RPC[finding.agent_id]
@@ -142,6 +220,14 @@ async def dispatch_dynamic_targets(
             logger.info(
                 "[dispatch] %s -> %s", finding.agent_id, method,
             )
+
+            login = await _attempt_login(finding)
+            if login is not None and not getattr(login, "succeeded", False):
+                # Auth-gated: don't dispatch the RPC — the probe can't
+                # reach the vulnerable surface. Route to AI-Powered bucket
+                # via verification_state and let the rationale generator
+                # explain the residual risk.
+                return await _mark_auth_gated(finding, login)
 
             before = await _capture(
                 finding, "before", step_index=0,
@@ -166,6 +252,9 @@ async def dispatch_dynamic_targets(
                 finding.verification_status = (
                     f"Unverified at runtime — {reason}"
                 )
+                finding.verification_state = "runtime_failed"
+                if blocked and blocked.get("path"):
+                    finding.blocking_state_screenshot = blocked["path"]
                 return {
                     "agent_id": finding.agent_id,
                     "finding_id": finding.finding_id,
@@ -188,6 +277,9 @@ async def dispatch_dynamic_targets(
                 finding.verification_status = (
                     f"Unverified at runtime — {reason[:200]}"
                 )
+                finding.verification_state = "runtime_failed"
+                if blocked and blocked.get("path"):
+                    finding.blocking_state_screenshot = blocked["path"]
                 return {
                     "agent_id": finding.agent_id,
                     "finding_id": finding.finding_id,
@@ -202,6 +294,10 @@ async def dispatch_dynamic_targets(
                 finding, "after", step_index=1,
                 caption=f"State after {finding.agent_id} runtime probe",
             )
+            # Mark the discrete state so the bucket classifier routes
+            # this into AI-Powered AppSec without grepping the
+            # free-form verification_status string.
+            finding.verification_state = "verified"
             return {
                 "agent_id": finding.agent_id,
                 "finding_id": finding.finding_id,

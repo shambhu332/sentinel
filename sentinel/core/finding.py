@@ -9,9 +9,23 @@ import hashlib
 import re
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+# Discrete verification routing key (Djini-parity).
+#   verified       — runtime probe fired and observed the bug
+#   auth_gated     — runtime probe blocked at login/authz before reaching the
+#                    vulnerable surface (residual risk only)
+#   code_only      — no runtime probe ran; finding is static-source only
+#   runtime_failed — probe ran but crashed / returned a failure signal
+# `verification_status` (the free-form string) stays the human-readable
+# explanation; this enum is what the bucket classifier + UI + triager
+# route on so we don't grep substrings of an English sentence.
+VerificationState = Literal[
+    "verified", "auth_gated", "code_only", "runtime_failed",
+]
 
 MAX_STRING_LEN = 10_000
 MAX_EVIDENCE_FIELDS = 50
@@ -96,6 +110,22 @@ class Finding(BaseModel):
     # the vocabulary without a migration; today the common values are
     # "Verified", "Unverified due to auth gating", "Code-level only".
     verification_status: str | None = Field(default=None, max_length=120)
+    # Discrete routing key derived from / parallel to verification_status.
+    # Lets the bucket classifier, UI, and triager switch on an enum instead
+    # of substring-matching a free-form sentence. Defaults to None so
+    # existing callers (and tests) don't need updating; consumers should
+    # fall back to verification_status when this is None.
+    verification_state: VerificationState | None = Field(default=None)
+    # Single canonical screenshot captured at the moment a runtime probe
+    # was blocked (auth gate, SELinux denial, frida crash). Renders as
+    # the "Blocking State" hero image under verification_status. Optional
+    # — full evidence stream still goes through `screenshots`.
+    blocking_state_screenshot: str | None = Field(default=None, max_length=500)
+    # True when the DAST credential manager attempted automated login
+    # against the target package during this scan. Used in reports to
+    # distinguish "we tested unauthenticated paths" from "we tested
+    # authenticated paths and the bug reproduced anyway".
+    test_credentials_used: bool = Field(default=False)
     # Exact ADB / Frida / curl commands the verifier ran. Renders as a
     # monospace block under the repro steps so a developer can re-run
     # the exploit locally without reading the verifier source.
@@ -178,3 +208,44 @@ class BountyScope(BaseModel):
 
     def technique_allowed(self, technique: str) -> bool:
         return technique not in self.forbidden_techniques
+
+
+# ---------- Verification-state derivation ----------
+
+_VERIFIED_PREFIXES = (
+    "verified", "runtime-verified", "verified by",
+)
+_AUTH_GATED_PREFIXES = (
+    "auth_gated", "auth-gated", "unverified due to auth",
+    "blocked by login", "login required",
+)
+_RUNTIME_FAILED_PREFIXES = (
+    "unverified at runtime",
+    "llm triage uncertain",
+    "runtime-failed",
+)
+
+
+def derive_verification_state(finding: "Finding") -> VerificationState | None:
+    """Return the discrete state for a finding.
+
+    Preference order:
+      1. Finding.verification_state if explicitly set (authoritative).
+      2. Map verification_status by case-insensitive prefix match.
+      3. None when there is no signal either way.
+    """
+    if finding.verification_state is not None:
+        return finding.verification_state
+    status = (finding.verification_status or "").strip().lower()
+    if not status:
+        return None
+    if any(status.startswith(p) for p in _VERIFIED_PREFIXES):
+        return "verified"
+    if any(status.startswith(p) for p in _AUTH_GATED_PREFIXES):
+        return "auth_gated"
+    if any(status.startswith(p) for p in _RUNTIME_FAILED_PREFIXES):
+        return "runtime_failed"
+    if status.startswith(("code-level", "code only", "code_only")):
+        return "code_only"
+    return None
+
