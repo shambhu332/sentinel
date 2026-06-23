@@ -137,6 +137,16 @@ class ScanContext:
     def is_private(self) -> bool:
         return self.data_sensitivity == "private"
 
+    @property
+    def evidence_dir(self) -> Path:
+        """Per-session screenshot/evidence directory.
+
+        Mirrors the path AdbRunner.capture_screenshot writes into so
+        agents and verifiers can locate captures without recomputing
+        the layout.
+        """
+        return self.workspace / self.session_id / "evidence" / "screenshots"
+
     # ---------- Source helpers ----------
 
     def has_jadx(self) -> bool:

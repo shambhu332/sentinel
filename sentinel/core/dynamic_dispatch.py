@@ -15,12 +15,19 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from pathlib import Path
 from typing import Any
 
 from sentinel.core.finding import Finding
 from sentinel.tools.frida_runner import FridaRunner
 
 logger = logging.getLogger(__name__)
+
+# Agents we automatically wrap with before/after device screenshots.
+# Add IDs as more hybrid agents become screenshot-worthy. Kept narrow
+# on purpose — screencap adds ~250-400ms per call and is only useful
+# for agents whose probe produces a visible UI/state change.
+_SCREENSHOT_AGENTS: frozenset[str] = frozenset({"D_073", "D_074"})
 
 
 # AGENT_ID -> rpc.exports method name (must match the TS hook).
@@ -71,6 +78,9 @@ async def dispatch_dynamic_targets(
     frida: FridaRunner,
     max_concurrent: int = 2,
     per_call_timeout_s: float = 30.0,
+    *,
+    session_id: str | None = None,
+    workspace: Path | None = None,
 ) -> dict[str, Any]:
     """Fire each dynamic_target finding's frida_payload via Frida RPC.
 
@@ -94,6 +104,37 @@ async def dispatch_dynamic_targets(
 
     semaphore = asyncio.Semaphore(max(1, max_concurrent))
 
+    # Lazy import so the dispatcher stays importable when adb is missing
+    # (e.g. CI-only static scans). Only constructed if at least one
+    # screenshot-worthy agent is in the dispatch set.
+    adb = None
+    if session_id and workspace and any(
+        f.agent_id in _SCREENSHOT_AGENTS for f in targets
+    ):
+        try:
+            from sentinel.tools.adb_runner import AdbRunner
+            adb = AdbRunner()
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("[dispatch] AdbRunner unavailable: %s", exc)
+            adb = None
+
+    async def _capture(finding: Finding, label: str, step_index: int,
+                       caption: str) -> dict | None:
+        if adb is None or finding.agent_id not in _SCREENSHOT_AGENTS:
+            return None
+        shot = await adb.capture_screenshot(
+            session_id=session_id,  # type: ignore[arg-type]
+            filename=f"{finding.agent_id.lower()}_{label}",
+            workspace=workspace,  # type: ignore[arg-type]
+            caption=caption,
+            step_index=step_index,
+        )
+        # Attach to the originating finding so the UI renders it under
+        # the matching repro step. .screenshots tolerates both dict
+        # and string entries per the Pydantic validator.
+        finding.screenshots = list(finding.screenshots or []) + [shot]
+        return shot
+
     async def _fire(finding: Finding) -> dict[str, Any]:
         async with semaphore:
             method = _AGENT_TO_RPC[finding.agent_id]
@@ -101,6 +142,12 @@ async def dispatch_dynamic_targets(
             logger.info(
                 "[dispatch] %s -> %s", finding.agent_id, method,
             )
+
+            before = await _capture(
+                finding, "before", step_index=0,
+                caption=f"State before {finding.agent_id} runtime probe",
+            )
+
             try:
                 result = await frida.dispatch_rpc(
                     method, payload, timeout_s=per_call_timeout_s,
@@ -109,20 +156,60 @@ async def dispatch_dynamic_targets(
                 logger.exception(
                     "[dispatch] %s crashed", finding.agent_id,
                 )
+                # Capture the blocking state so reviewers see what the
+                # device looked like at the moment of failure.
+                blocked = await _capture(
+                    finding, "blocked", step_index=1,
+                    caption=f"Device state when {finding.agent_id} crashed",
+                )
+                reason = str(e)[:200] or "dispatch crashed"
+                finding.verification_status = (
+                    f"Unverified at runtime — {reason}"
+                )
                 return {
                     "agent_id": finding.agent_id,
                     "finding_id": finding.finding_id,
                     "method": method,
                     "ok": False,
                     "error": str(e)[:300],
+                    "screenshots": [s for s in (before, blocked) if s],
                 }
+
+            if not result.success:
+                # RPC returned cleanly but reported failure — document
+                # the reason on the finding itself, not just in
+                # dispatcher telemetry, so the bucket classifier and UI
+                # can route it as "Unverified".
+                blocked = await _capture(
+                    finding, "blocked", step_index=1,
+                    caption=f"Device state when {finding.agent_id} blocked",
+                )
+                reason = result.error or "probe returned failure"
+                finding.verification_status = (
+                    f"Unverified at runtime — {reason[:200]}"
+                )
+                return {
+                    "agent_id": finding.agent_id,
+                    "finding_id": finding.finding_id,
+                    "method": method,
+                    "ok": False,
+                    "error": result.error,
+                    "data": None,
+                    "screenshots": [s for s in (before, blocked) if s],
+                }
+
+            after = await _capture(
+                finding, "after", step_index=1,
+                caption=f"State after {finding.agent_id} runtime probe",
+            )
             return {
                 "agent_id": finding.agent_id,
                 "finding_id": finding.finding_id,
                 "method": method,
-                "ok": result.success,
-                "error": result.error,
-                "data": result.data if result.success else None,
+                "ok": True,
+                "error": None,
+                "data": result.data,
+                "screenshots": [s for s in (before, after) if s],
             }
 
     results = await asyncio.gather(

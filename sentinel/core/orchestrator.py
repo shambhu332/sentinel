@@ -1076,7 +1076,11 @@ class Orchestrator:
                     )
 
             from sentinel.core.dynamic_dispatch import dispatch_dynamic_targets
-            dispatch_summary = await dispatch_dynamic_targets(findings, frida)
+            dispatch_summary = await dispatch_dynamic_targets(
+                findings, frida,
+                session_id=self._context.session_id,
+                workspace=self._context.workspace,
+            )
             self._context.sources["phase4_6_dispatch"] = dispatch_summary
             await self._memory.publish_event(
                 self._context.session_id,

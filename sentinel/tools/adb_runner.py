@@ -568,6 +568,35 @@ class AdbRunner:
         base["captured_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
         return base
 
+    async def capture_screenshot(
+        self,
+        session_id: str,
+        filename: str,
+        *,
+        workspace: Path,
+        caption: str | None = None,
+        step_index: int | None = None,
+        serial: Optional[str] = None,
+    ) -> dict:
+        """Session-aware convenience wrapper over ``capture_evidence``.
+
+        Resolves the per-session evidence directory
+        (``<workspace>/<session_id>/evidence/screenshots/``) so dynamic
+        agents and the Phase 4.5 dispatcher don't recompute that path.
+
+        ``filename`` is used as the underlying label — it goes through
+        the same safe-character sanitisation as ``screenshot()`` and is
+        combined with a millisecond timestamp to keep captures unique.
+        """
+        out_dir = workspace / session_id / "evidence" / "screenshots"
+        return await self.capture_evidence(
+            out_dir,
+            label=filename,
+            step_index=step_index,
+            caption=caption,
+            serial=serial,
+        )
+
     # ---------- Log capture ----------
 
     async def logcat_clear(self,
