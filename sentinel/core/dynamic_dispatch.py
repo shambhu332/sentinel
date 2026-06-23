@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 # Add IDs as more hybrid agents become screenshot-worthy. Kept narrow
 # on purpose — screencap adds ~250-400ms per call and is only useful
 # for agents whose probe produces a visible UI/state change.
-_SCREENSHOT_AGENTS: frozenset[str] = frozenset({"D_073", "D_074"})
+_SCREENSHOT_AGENTS: frozenset[str] = frozenset({"D_073", "D_074", "D_078"})
 
 
 # AGENT_ID -> rpc.exports method name (must match the TS hook).
