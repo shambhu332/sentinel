@@ -278,6 +278,23 @@ def test_d084_is_in_dispatcher_screenshot_allowlist():
     assert {"D_073", "D_074", "D_078"} <= _SCREENSHOT_AGENTS
 
 
+def test_from_env_auto_registers_bundled_scripts():
+    cm = CredentialManager.from_env()
+    # The repo ships com.example.app as the sample login script.
+    assert "com.example.app" in cm._login_scripts
+    assert "SENTINEL_AUTH" in cm._login_scripts["com.example.app"]
+
+
+def test_from_env_workspace_scripts_override_bundled(tmp_path):
+    (tmp_path / "login_scripts").mkdir()
+    (tmp_path / "login_scripts" / "com.example.app.js").write_text(
+        "// workspace override\nsend({event:'auth.ok'})",
+    )
+    cm = CredentialManager.from_env(workspace_root=tmp_path)
+    # Workspace-scoped script must win over bundled.
+    assert cm._login_scripts["com.example.app"].startswith("// workspace override")
+
+
 def test_real_frida_runner_exposes_run_login_script():
     from sentinel.tools.frida_runner import FridaRunner
 

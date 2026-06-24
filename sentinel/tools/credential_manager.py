@@ -132,6 +132,13 @@ class CredentialManager:
 
     _ENV_FILE_NAME = ".env.test"
 
+    # Bundled login scripts shipped with the repo. `from_env` auto-loads
+    # everything under this directory so a freshly cloned checkout has
+    # working login hooks for the demo target out of the box.
+    _BUNDLED_SCRIPTS_DIR = (
+        Path(__file__).resolve().parents[2] / "frida_agent" / "login_scripts"
+    )
+
     def __init__(
         self,
         credentials: dict[str, TestCredential] | None = None,
@@ -147,6 +154,8 @@ class CredentialManager:
     def from_env(
         cls,
         workspace_root: Path | None = None,
+        *,
+        script_dirs: list[Path] | None = None,
     ) -> "CredentialManager":
         """Load credentials from .env.test (if present) and the process env.
 
@@ -206,7 +215,24 @@ class CredentialManager:
                 continue
             creds[label] = cred
             logger.info("[credentials] loaded test credential %r", label)
-        return cls(credentials=creds)
+
+        manager = cls(credentials=creds)
+
+        # Auto-register bundled login scripts plus any caller-supplied
+        # overrides. Workspace-scoped scripts (under
+        # ``<workspace>/login_scripts/``) take precedence over the
+        # bundled defaults — the workspace registration call runs last
+        # and overwrites duplicate package keys.
+        candidate_dirs: list[Path] = [cls._BUNDLED_SCRIPTS_DIR]
+        if workspace_root is not None:
+            candidate_dirs.append(workspace_root / "login_scripts")
+        if script_dirs:
+            candidate_dirs.extend(script_dirs)
+        for directory in candidate_dirs:
+            if directory.is_dir():
+                manager.load_scripts_from(directory)
+
+        return manager
 
     # ------ Inspection ------
 
