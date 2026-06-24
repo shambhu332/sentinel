@@ -1598,6 +1598,24 @@ files = [
 ]
 
 [[package]]
+name = "frida-tools"
+version = "13.7.1"
+description = "Frida CLI tools"
+optional = false
+python-versions = "*"
+groups = ["main"]
+files = [
+    {file = "frida-tools-13.7.1.tar.gz", hash = "sha256:7341aad5ea7be5602f4c6223e1cef14b2d0d8c218ae70ad13d8cde6321470e05"},
+]
+
+[package.dependencies]
+colorama = ">=0.2.7,<1.0.0"
+frida = ">=16.2.2,<17.0.0"
+prompt-toolkit = ">=2.0.0,<4.0.0"
+pygments = ">=2.0.2,<3.0.0"
+websockets = ">=13.0.0,<14.0.0"
+
+[[package]]
 name = "fsspec"
 version = "2026.3.0"
 description = "File-system specification"
@@ -6779,4 +6797,4 @@ symbolic = ["z3-solver"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<3.13"
-content-hash = "922981f2e39b2c3fd994fefb872b890eb0fec40230813ea7e74a2789dbf931a7"
+content-hash = "814d8ed2ea87aaa2ee5800321b855db80c616edf5cea95fd8c953f71936d20f0"
