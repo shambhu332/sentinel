@@ -196,6 +196,37 @@ def test_auto_login_success_path():
     assert result.succeeded
 
 
+def test_load_scripts_from_registers_each_file(tmp_path):
+    (tmp_path / "com.alpha.app.js").write_text("send({event:'auth.ok'})")
+    (tmp_path / "com.beta.app.js").write_text("send({event:'auth.fail'})")
+    (tmp_path / "blank.js").write_text("   ")
+    (tmp_path / "notes.txt").write_text("ignored")
+
+    cm = CredentialManager()
+    registered = cm.load_scripts_from(tmp_path)
+
+    assert registered == ["com.alpha.app", "com.beta.app"]
+    assert cm._login_scripts["com.alpha.app"].startswith("send")
+    assert "blank" not in cm._login_scripts
+    assert "notes" not in cm._login_scripts
+
+
+def test_load_scripts_from_missing_directory_is_silent(tmp_path):
+    cm = CredentialManager()
+    registered = cm.load_scripts_from(tmp_path / "does-not-exist")
+    assert registered == []
+
+
+def test_repo_ships_sample_login_script():
+    repo_root = Path(__file__).resolve().parents[2]
+    sample = repo_root / "frida_agent" / "login_scripts" / "com.example.app.js"
+    assert sample.is_file(), f"sample login script missing: {sample}"
+    source = sample.read_text(encoding="utf-8")
+    assert "SENTINEL_AUTH" in source
+    assert "auth.ok" in source
+    assert "auth.fail" in source
+
+
 def test_real_frida_runner_exposes_run_login_script():
     from sentinel.tools.frida_runner import FridaRunner
 

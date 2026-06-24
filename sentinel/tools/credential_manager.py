@@ -233,6 +233,44 @@ class CredentialManager:
             raise ValueError("login script source must be non-empty")
         self._login_scripts[package] = js_source
 
+    def load_scripts_from(self, directory: Path) -> list[str]:
+        """Register every ``<package>.js`` file under ``directory``.
+
+        Files are matched by the convention ``<package.name>.js`` —
+        the filename (sans extension) is the package the script
+        targets. Empty files and non-``.js`` entries are skipped.
+
+        Returns the list of registered package names. Missing or
+        unreadable directories produce a warning and an empty list,
+        never an exception — the caller may continue without any
+        scripts and rely on auth_gated routing.
+        """
+        registered: list[str] = []
+        if not directory.is_dir():
+            logger.warning(
+                "[credentials] login script directory missing: %s", directory,
+            )
+            return registered
+        for path in sorted(directory.glob("*.js")):
+            try:
+                source = path.read_text(encoding="utf-8")
+            except OSError as exc:
+                logger.warning(
+                    "[credentials] cannot read login script %s: %s",
+                    path, exc,
+                )
+                continue
+            if not source.strip():
+                continue
+            package = path.stem
+            self.register_login_script(package, source)
+            registered.append(package)
+            logger.info(
+                "[credentials] registered login script for %s (%s)",
+                package, path.name,
+            )
+        return registered
+
     # ------ Auto-login ------
 
     async def auto_login(
