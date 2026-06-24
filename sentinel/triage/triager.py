@@ -26,7 +26,7 @@ from typing import Any, Optional
 
 from pydantic import ValidationError
 
-from sentinel.core.finding import Finding, Severity
+from sentinel.core.finding import Finding, Severity, derive_verification_state
 from sentinel.core.scan_context import ScanContext
 from sentinel.llm.router import FreeProviderRouter, RouterError
 from sentinel.rag.enricher import KnowledgeEnricher
@@ -113,6 +113,13 @@ class LLMTriager:
         for finding in findings:
             tr = self._get_result(finding)
             self._apply_triage_to_finding(finding, tr)
+
+        # Backfill severity_rationale for any auth_gated finding that
+        # didn't already get one from the Phase 4.5 dispatcher. Static
+        # paths (e.g. SAST findings the user later marks auth_gated)
+        # never pass through the dispatcher, so without this step they
+        # would render in the Auth-Gated bucket with no narrative.
+        await self._fill_auth_gated_rationales(findings)
 
         verified = sum(1 for f in findings if self._is_outcome(f, TriageOutcome.VERIFIED))
         filtered = sum(1 for f in findings if self._is_outcome(f, TriageOutcome.FILTERED))
@@ -387,6 +394,65 @@ class LLMTriager:
                     "[triage] could not apply uncertain verdict to %s: %s",
                     finding.agent_id, exc,
                 )
+
+    async def _fill_auth_gated_rationales(
+        self, findings: list[Finding],
+    ) -> None:
+        """Generate a severity rationale for every auth-gated finding
+        that doesn't already have one.
+
+        Rate-limited with the same inter-call delay as triage proper
+        (Groq free-tier sits at 30 RPM). Never raises — a failed
+        rationale leaves the finding untouched, which the renderer
+        handles gracefully.
+        """
+        from sentinel.llm.severity_rationale import (
+            RationaleInput, generate_auth_gated_rationale,
+        )
+
+        targets = [
+            f for f in findings
+            if derive_verification_state(f) == "auth_gated"
+            and not (f.severity_rationale or "").strip()
+        ]
+        if not targets:
+            return
+
+        logger.info(
+            "[triage] generating %d auth-gated severity rationales",
+            len(targets),
+        )
+        first = True
+        for finding in targets:
+            if not first and self._inter_call_delay > 0:
+                await asyncio.sleep(self._inter_call_delay)
+            first = False
+            blocking_reason = (
+                finding.verification_status
+                or "auto-login blocked the runtime probe"
+            )
+            try:
+                rationale = await generate_auth_gated_rationale(
+                    RationaleInput(
+                        vuln_class=finding.vuln_class,
+                        static_evidence=finding.evidence or {},
+                        observed_runtime_behavior=(
+                            finding.observed_result
+                            or "Probe blocked before reaching the "
+                               "vulnerable surface"
+                        ),
+                        blocking_reason=blocking_reason,
+                    ),
+                    router=self._router,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.debug(
+                    "[triage] rationale generation failed for %s: %s",
+                    finding.agent_id, exc,
+                )
+                continue
+            if rationale:
+                finding.severity_rationale = rationale
 
     @staticmethod
     def _apply_severity_adjustment(finding: Finding, adjusted: str) -> None:

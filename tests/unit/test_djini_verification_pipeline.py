@@ -227,6 +227,57 @@ def test_repo_ships_sample_login_script():
     assert "auth.fail" in source
 
 
+def test_triager_backfills_rationale_for_auth_gated_findings():
+    from sentinel.triage.triager import LLMTriager
+
+    calls: list[str] = []
+
+    class StubRouter:
+        async def query(self, **kwargs):
+            calls.append(kwargs.get("user_prompt", ""))
+            return {
+                "content": (
+                    '{"rationale": "Dynamic exploitability was not '
+                    'confirmed because the login gate intercepted the '
+                    'probe, but the risk remains for authenticated '
+                    'users if the deep-link handler accepts crafted URIs."}'
+                ),
+            }
+
+    triager = LLMTriager(router=StubRouter(), inter_call_delay_seconds=0.0)
+
+    needs_rationale = _base_finding(
+        verification_state="auth_gated",
+        verification_status="Unverified due to auth gating — login required",
+    )
+    already_has_one = _base_finding(
+        verification_state="auth_gated",
+        severity_rationale="pre-existing rationale from dispatcher",
+    )
+    verified = _base_finding(verification_state="verified")
+
+    asyncio.run(
+        triager._fill_auth_gated_rationales(
+            [needs_rationale, already_has_one, verified],
+        ),
+    )
+
+    assert needs_rationale.severity_rationale
+    assert "authenticated users" in needs_rationale.severity_rationale
+    assert already_has_one.severity_rationale == (
+        "pre-existing rationale from dispatcher"
+    )
+    assert verified.severity_rationale is None
+    assert len(calls) == 1  # one call total — for the needs_rationale finding
+
+
+def test_d084_is_in_dispatcher_screenshot_allowlist():
+    from sentinel.core.dynamic_dispatch import _SCREENSHOT_AGENTS
+
+    assert "D_084" in _SCREENSHOT_AGENTS
+    assert {"D_073", "D_074", "D_078"} <= _SCREENSHOT_AGENTS
+
+
 def test_real_frida_runner_exposes_run_login_script():
     from sentinel.tools.frida_runner import FridaRunner
 
