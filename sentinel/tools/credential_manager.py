@@ -290,9 +290,9 @@ class CredentialManager:
                 duration_ms=_elapsed_ms(start),
             )
 
-        # Delegate the actual hook drive to the FridaRunner if it
-        # exposes a `run_login_script` API. Today FridaRunner doesn't
-        # ship one — we return auth_gated rather than fabricate success.
+        # Delegate the actual hook drive to the FridaRunner. The real
+        # FridaRunner ships a run_login_script() API; test doubles may
+        # not — fall back to auth_gated rather than fabricate success.
         if not hasattr(frida, "run_login_script"):
             return AuthResult(
                 outcome="auth_gated",

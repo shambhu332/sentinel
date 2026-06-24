@@ -196,6 +196,14 @@ def test_auto_login_success_path():
     assert result.succeeded
 
 
+def test_real_frida_runner_exposes_run_login_script():
+    from sentinel.tools.frida_runner import FridaRunner
+
+    assert hasattr(FridaRunner, "run_login_script")
+    import inspect
+    assert inspect.iscoroutinefunction(FridaRunner.run_login_script)
+
+
 def test_auto_login_script_crash_is_auth_gated():
     class CrashingFrida:
         async def run_login_script(self, **kwargs):

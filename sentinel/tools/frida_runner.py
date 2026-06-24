@@ -521,6 +521,105 @@ class FridaRunner:
             logger.exception("Frida RPC %s failed", method)
             return ToolResult.from_exception(e)
 
+    async def run_login_script(
+        self,
+        *,
+        package: str,
+        script_source: str,
+        username: str,
+        password: str,
+        timeout_s: float = 10.0,
+    ) -> bool:
+        """Drive an app-specific auto-login hook and report the outcome.
+
+        The script runs inside the already-running target process. It
+        must signal completion exactly once via one of:
+            send({event: "auth.ok"})
+            send({event: "auth.fail", reason: "..."})
+        Credentials are exposed to the script ahead of its first line
+        as ``globalThis.SENTINEL_AUTH = {username, password}`` — this
+        keeps them out of the script's literal source (which the SOC
+        commits to disk) and out of any log lines we emit here.
+
+        Returns True on ``auth.ok``, False on ``auth.fail``. Raises
+        ``RuntimeError`` on attach/inject failure or script error. The
+        caller (CredentialManager.auto_login) wraps the call in
+        ``asyncio.wait_for`` and treats timeouts/exceptions as
+        ``auth_gated`` — never as success.
+
+        Uses a fresh device/session so it cannot interfere with a
+        running observation session on the same FridaRunner instance.
+        """
+        if self._frida_unavailable_reason:
+            raise RuntimeError(self._frida_unavailable_reason)
+
+        import json
+        import frida
+
+        loop = asyncio.get_event_loop()
+        auth_future: asyncio.Future[bool] = loop.create_future()
+
+        def on_message(message: dict, data: Any) -> None:
+            if auth_future.done():
+                return
+            if message.get("type") == "error":
+                err = message.get("description", "frida script error")
+                loop.call_soon_threadsafe(
+                    auth_future.set_exception, RuntimeError(err),
+                )
+                return
+            if message.get("type") != "send":
+                return
+            payload = message.get("payload")
+            if not isinstance(payload, dict):
+                return
+            event = payload.get("event")
+            if event == "auth.ok":
+                loop.call_soon_threadsafe(auth_future.set_result, True)
+            elif event == "auth.fail":
+                loop.call_soon_threadsafe(auth_future.set_result, False)
+
+        device = await loop.run_in_executor(None, frida.get_usb_device, 5000)
+
+        # _find_pid reads self._device; temporarily borrow the slot so
+        # we don't have to fork the helper. Restored in `finally` below.
+        prev_device = self._device
+        self._device = device
+        try:
+            pid = await loop.run_in_executor(None, self._find_pid, package)
+        finally:
+            self._device = prev_device
+        if pid is None:
+            raise RuntimeError(
+                f"package {package!r} not running on device — "
+                f"start the app before login",
+            )
+
+        session = await loop.run_in_executor(None, device.attach, pid)
+        script = None
+        try:
+            prologue = (
+                "globalThis.SENTINEL_AUTH = "
+                + json.dumps({"username": username, "password": password})
+                + ";\n"
+            )
+            script = await loop.run_in_executor(
+                None, session.create_script, prologue + script_source,
+            )
+            script.on("message", on_message)
+            await loop.run_in_executor(None, script.load)
+            return await asyncio.wait_for(auth_future, timeout=timeout_s)
+        finally:
+            if script is not None:
+                try:
+                    await loop.run_in_executor(None, script.unload)
+                except Exception:  # noqa: BLE001
+                    pass
+            try:
+                await loop.run_in_executor(None, session.detach)
+            except Exception:  # noqa: BLE001
+                pass
+
     async def wait(self, seconds: int) -> None:
         """Wait while hooks collect events. User interacts with the app."""
         logger.info("Frida: collecting events for %ds", seconds)
