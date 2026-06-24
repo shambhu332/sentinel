@@ -653,6 +653,67 @@ class AdbRunner:
         return ToolResult.ok(result.data.stdout,
                              duration=result.duration_seconds)
 
+    async def execute_adb_command_and_capture(
+        self,
+        cmd: str | list[str],
+        session_id: str,
+        context: str,
+        *,
+        workspace: Path,
+        timeout: float = 10.0,
+        settle_seconds: float = 2.0,
+        caption: str | None = None,
+        step_index: int | None = None,
+        serial: Optional[str] = None,
+    ) -> tuple[str, str, str | None]:
+        """Run an adb command, let the UI settle, then snapshot the screen.
+
+        Used by autonomous verifiers like D_090 that need to correlate
+        a runtime stimulus (e.g. ``am start -a VIEW -d ...``) with the
+        UI state it produced. Always returns a tuple — never raises —
+        so the caller can keep flowing on adb or screencap failure.
+
+        Args:
+            cmd: adb command — string ("shell am start ...") or
+                argv list. Anything before the implicit ``adb`` binary
+                must NOT be included; this method prepends the runner's
+                adb path itself.
+            session_id: scan session id for the evidence directory.
+            context: short tag for the screenshot filename (e.g.
+                ``intent_auth_logged_out``).
+            workspace: scan workspace root; the evidence directory
+                resolves to ``<workspace>/<session_id>/evidence/
+                screenshots/``.
+            timeout: per-command timeout in seconds.
+            settle_seconds: how long to wait between command return
+                and screenshot capture so the UI can transition.
+
+        Returns: ``(stdout, stderr, screenshot_relpath_or_None)``.
+        ``screenshot_relpath_or_None`` is ``None`` when the screencap
+        failed; ``stderr`` carries the adb error (if any) regardless.
+        """
+        import shlex
+
+        args = shlex.split(cmd) if isinstance(cmd, str) else list(cmd)
+        result = await self._run_adb(args, serial=serial, timeout=int(timeout))
+        if result.success and result.data is not None:
+            stdout, stderr = result.data.stdout, result.data.stderr
+        else:
+            stdout, stderr = "", result.error or "adb command failed"
+
+        if settle_seconds > 0:
+            await asyncio.sleep(settle_seconds)
+
+        shot = await self.capture_screenshot(
+            session_id=session_id,
+            filename=context,
+            workspace=workspace,
+            caption=caption,
+            step_index=step_index,
+            serial=serial,
+        )
+        return stdout, stderr, shot.get("path")
+
     # ---------- Inner runner ----------
 
     async def _run_adb(
