@@ -90,6 +90,47 @@ async def test_d073_skips_immutable_pending_intent(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_d073_skips_vendored_library_call_sites(tmp_path):
+    """Mutable PendingIntents inside bundled support/AndroidX/Play Services
+    code are library design, not app bugs at the call site. When the
+    manifest carries the host package, only call sites under that package
+    should be flagged."""
+    ctx, root = _ctx(tmp_path)
+    ctx.manifest = {"package": "com.android.insecurebankv2"}
+
+    support_dir = root / "android" / "support" / "v4" / "app"
+    support_dir.mkdir(parents=True)
+    (support_dir / "TaskStackBuilder.java").write_text(
+        "package android.support.v4.app;\n"
+        "class TaskStackBuilder {\n"
+        "  PendingIntent build(Context c, Intent i, int flags) {\n"
+        "    return PendingIntent.getActivity(c, 0, i, flags);\n"
+        "  }\n"
+        "}\n"
+    )
+
+    app_dir = root / "com" / "android" / "insecurebankv2"
+    app_dir.mkdir(parents=True)
+    (app_dir / "Notify.java").write_text(
+        "package com.android.insecurebankv2;\n"
+        "class Notify {\n"
+        "  void build(Context c, Intent i) {\n"
+        "    PendingIntent.getBroadcast(c, 0, i, 0);\n"
+        "  }\n"
+        "}\n"
+    )
+
+    findings = await PendingIntentEscalationAgent(
+        context=ctx,
+        memory=_Memory(),
+    ).analyze()
+    assert len(findings) == 1, [f.evidence["class_name"] for f in findings]
+    assert findings[0].evidence["class_name"] == (
+        "com.android.insecurebankv2.Notify"
+    )
+
+
+@pytest.mark.asyncio
 async def test_d073_flags_explicit_mutable_service(tmp_path):
     ctx, root = _ctx(tmp_path)
     (root / "Work.java").write_text(

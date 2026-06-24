@@ -71,6 +71,13 @@ class PendingIntentEscalationAgent(BaseAgent):
         if root is None:
             return []
 
+        # Restrict probing to the app's own classes. Mutable PendingIntent
+        # factories inside vendored libraries (android.support.*, androidx.*,
+        # com.google.android.*) are library design choices the app cannot fix
+        # at the call site; flagging them produces Critical-severity noise on
+        # every modern APK. P_012 / D_021 cover library-side runtime cases.
+        app_pkg = (self._context.manifest or {}).get("package") or ""
+
         findings: list[Finding] = []
         scanned = 0
         for path in root.rglob("*.java"):
@@ -85,6 +92,8 @@ class PendingIntentEscalationAgent(BaseAgent):
                 continue
 
             class_name = _class_name(path, text)
+            if app_pkg and not class_name.startswith(app_pkg):
+                continue
             rel = str(path.relative_to(root))
             for call in _find_pending_intent_calls(text):
                 if _FLAG_IMMUTABLE_RE.search(call.flags_expr):
