@@ -65,3 +65,14 @@ corpus/*.ipa
 .claude/
 .antigravitycli/
 graphify-out/
+
+# Coursework / ad-hoc scratch — not part of the shipped product
+SENTINEL_Coursework*.docx
+SENTINEL_Criteria*.docx
+*.docx.bak
+coursework.md
+eraser-prompts.md
+prompt.md
+build_criteria*.py
+insert_criteria_headings.py
+split_criteria.py
