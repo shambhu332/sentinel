@@ -109,6 +109,7 @@ class AdbRunner:
         args = ["install"]
         if replace:
             args.append("-r")
+        args.extend(["-t", "--bypass-low-target-sdk-block"])
         args.append(str(apk_path))
         result = await self._run_adb(args, serial=serial, timeout=120)
         if not result.success:
