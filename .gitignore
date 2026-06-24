@@ -76,3 +76,4 @@ prompt.md
 build_criteria*.py
 insert_criteria_headings.py
 split_criteria.py
+.env.test

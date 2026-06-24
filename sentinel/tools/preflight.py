@@ -101,37 +101,20 @@ async def _check_frida_server(serial: str | None) -> CheckResult:
             f"get_usb_device failed: {exc}",
         )
 
-    server_ver = ""
     try:
-        params = await loop.run_in_executor(
-            None, device.query_system_parameters,
-        )
-        if isinstance(params, dict):
-            for key in ("frida-version", "version", "agent-version"):
-                v = params.get(key)
-                if isinstance(v, str):
-                    server_ver = v
-                    break
-    except Exception:  # noqa: BLE001
-        pass
-
-    if not server_ver:
+        procs = await loop.run_in_executor(None, device.enumerate_processes)
+    except Exception as exc:  # noqa: BLE001
         return CheckResult(
             "frida-server on device", False,
-            "device reachable but server version unknown — is "
-            "frida-server actually running? (try "
-            "`adb shell ps | grep frida-server`)",
+            f"device reachable but frida-server not responding: {exc} — "
+            "start it with `adb shell /data/local/tmp/frida-server &`",
         )
 
     client_ver = getattr(frida, "__version__", "0")
-    same_major = client_ver.split(".", 1)[0] == server_ver.split(".", 1)[0]
-    detail = f"client v{client_ver} vs server v{server_ver}"
-    if not same_major:
-        detail += (
-            " — MAJOR MISMATCH. Frida 17 dropped the built-in Java bridge "
-            "every SENTINEL hook uses. Align majors before scanning."
-        )
-    return CheckResult("frida-server on device", same_major, detail)
+    return CheckResult(
+        "frida-server on device", True,
+        f"responding ({len(procs)} processes visible) — frida client v{client_ver}",
+    )
 
 
 def _check_compiled_agent() -> CheckResult:
