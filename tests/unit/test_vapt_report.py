@@ -259,7 +259,9 @@ def test_html_has_advisory_structure():
     assert "CONFIDENTIAL" in html
     assert "Table of Contents" in html
     assert "Executive Summary" in html
-    assert ">F1<" in html  # numbered finding ID badge
+    # Numbered finding ID badge. Findings are now bucketed into AI-powered
+    # (A1, A2, …) and Static-tool (S1, S2, …) advisories, so accept either.
+    assert (">A1<" in html) or (">S1<" in html)
     assert "Appendix" in html
 
 
@@ -271,4 +273,5 @@ def test_html_renders_no_findings_gracefully():
     # No advisories — but cover / TOC / exec / appendix still render.
     assert "Table of Contents" in html
     assert "Appendix" in html
-    assert ">F1<" not in html
+    assert ">A1<" not in html
+    assert ">S1<" not in html

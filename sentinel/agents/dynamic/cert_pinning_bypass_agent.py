@@ -225,10 +225,11 @@ class CertPinningBypassAgent(BaseAgent):
                 f"With SENTINEL's compiled Frida agent attached, every "
                 f"probed certificate-pin check returned a no-op success. "
                 f"{total_events} TLS handshake(s) completed against "
-                f"{len(hosts)} host(s) using a self-signed mitmproxy CA "
-                f"that pinning was meant to reject. Proxy logs contain "
-                f"the full plaintext request/response bodies, demonstrating "
-                f"a complete pin bypass."
+                f"{len(hosts)} host(s) "
+                f"({', '.join(sorted(hosts)[:5]) or 'unidentified'}) "
+                f"using a self-signed mitmproxy CA that pinning was meant "
+                f"to reject. Proxy logs contain the full plaintext "
+                f"request/response bodies, demonstrating a complete pin bypass."
             ),
             code_snippets=self._build_pinning_code_snippets(
                 bypassed_libraries=libraries_summary,
@@ -317,7 +318,8 @@ class CertPinningBypassAgent(BaseAgent):
             observed_result=(
                 f"SENTINEL's compiled Frida agent attempted to install "
                 f"bypass hooks against {len(survived)} pinning librar"
-                f"{'y' if len(survived) == 1 else 'ies'}. Hook installation "
+                f"{'y' if len(survived) == 1 else 'ies'} "
+                f"({', '.join(libraries[:5])}). Hook installation "
                 f"reported errors (overload mismatch, anti-Frida "
                 f"interception, obfuscation, or similar). The app "
                 f"continued to enforce its pin against the proxy CA."
