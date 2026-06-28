@@ -1339,3 +1339,10 @@ export const SEVERITIES = ["critical", "high", "medium", "low", "info"];
 export const PHASES = ["Phase 2", "Phase 3", "Phase 4", "Phase 7", "Phase 8", "dynamic", "static"];
 
 export const AGENT_TOTAL = AGENTS.length;
+
+const _AGENT_INDEX = new Map(AGENTS.map((a) => [a.id, a]));
+
+export function getAgentById(id) {
+  if (!id) return null;
+  return _AGENT_INDEX.get(id) || null;
+}
