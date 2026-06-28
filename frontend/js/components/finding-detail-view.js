@@ -15,6 +15,7 @@ import { screenshotCarousel } from './screenshot-carousel.js';
 import { renderCompliancePanel } from './compliance-panel.js';
 import { renderImpactCard } from './impact-badge.js';
 import { renderSwarmPanel } from './swarm-panel.js';
+import { getReproRecipe } from './repro-recipes.js';
 
 export function renderFindingDetailView(finding, agent, ctx) {
   const root = el('div', { class: 'finding-detail-v2' });
@@ -230,7 +231,15 @@ function affectedCodeSection(finding) {
 
 // ---------- 6. Steps to reproduce ----------
 function stepsToReproduceSection(finding, ctx) {
-  const steps = collectSteps(finding);
+  let steps = collectSteps(finding);
+  let isSynthesised = false;
+  if (steps.length < 2) {
+    // Agent didn't ship a full playbook — fall back to the canonical
+    // per-vuln-class recipe so a junior researcher always has a
+    // concrete, copy-pasteable walkthrough.
+    steps = getReproRecipe(finding, ctx);
+    isSynthesised = true;
+  }
   const shots = normaliseScreenshots(finding);
   const reproCmds = Array.isArray(finding.reproduction_commands)
     ? finding.reproduction_commands.filter(Boolean) : [];
@@ -245,6 +254,26 @@ function stepsToReproduceSection(finding, ctx) {
   const section = el('section', { class: 'fd-section' },
     el('h3', {}, el('i', { 'data-lucide': 'list-checks', 'aria-hidden': 'true' }), 'Steps to reproduce'),
   );
+
+  // Prerequisites — listed once at the top so juniors don't get stuck
+  // hunting for tooling on step 3.
+  section.appendChild(el('div', { class: 'fd-prereqs', role: 'note' },
+    el('div', { class: 'fd-prereqs-label' }, 'Prerequisites'),
+    el('ul', { class: 'fd-prereqs-list' },
+      el('li', {}, 'Android test device or emulator (Android 8+ recommended)'),
+      el('li', {}, 'USB debugging enabled — ', el('code', {}, 'adb devices'), ' must list it'),
+      el('li', {}, 'Toolchain: ', el('code', {}, 'adb'), ', ', el('code', {}, 'apktool'), ', ',
+        el('code', {}, 'jadx'), ', ', el('code', {}, 'frida'), ' (only when noted in a step)'),
+      el('li', {}, 'A local copy of the target APK saved as ', el('code', {}, './target.apk')),
+    ),
+  ));
+
+  if (isSynthesised) {
+    section.appendChild(el('div', { class: 'fd-synth-note text-muted', style: 'font-size:12px; margin-bottom: 8px;' },
+      el('i', { 'data-lucide': 'sparkles', 'aria-hidden': 'true' }),
+      ' Steps below are a canonical reproduction recipe for this vulnerability class. Substitute concrete component / file names from the Affected Code section.',
+    ));
+  }
 
   // Verification-failure callout (e.g. "Unverified due to auth gating").
   if (verStatus && /unverified|fail|block|auth/i.test(verStatus)) {

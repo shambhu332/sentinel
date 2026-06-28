@@ -1380,6 +1380,44 @@ code.inline {
   white-space: pre;
 }
 
+/* Reproduction prerequisites callout — listed once before the numbered
+   step list so a junior researcher knows what tooling to install. */
+.fd-prereqs {
+  margin: 0 0 14px;
+  padding: 10px 14px;
+  background: var(--surface-2, rgba(255,255,255,0.03));
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+.fd-prereqs-label {
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+.fd-prereqs-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.fd-prereqs-list li { margin: 2px 0; }
+.fd-prereqs-list code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  padding: 1px 5px;
+  background: var(--code-bg);
+  border-radius: 3px;
+}
+.fd-synth-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.fd-synth-note i { width: 13px; height: 13px; }
+
 /* Affected code */
 .fd-code-path {
   display: flex;
