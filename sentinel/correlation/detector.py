@@ -151,21 +151,42 @@ class ChainDetector:
         pattern: ChainPattern,
         findings: list[Finding],
     ) -> list[ChainFinding]:
-        """Match a single pattern against findings."""
+        """Match a single pattern against findings.
+
+        Matching is tolerant: pattern components are compared as a set of
+        significant tokens against each finding's vuln_class. Stopwords
+        and a small synonym map collapse known divergences ("Auth" ↔
+        "Authentication", "Crypto" ↔ "Cryptographic" / "Cryptography",
+        "Exposed" ↔ "Exported"). This is what makes the engine actually
+        fire on real scan output where agent vuln_class strings drifted
+        from the original pattern definitions.
+        """
         chains: list[ChainFinding] = []
 
-        # Group findings by vuln_class
-        by_class: dict[str, list[Finding]] = {}
-        for f in findings:
-            by_class.setdefault(f.vuln_class, []).append(f)
-
-        # Check if all pattern components exist
+        # Check each pattern component against every finding via token match,
+        # picking the highest-overlap finding per component.
         pattern_findings: list[Finding] = []
+        used_ids: set[str] = set()
         for vuln_class in pattern.pattern:
-            if vuln_class not in by_class:
-                return []  # Pattern not satisfied
-            # Take first finding of this class
-            pattern_findings.append(by_class[vuln_class][0])
+            want = _normalise_tokens(vuln_class)
+            if not want:
+                return []
+            best: Finding | None = None
+            best_score = 0
+            for f in findings:
+                if f.finding_id in used_ids:
+                    continue
+                got = _normalise_tokens(f.vuln_class)
+                if not want.issubset(got):
+                    continue
+                score = len(got & want)
+                if score > best_score:
+                    best_score = score
+                    best = f
+            if best is None:
+                return []
+            pattern_findings.append(best)
+            used_ids.add(best.finding_id)
 
         # Pattern co-occurrence is the primary signal. Graph paths are
         # supplementary — they boost confidence when present, but a missing
@@ -285,3 +306,64 @@ class ChainDetector:
         # TODO: Implement LLM-assisted chain discovery
         logger.debug("[%s] LLM chain discovery not yet implemented", self._session_id)
         return []
+
+
+# ---------- vuln_class normalisation ----------
+
+# Stopwords stripped before token-set matching. They carry no signal for
+# vulnerability identity (every class description includes "the", "of", etc.).
+_STOPWORDS = frozenset({
+    # English stopwords
+    "a", "an", "the", "of", "in", "on", "to", "for", "with", "without",
+    "and", "or", "via", "by", "at",
+    # Domain fillers — words that carry no identity signal once the rest of
+    # the phrase is in scope ("Weak Cryptographic Algorithm" vs "Weak
+    # Cryptography"; "Insecure WebView Configuration" vs "Insecure WebView").
+    "algorithm", "algorithms", "configuration", "config", "traffic",
+    "issue", "issues", "attack", "vulnerability", "vuln",
+})
+
+# Synonym buckets — each variant in a bucket normalises to the bucket head.
+# This is what makes "Insecure Auth Token Storage" match the pattern
+# "Insecure Authentication Token Storage" without a fragile alias table.
+_SYNONYMS: dict[str, str] = {
+    "auth":           "authentication",
+    "authn":          "authentication",
+    "creds":          "credentials",
+    "credential":     "credentials",
+    "crypto":         "cryptographic",
+    "cryptography":   "cryptographic",
+    "encryption":     "cryptographic",
+    "encrypt":        "cryptographic",
+    "exposed":        "exported",
+    "exposes":        "exported",
+    "exposing":       "exported",
+    "ipc":            "component",
+    "intent":         "component",
+    "perm":           "permission",
+    "perms":          "permission",
+    "permissions":    "permission",
+    "config":         "configuration",
+    "tls":            "certificate",
+    "ssl":            "certificate",
+    "pinning":        "pinning",
+    "https":          "transit",
+    "http":           "cleartext",
+    "plaintext":      "cleartext",
+    "key":            "key",
+    "keys":           "key",
+    "hardcoded":      "hardcoded",
+}
+
+def _normalise_tokens(text: str) -> frozenset[str]:
+    """Lowercase, split on non-alphanumerics, drop stopwords, apply synonyms.
+
+    Returns a frozenset so callers can use ``set`` algebra (issubset, &).
+    """
+    import re
+    tokens: set[str] = set()
+    for raw in re.split(r"[^a-zA-Z0-9]+", str(text or "").lower()):
+        if not raw or raw in _STOPWORDS:
+            continue
+        tokens.add(_SYNONYMS.get(raw, raw))
+    return frozenset(tokens)

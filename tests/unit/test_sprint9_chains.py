@@ -192,6 +192,40 @@ async def test_detector_matches_token_theft_chain(memory, context):
 
 
 @pytest.mark.asyncio
+async def test_detector_matches_despite_vuln_class_drift(memory, context):
+    """Regression: real agents emit slightly different vuln_class strings
+    than the pattern definitions (e.g. A_001 emits "Insecure Auth Token
+    Storage" while CHAIN_001 spells it "Insecure Authentication Token
+    Storage"; C_007 emits "Weak Cryptography" while CHAIN_005 spells it
+    "Weak Cryptographic Algorithm"). Token-set normalisation must collapse
+    these so chains actually fire on real scan output.
+    """
+    detector = ChainDetector(memory, context.session_id)
+
+    findings = [
+        _make_finding(
+            context.session_id, "C_007",
+            "Weak Cryptography",  # pattern wants "Weak Cryptographic Algorithm"
+            Severity.HIGH,
+        ),
+        _make_finding(
+            context.session_id, "A_004",
+            "Hardcoded Cryptographic Key",
+            Severity.HIGH,
+        ),
+    ]
+    for f in findings:
+        await memory.save_finding(f)
+
+    chains = await detector.detect_chains(findings)
+    chain_types = {c.pattern.chain_type for c in chains}
+    assert ChainType.AUTH_BYPASS in chain_types, (
+        "CHAIN_005 (Auth Bypass via Weak Crypto) should match drifted "
+        "vuln_class strings via token-set normalisation."
+    )
+
+
+@pytest.mark.asyncio
 async def test_detector_matches_rce_chain(memory, context):
     """Detector matches CHAIN_002 (RCE via WebView)."""
     detector = ChainDetector(memory, context.session_id)
