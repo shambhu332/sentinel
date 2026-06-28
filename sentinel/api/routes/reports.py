@@ -142,6 +142,119 @@ def get_report(
     )
 
 
+@router.post("/{session_id}/regenerate")
+async def regenerate_report(
+    session_id: str,
+    current_user=Depends(get_current_active_user),
+) -> JSONResponse:
+    """Re-run VAPT report rendering for a completed scan.
+
+    Useful when Phase 8 timed out during the original scan but the
+    findings are still held by the in-memory ScanRegistry. We skip the
+    full agent (and its heavy ScanContext requirements) and call the
+    builder + renderers directly. LLM narrative enrichment falls back to
+    deterministic boilerplate if no provider is reachable, so this stays
+    fast and always produces something.
+    """
+    if not _SESSION_ID.match(session_id):
+        raise HTTPException(status_code=400, detail="invalid session_id")
+
+    from sentinel.agents.reporting.builder import build_report_data
+    from sentinel.agents.reporting.enrich import enrich_sections
+    from sentinel.agents.reporting.templates import render_html, render_markdown
+    from sentinel.api.scan_runner import get_registry
+    from sentinel.core.finding import Severity, TriageState
+
+    job = get_registry().get(session_id)
+    if job is None:
+        raise HTTPException(
+            status_code=404, detail=f"no scan in registry for {session_id}",
+        )
+    findings = [
+        f for f in job.findings
+        if f.severity != Severity.INFO and f.triage != TriageState.FALSE_POSITIVE
+    ]
+    if not findings:
+        raise HTTPException(
+            status_code=409,
+            detail="no reportable findings (all INFO or filtered) — nothing to render",
+        )
+
+    try:
+        from sentinel.reports.cvss import stamp_all
+        stamp_all(findings)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("regen: CVSS stamping failed: %s", exc)
+
+    data = build_report_data(
+        findings=findings,
+        package=job.manifest.get("package") or "(unknown)",
+        version=job.manifest.get("version_name") or "(unknown)",
+        session_id=session_id,
+        apk_sha256=job.apk_sha256 or "",
+        apk_size_bytes=job.apk_size_bytes or 0,
+        generated_at=datetime.now(timezone.utc),
+    )
+
+    router_obj = None
+    try:
+        from sentinel.llm.router import FreeProviderRouter
+        router_obj = FreeProviderRouter()
+    except Exception as exc:  # noqa: BLE001
+        logger.info("regen: LLM router unavailable, using boilerplate (%s)", exc)
+    try:
+        await enrich_sections(data.sections, router_obj)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("regen: narrative enrichment failed: %s", exc)
+        await enrich_sections(data.sections, None)
+    finally:
+        if router_obj is not None:
+            try:
+                await router_obj.close()
+            except Exception:  # noqa: BLE001
+                pass
+
+    report_dir = Path(get_settings().workspace) / session_id / "reports"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    stem = f"VAPT_Report_{session_id}"
+    written: dict[str, str] = {}
+
+    md_path = report_dir / f"{stem}.md"
+    md_path.write_text(render_markdown(data), encoding="utf-8")
+    written["markdown"] = str(md_path)
+
+    html_path = report_dir / f"{stem}.html"
+    html_path.write_text(render_html(data), encoding="utf-8")
+    written["html"] = str(html_path)
+
+    import json as _json
+    from sentinel.agents.reporting.r001_report_agent import ReportGeneratorAgent
+    json_path = report_dir / f"{stem}.json"
+    json_path.write_text(
+        _json.dumps(ReportGeneratorAgent._json_payload(data), indent=2, default=str),
+        encoding="utf-8",
+    )
+    written["json"] = str(json_path)
+
+    try:
+        from sentinel.reports.sarif import render_sarif_json
+        sarif_path = report_dir / f"{stem}.sarif"
+        sarif_path.write_text(
+            render_sarif_json([s.finding for s in data.sections], session_id),
+            encoding="utf-8",
+        )
+        written["sarif"] = str(sarif_path)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("regen: SARIF render failed: %s", exc)
+
+    return JSONResponse(content={
+        "session_id": session_id,
+        "regenerated": True,
+        "artifacts": written,
+        "finding_count": len(findings),
+    })
+
+
 @router.get("/{session_id}/siem.zip")
 def get_siem_bundle(
     session_id: str,

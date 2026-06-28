@@ -115,6 +115,7 @@ export const api = {
   getResult(id)  { return request(`/scans/${id}/result`); },
   deleteScan(id) { return request(`/scans/${id}`, { method: 'DELETE' }); },
   listReports()  { return request('/reports'); },
+  regenerateReport(id) { return request(`/reports/${encodeURIComponent(id)}/regenerate`, { method: 'POST' }); },
   reportUrl(sessionId, fmt) {
     // Absolute URL the browser can hit directly — the API streams the
     // bytes back as a FileResponse, so this works for ``download``

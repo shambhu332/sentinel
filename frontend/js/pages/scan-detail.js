@@ -552,13 +552,32 @@ function renderVaptPane(scanId, summary) {
   api.listReports().then((reports) => {
     const found = (reports || []).some(r => r.session_id === scanId);
     if (!found) {
-      pane.appendChild(el('div', { class: 'empty-state' },
+      const empty = el('div', { class: 'empty-state' },
         el('i', { 'data-lucide': 'file-clock' }),
         el('h3', {}, 'VAPT report not yet generated'),
         el('p', {}, ACTIVE_STATES.has(summary.status)
           ? 'The report is produced during Phase 8 (Reporting) after analysis completes. This pane will refresh when the scan finishes.'
-          : 'No report artifact was found on disk for this scan. Re-run the scan or check workspace permissions.'),
-      ));
+          : 'No report artifact was found on disk for this scan. You can regenerate it from the stored findings below.'),
+      );
+      if (!ACTIVE_STATES.has(summary.status)) {
+        const btn = el('button', { class: 'btn btn-primary', style: 'margin-top: 12px;' },
+          el('i', { 'data-lucide': 'refresh-cw' }), 'Regenerate report');
+        btn.addEventListener('click', async () => {
+          btn.disabled = true;
+          btn.textContent = 'Regenerating…';
+          try {
+            await api.regenerateReport(scanId);
+            toast('VAPT report regenerated', 'success');
+            renderVaptPane(scanId, summary);
+          } catch (e) {
+            toast(`Regenerate failed: ${e.message || e}`, 'error');
+            btn.disabled = false;
+            btn.textContent = 'Retry';
+          }
+        });
+        empty.appendChild(btn);
+      }
+      pane.appendChild(empty);
       refreshIcons();
       return;
     }

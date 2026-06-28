@@ -35,6 +35,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import os
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -58,7 +59,25 @@ from sentinel.tools.mitmproxy_runner import MitmproxyRunner
 from sentinel.triage import LLMTriager
 
 logger = logging.getLogger(__name__)
-_REPORT_TIMEOUT_SECONDS = 120.0
+
+# Phase 8 (VAPT report generation) calls the LLM per finding to write the
+# narrative + remediation prose, so wall-clock time scales linearly with
+# the finding count. The 120s default was too tight for 100+-finding
+# scans, leaving the workspace with no report on disk. Default bumped to
+# 600s and overridable via SENTINEL_REPORT_TIMEOUT_SECONDS.
+def _report_timeout_seconds() -> float:
+    raw = os.getenv("SENTINEL_REPORT_TIMEOUT_SECONDS")
+    if raw:
+        try:
+            return max(30.0, float(raw))
+        except ValueError:
+            logger.warning(
+                "Invalid SENTINEL_REPORT_TIMEOUT_SECONDS=%r, using default", raw,
+            )
+    return 600.0
+
+
+_REPORT_TIMEOUT_SECONDS = _report_timeout_seconds()
 
 
 class OrchestratorError(Exception):
