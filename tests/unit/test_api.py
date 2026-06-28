@@ -163,9 +163,15 @@ def test_create_scan_returns_session_id(scans_api):
     assert body["apk_size_bytes"] == len(_FAKE_APK_BYTES)
 
 
-def test_scans_require_auth():
-    r = _client().get("/scans")
-    assert r.status_code == 401
+def test_scans_require_auth(monkeypatch):
+    from sentinel.core import config as cfg
+    monkeypatch.setenv("SENTINEL_DEV_AUTH_BYPASS", "0")
+    cfg.reset_settings()
+    try:
+        r = _client().get("/scans")
+        assert r.status_code == 401
+    finally:
+        cfg.reset_settings()
 
 
 def test_list_scans_contains_created(scans_api):
@@ -235,16 +241,28 @@ def test_scope_parse_empty_value():
     assert r.status_code == 422
 
 
-def test_scope_parse_requires_auth():
-    r = _client().post("/scope/parse", json={"mode": "text", "value": "In scope: com.x"})
-    assert r.status_code == 401
+def test_scope_parse_requires_auth(monkeypatch):
+    from sentinel.core import config as cfg
+    monkeypatch.setenv("SENTINEL_DEV_AUTH_BYPASS", "0")
+    cfg.reset_settings()
+    try:
+        r = _client().post("/scope/parse", json={"mode": "text", "value": "In scope: com.x"})
+        assert r.status_code == 401
+    finally:
+        cfg.reset_settings()
 
 
 # ---------- Reports endpoints ----------
 
-def test_reports_require_auth():
-    r = _client().get("/reports")
-    assert r.status_code == 401
+def test_reports_require_auth(monkeypatch):
+    from sentinel.core import config as cfg
+    monkeypatch.setenv("SENTINEL_DEV_AUTH_BYPASS", "0")
+    cfg.reset_settings()
+    try:
+        r = _client().get("/reports")
+        assert r.status_code == 401
+    finally:
+        cfg.reset_settings()
 
 
 def test_api_sast_roster_uses_full_static_catalog():

@@ -77,26 +77,38 @@ async def get_current_user(
     """Get the current authenticated user from JWT token."""
     from .models import User
 
+    bypass_enabled = get_settings().dev_auth_bypass
+    dev_user = User(
+        id="local-dev-user",
+        email="local-dev@example.com",
+        username="local-dev-user",
+        role="user",
+        is_active=True,
+    )
+
     if credentials is None:
-        if not get_settings().dev_auth_bypass:
+        if not bypass_enabled:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Authentication required",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        return User(
-            id="local-dev-user",
-            email="local-dev@example.com",
-            username="local-dev-user",
-            role="user",
-            is_active=True,
-        )
+        return dev_user
 
     token = credentials.credentials
-    payload = decode_token(token)
+    try:
+        payload = decode_token(token)
+    except HTTPException:
+        # In dev-bypass mode, accept stale/invalid tokens left over in
+        # localStorage so a developer never gets locked out of the dashboard.
+        if bypass_enabled:
+            return dev_user
+        raise
 
     user_id: str | None = payload.get("sub")
     if user_id is None:
+        if bypass_enabled:
+            return dev_user
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication credentials",
@@ -105,6 +117,8 @@ async def get_current_user(
     # Fetch user from database (mock for now)
     user_data = _users_db.get(user_id)
     if user_data is None:
+        if bypass_enabled:
+            return dev_user
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found",
