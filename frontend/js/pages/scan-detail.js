@@ -1,6 +1,6 @@
 // Scan Detail page — live view of a real scan via the API.
 import { el, refreshIcons, formatDate, formatDuration, statusLabel, toast } from '../utils.js';
-import { sevBadge, statusBadge } from '../components/severity-badge.js';
+import { sevBadge, statusBadge, triageBadge, verifyBadge } from '../components/severity-badge.js';
 import { codeBlock } from '../components/code-block.js';
 import { renderProfileSummary } from '../components/profile-summary.js';
 import { api, ApiError } from '../api.js';
@@ -422,8 +422,8 @@ function renderFindingsPane(findings, status, summary) {
       el('td', {}, sevBadge(f.severity, f.severity_label || f.severity)),
       el('td', {}, el('span', { class: 'mono', style: 'font-size: 12px;' }, f.agent_id)),
       el('td', {}, f.vuln_class),
-      el('td', {}, triageChip(f.triage)),
-      el('td', {}, verifyChip(f)),
+      el('td', {}, triageBadge(f.triage)),
+      el('td', {}, verifyBadge(f)),
       el('td', {}, el('span', { class: 'mono', style: 'font-size: 12px;' }, (f.confidence * 100).toFixed(0) + '%')),
       el('td', {}, el('span', { class: 'text-muted', style: 'font-size: 13px;' },
         f.recommendation && f.recommendation.length > 100 ? f.recommendation.slice(0, 100) + '…' : f.recommendation)),
@@ -442,50 +442,6 @@ function renderFindingsPane(findings, status, summary) {
   }
 
   refreshIcons();
-}
-
-function triageChip(t) {
-  const map = {
-    verified:  { label: '✓ verified',  cls: 'badge-success' },
-    filtered:  { label: '✗ filtered',  cls: 'badge-muted' },
-    uncertain: { label: '? uncertain', cls: 'badge-warning' },
-    skipped:   { label: '— skipped',   cls: 'badge-muted' },
-  };
-  const c = map[t] || map.skipped;
-  return el('span', { class: `badge ${c.cls}`, style: 'font-size: 11px;' }, c.label);
-}
-
-function verifyChip(f) {
-  // The verify engine writes its result under evidence._verify.
-  // Outcomes: verified / refuted / inconclusive / unsupported.
-  const v = (f.evidence && f.evidence._verify) || null;
-  if (!v) {
-    // Agent self-reports verification_status when no runtime verifier ran
-    // (typical for SAST agents like P_015, N_002). Show a small pill so
-    // reviewers can see at a glance that this row is code-level only.
-    if (f.verification_status === 'Code-level only') {
-      return el('span', { class: 'badge badge-static', style: 'font-size: 11px;', title: 'static analysis only — no runtime verification' },
-        'static');
-    }
-    if (f.verification_status) {
-      return el('span', { class: 'badge badge-warning', style: 'font-size: 11px;', title: f.verification_status },
-        f.verification_status.length > 14 ? f.verification_status.slice(0, 14) + '…' : f.verification_status);
-    }
-    return el('span', { class: 'badge badge-muted', style: 'font-size: 11px;', title: 'no verifier ran' },
-      '—');
-  }
-  const out = String(v.outcome || '').toLowerCase();
-  const method = v.method || '';
-  const tooltip = method ? `${out} (${method})` : out;
-  const map = {
-    verified:     { label: '✓ verified',     cls: 'badge-success' },
-    refuted:      { label: '✗ refuted',      cls: 'badge-muted' },
-    inconclusive: { label: '? inconclusive', cls: 'badge-warning' },
-    unsupported: { label: '— unsupported',  cls: 'badge-muted' },
-  };
-  const c = map[out] || map.unsupported;
-  return el('span', { class: `badge ${c.cls}`, style: 'font-size: 11px;', title: tooltip },
-    c.label);
 }
 
 function showFindingDetail(f, summary) {
@@ -514,8 +470,8 @@ function showFindingDetail(f, summary) {
       body.appendChild(el('div', {
         style: 'display:flex; gap:8px; align-items:center; margin-bottom:12px; flex-wrap:wrap;',
       },
-        triageChip(f.triage),
-        verifyChip(f),
+        triageBadge(f.triage),
+        verifyBadge(f),
         el('span', { class: 'mono text-muted', style: 'font-size: 12px;' },
           (f.confidence * 100).toFixed(0) + '% confidence'),
       ));

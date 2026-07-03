@@ -3,7 +3,8 @@
 // link so the user can recover when the gateway is down.
 
 import { el, refreshIcons, timeAgo } from '../utils.js';
-import { api, ApiError } from '../api.js';
+import { offlineBanner } from '../components/offline-banner.js';
+import { api } from '../api.js';
 
 const SEV_ORDER = ['critical', 'high', 'medium', 'low', 'info'];
 const SEV_LABEL = { critical: 'C', high: 'H', medium: 'M', low: 'L', info: 'I' };
@@ -44,7 +45,7 @@ async function loadReports(statusEl, container) {
   try {
     reports = await api.listReports();
   } catch (e) {
-    container.appendChild(buildOfflineBanner(e));
+    container.appendChild(offlineBanner(e));
     refreshIcons();
     return;
   }
@@ -193,30 +194,6 @@ function buildEmptyState() {
     el('a', { class: 'btn btn-primary', href: '#scans' },
       el('i', { 'data-lucide': 'shield-check' }),
       'Go to scans',
-    ),
-  );
-}
-
-function buildOfflineBanner(err) {
-  const msg = err instanceof ApiError ? err.message : String(err);
-  return el('div', { class: 'card offline-banner' },
-    el('div', { class: 'offline-banner-row' },
-      el('i', { 'data-lucide': 'wifi-off', class: 'offline-banner-icon' }),
-      el('div', { style: 'font-size: 13px; flex: 1;' },
-        el('strong', {}, 'Cannot load reports. '),
-        msg, ' · ',
-        el('a', { href: '#settings', class: 'offline-banner-link' },
-          el('i', { 'data-lucide': 'settings', style: 'width: 14px; height: 14px;' }),
-          'Settings ▸ Connection',
-        ),
-      ),
-      el('button', {
-        class: 'btn btn-sm btn-ghost',
-        onclick: () => location.reload(),
-      },
-        el('i', { 'data-lucide': 'rotate-cw' }),
-        'Retry',
-      ),
     ),
   );
 }

@@ -5,7 +5,8 @@ import { el, refreshIcons, timeAgo, statusLabel, debounce, formatDuration } from
 import { SCANS as MOCK_SCANS } from '../data/scans.js';
 import { sevRow, statusBadge } from '../components/severity-badge.js';
 import { openScanModal } from '../components/scan-modal.js';
-import { api, ApiError } from '../api.js';
+import { offlineBanner } from '../components/offline-banner.js';
+import { api } from '../api.js';
 
 let filters = {
   q: '',
@@ -51,20 +52,10 @@ async function loadScans(showToast) {
     document.getElementById('api-banner').innerHTML = '';
   } catch (e) {
     apiOnline = false;
-    const msg = e instanceof ApiError ? e.message : String(e);
     SCANS = MOCK_SCANS.slice(); // visible-but-flagged fallback
     const banner = document.getElementById('api-banner');
     banner.innerHTML = '';
-    banner.appendChild(el('div', { class: 'card', style: 'padding: 14px 16px; margin-bottom: 16px; border-color: var(--sev-medium);' },
-      el('div', { style: 'display: flex; gap: 12px; align-items: flex-start;' },
-        el('i', { 'data-lucide': 'wifi-off', style: 'color: var(--sev-medium); flex-shrink: 0;' }),
-        el('div', { style: 'flex: 1;' },
-          el('div', { style: 'font-weight: 600;' }, 'SENTINEL API unreachable — showing seeded sample data'),
-          el('div', { class: 'text-muted', style: 'font-size: 12px; margin-top: 4px;' },
-            msg, ' · Start it with ', el('span', { class: 'mono' }, 'poetry run sentinel serve')),
-        ),
-      ),
-    ));
+    banner.appendChild(offlineBanner(e));
     refreshIcons();
   }
   const sub = document.getElementById('scans-subtitle');

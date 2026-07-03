@@ -2,7 +2,8 @@
 import { el, refreshIcons, timeAgo, statusLabel, formatDuration } from '../utils.js';
 import { SCANS as MOCK_SCANS } from '../data/scans.js';
 import { statusBadge, sevRow } from '../components/severity-badge.js';
-import { api, ApiError } from '../api.js';
+import { offlineBanner } from '../components/offline-banner.js';
+import { api } from '../api.js';
 
 export async function renderHistoryPage(main) {
   main.appendChild(el('div', { class: 'page-header' },
@@ -30,16 +31,8 @@ export async function renderHistoryPage(main) {
   } catch (e) {
     apiOnline = false;
     scans = MOCK_SCANS.slice();
-    const msg = e instanceof ApiError ? e.message : String(e);
     banner.innerHTML = '';
-    banner.appendChild(el('div', { class: 'card', style: 'padding: 12px 16px; border-color: var(--sev-medium); margin-bottom: 16px;' },
-      el('div', { style: 'display: flex; gap: 12px; align-items: center;' },
-        el('i', { 'data-lucide': 'wifi-off', style: 'color: var(--sev-medium); flex-shrink: 0;' }),
-        el('div', { style: 'font-size: 13px;' },
-          el('strong', {}, 'API offline. '),
-          'Showing sample data — ', el('span', { class: 'mono' }, msg)),
-      ),
-    ));
+    banner.appendChild(offlineBanner(e));
     refreshIcons();
   }
 

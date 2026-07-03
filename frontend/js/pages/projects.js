@@ -2,7 +2,8 @@
 // "New project" opens the scan modal (a project is just "an app you've scanned").
 import { el, refreshIcons, timeAgo, statusLabel } from '../utils.js';
 import { openScanModal } from '../components/scan-modal.js';
-import { api, ApiError } from '../api.js';
+import { offlineBanner } from '../components/offline-banner.js';
+import { api } from '../api.js';
 
 export async function renderProjectsPage(main) {
   main.appendChild(el('div', { class: 'page-header' },
@@ -27,16 +28,7 @@ export async function renderProjectsPage(main) {
     scans = await api.listScans();
   } catch (e) {
     banner.innerHTML = '';
-    const msg = e instanceof ApiError ? e.message : String(e);
-    banner.appendChild(el('div', { class: 'card', style: 'padding: 12px 16px; border-color: var(--sev-medium); margin-bottom: 16px;' },
-      el('div', { style: 'display: flex; gap: 12px; align-items: center;' },
-        el('i', { 'data-lucide': 'wifi-off', style: 'color: var(--sev-medium); flex-shrink: 0;' }),
-        el('div', { style: 'font-size: 13px;' },
-          el('strong', {}, 'SENTINEL API offline. '),
-          'Start it with ', el('span', { class: 'mono' }, 'poetry run sentinel serve'),
-          ' — ', msg),
-      ),
-    ));
+    banner.appendChild(offlineBanner(e));
     refreshIcons();
   }
 

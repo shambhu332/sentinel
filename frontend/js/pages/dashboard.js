@@ -3,7 +3,8 @@ import { el, refreshIcons, formatDate, timeAgo, statusLabel, formatDuration } fr
 import { SCANS as MOCK_SCANS } from '../data/scans.js';
 import { openScanModal } from '../components/scan-modal.js';
 import { sevRow, statusBadge } from '../components/severity-badge.js';
-import { api, ApiError } from '../api.js';
+import { offlineBanner } from '../components/offline-banner.js';
+import { api } from '../api.js';
 
 let SCANS = [];
 let apiOnline = false;
@@ -98,39 +99,10 @@ async function loadData() {
     apiOnline = false;
     if (banner) {
       banner.innerHTML = '';
-      banner.appendChild(buildOfflineBanner(
-        'SENTINEL API offline.',
-        'Showing sample data — start the gateway or change the API URL in ',
-      ));
+      banner.appendChild(offlineBanner(e));
     }
   }
   paintDash();
-}
-
-function buildOfflineBanner(strongText, prefix) {
-  return el('div', { class: 'card offline-banner' },
-    el('div', { class: 'offline-banner-row' },
-      el('i', { 'data-lucide': 'wifi-off', class: 'offline-banner-icon' }),
-      el('div', { style: 'font-size: 13px; flex: 1;' },
-        el('strong', {}, strongText, ' '),
-        prefix,
-        el('a', { href: '#settings', class: 'offline-banner-link' },
-          el('i', { 'data-lucide': 'settings', style: 'width: 14px; height: 14px;' }),
-          'Settings ▸ Connection',
-        ),
-        '. Or run ',
-        el('span', { class: 'mono' }, 'poetry run sentinel serve'),
-        '.',
-      ),
-      el('button', {
-        class: 'btn btn-sm btn-ghost',
-        onclick: () => location.reload(),
-      },
-        el('i', { 'data-lucide': 'rotate-cw' }),
-        'Retry',
-      ),
-    ),
-  );
 }
 
 function liveToView(row) {
