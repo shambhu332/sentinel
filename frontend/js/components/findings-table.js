@@ -99,7 +99,14 @@ export function renderFindingsTable(container, findings, ctx = null) {
 
     const vulnCell = el('td', {}, finding.vulnClass, ...inlineBadges);
 
-    const row = el('tr', { class: 'finding-row clickable', 'data-fid': finding.id },
+    const row = el('tr', {
+      class: 'finding-row clickable',
+      'data-fid': finding.id,
+      role: 'button',
+      tabindex: '0',
+      'aria-expanded': 'false',
+      'aria-label': `Toggle details for ${finding.vulnClass}`,
+    },
       el('td', {}, el('i', { 'data-lucide': 'chevron-right', class: 'chev' })),
       el('td', {}, sevBadge(finding.severity)),
       el('td', {}, el('span', { class: 'mono', style: 'color: var(--accent-primary); font-size: 12px;' }, finding.agentId)),
@@ -117,18 +124,26 @@ export function renderFindingsTable(container, findings, ctx = null) {
     detailCell.appendChild(renderFindingDetailView(finding, agent, ctx));
     expansion.appendChild(detailCell);
 
-    row.addEventListener('click', () => {
+    const toggleRow = () => {
       const isOpen = !expansion.classList.contains('hidden');
       // close all open
       tbody.querySelectorAll('.finding-expansion').forEach(e => e.classList.add('hidden'));
-      tbody.querySelectorAll('.finding-row').forEach(r => r.classList.remove('expanded'));
+      tbody.querySelectorAll('.finding-row').forEach(r => {
+        r.classList.remove('expanded');
+        r.setAttribute('aria-expanded', 'false');
+      });
       tbody.querySelectorAll('.finding-row .chev').forEach(c => c.style.transform = '');
       if (!isOpen) {
         expansion.classList.remove('hidden');
         row.classList.add('expanded');
+        row.setAttribute('aria-expanded', 'true');
         const chev = row.querySelector('.chev');
         if (chev) chev.style.transform = 'rotate(90deg)';
       }
+    };
+    row.addEventListener('click', toggleRow);
+    row.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleRow(); }
     });
 
     tbody.appendChild(row);

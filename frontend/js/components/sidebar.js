@@ -19,19 +19,9 @@ const NAV_GROUPS = [
     ],
   },
   {
-    title: 'AI Platform',
-    items: [
-      { id: 'rag',       label: 'Knowledge', icon: 'library',          href: '#rag',     badge: '61' },
-      { id: 'verify',    label: 'Verify',    icon: 'badge-check',      href: '#verify' },
-      { id: 'exploit',   label: 'PoC',       icon: 'flame',            href: '#exploit' },
-      { id: 'devices',   label: 'Devices',   icon: 'smartphone',       href: '#devices' },
-    ],
-  },
-  {
     title: 'Configure',
     items: [
       { id: 'settings',  label: 'Settings',  icon: 'settings',         href: '#settings' },
-      { id: 'docs',      label: 'Docs',      icon: 'book-open',        href: '#docs' },
     ],
   },
 ];

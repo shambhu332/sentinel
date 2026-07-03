@@ -12,11 +12,6 @@ import { renderSettingsPage }  from './pages/settings.js';
 import { renderProjectsPage }  from './pages/projects.js';
 import { renderReportsPage }   from './pages/reports.js';
 import { renderHistoryPage }   from './pages/history.js';
-import { renderDocsPage }      from './pages/docs.js';
-import { renderRagPage }       from './pages/rag.js';
-import { renderVerifyPage }    from './pages/verify.js';
-import { renderExploitPage }   from './pages/exploit.js';
-import { renderDevicesPage }   from './pages/devices.js';
 
 document.addEventListener('DOMContentLoaded', () => {
   const shell = document.getElementById('app-shell');
@@ -50,11 +45,15 @@ document.addEventListener('DOMContentLoaded', () => {
   registerRoute('projects',  renderProjectsPage);
   registerRoute('reports',   renderReportsPage);
   registerRoute('history',   renderHistoryPage);
-  registerRoute('docs',      renderDocsPage);
-  registerRoute('rag',       renderRagPage);
-  registerRoute('verify',    renderVerifyPage);
-  registerRoute('exploit',   renderExploitPage);
-  registerRoute('devices',   renderDevicesPage);
+
+  // Deferred features: routes removed from IA but URL aliases kept for one
+  // release so existing bookmarks still land on the dashboard.
+  const redirectToDashboard = () => { location.hash = '#dashboard'; };
+  registerRoute('docs',      redirectToDashboard);    // TODO(redesign): remove URL alias in next minor version
+  registerRoute('rag',       redirectToDashboard);    // TODO(redesign): remove URL alias in next minor version
+  registerRoute('verify',    redirectToDashboard);    // TODO(redesign): remove URL alias in next minor version
+  registerRoute('exploit',   redirectToDashboard);    // TODO(redesign): remove URL alias in next minor version
+  registerRoute('devices',   redirectToDashboard);    // TODO(redesign): remove URL alias in next minor version
 
   initRouter();
 

@@ -36,7 +36,12 @@ export async function renderDashboard(main) {
     ),
     el('span', { class: 'text-muted', style: 'font-size: 12px;' }, 'Supports .apk · .aab · .xapk'),
   ));
-  const uploadZone = el('div', { class: 'upload-zone' },
+  const uploadZone = el('div', {
+    class: 'upload-zone',
+    role: 'button',
+    tabindex: '0',
+    'aria-label': 'Upload APK, AAB, or XAPK to start a new scan',
+  },
     el('i', { 'data-lucide': 'file-up' }),
     el('div', { class: 'upload-title' }, 'Drop your APK/AAB/XAPK here'),
     el('div', { class: 'upload-sub' }, 'or'),
@@ -44,6 +49,12 @@ export async function renderDashboard(main) {
     el('div', { class: 'upload-formats' }, 'Max 500 MB · runs on the local SENTINEL gateway'),
   );
   uploadZone.addEventListener('click', () => openScanModal());
+  uploadZone.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      openScanModal();
+    }
+  });
   uploadZone.addEventListener('dragover', (e) => { e.preventDefault(); uploadZone.classList.add('dragover'); });
   uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
   uploadZone.addEventListener('drop', (e) => {
@@ -247,7 +258,17 @@ function buildRecentScans() {
 
   const tbody = el('tbody');
   SCANS.slice(0, 6).forEach(scan => {
-    const tr = el('tr', { class: 'clickable', onclick: () => location.hash = `#scans/${scan.id}` });
+    const openScan = () => { location.hash = `#scans/${scan.id}`; };
+    const tr = el('tr', {
+      class: 'clickable',
+      role: 'button',
+      tabindex: '0',
+      'aria-label': `Open scan ${scan.appName}`,
+      onclick: openScan,
+      onkeydown: (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openScan(); }
+      },
+    });
     tr.append(
       el('td', {}, el('div', { style: 'display: flex; align-items: center; gap: 10px;' },
         el('div', { class: 'avatar', style: 'width: 28px; height: 28px; font-size: 11px;' }, scan.appName.slice(0, 1).toUpperCase()),
