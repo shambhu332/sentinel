@@ -152,7 +152,8 @@ function metadataTagsSection(finding) {
   // MASVS
   if (finding.masvs) {
     tags.push({ kind: 'masvs', label: `MASVS ${finding.masvs}`,
-      href: 'https://mas.owasp.org/MASVS/' });
+      href: 'https://mas.owasp.org/MASVS/',
+      title: 'Mobile Application Security Verification Standard' });
   }
   // OWASP Mobile Top 10
   if (finding.owasp) {
@@ -170,10 +171,13 @@ function metadataTagsSection(finding) {
   return el('section', { class: 'fd-section fd-section-tags' },
     el('h3', {}, el('i', { 'data-lucide': 'tags', 'aria-hidden': 'true' }), 'Metadata'),
     el('div', { class: 'fd-tag-row' },
-      ...tags.map((t) => t.href
-        ? el('a', { class: `fd-tag fd-tag-${t.kind}`,
-            href: t.href, target: '_blank', rel: 'noopener noreferrer' }, t.label)
-        : el('span', { class: `fd-tag fd-tag-${t.kind}` }, t.label)),
+      ...tags.map((t) => {
+        const attrs = { class: `fd-tag fd-tag-${t.kind}` };
+        if (t.title) attrs.title = t.title;
+        return t.href
+          ? el('a', { ...attrs, href: t.href, target: '_blank', rel: 'noopener noreferrer' }, t.label)
+          : el('span', attrs, t.label);
+      }),
     ),
   );
 }

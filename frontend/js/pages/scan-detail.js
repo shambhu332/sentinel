@@ -340,7 +340,7 @@ function renderFindingsPane(findings, status, summary) {
       pane.appendChild(el('div', { class: 'empty-state' },
         el('div', { class: 'spinner' }),
         el('h3', { style: 'margin-top: 14px;' }, 'No findings yet'),
-        el('p', {}, 'Phase 2 agents are still running. This panel updates automatically.'),
+        el('p', {}, 'Phase 2 (Static Analysis) agents are still running. This panel updates automatically.'),
       ));
     } else if (status === 'completed') {
       pane.appendChild(el('div', { class: 'empty-state' },
@@ -510,7 +510,7 @@ function renderVaptPane(scanId, summary) {
     if (!found) {
       const empty = el('div', { class: 'empty-state' },
         el('i', { 'data-lucide': 'file-clock' }),
-        el('h3', {}, 'VAPT report not yet generated'),
+        el('h3', {}, 'VAPT (Vulnerability Assessment & Penetration Testing) report not yet generated'),
         el('p', {}, ACTIVE_STATES.has(summary.status)
           ? 'The report is produced during Phase 8 (Reporting) after analysis completes. This pane will refresh when the scan finishes.'
           : 'No report artifact was found on disk for this scan. You can regenerate it from the stored findings below.'),

@@ -85,7 +85,19 @@ export async function renderDashboard(main) {
     ),
     el('div', { class: 'chart-wrap' }, el('canvas', { id: 'trend-chart' })),
   ));
-  bottomRow.appendChild(buildActivityFeed());
+  if (!localStorage.getItem('sentinel.onboardingSeen')) {
+    const tour = buildActivityFeed();
+    const dismissBtn = el('button', {
+      class: 'btn btn-ghost',
+      style: 'margin: 8px 12px 12px; align-self: flex-end;',
+    }, el('i', { 'data-lucide': 'x' }), 'Got it');
+    dismissBtn.addEventListener('click', () => {
+      localStorage.setItem('sentinel.onboardingSeen', '1');
+      tour.remove();
+    });
+    tour.appendChild(dismissBtn);
+    bottomRow.appendChild(tour);
+  }
   main.appendChild(bottomRow);
 
   main.appendChild(el('div', { id: 'dash-recent' }));

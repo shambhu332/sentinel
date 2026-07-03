@@ -242,9 +242,9 @@ function renderStepOptions() {
     toggleRow('privacy', 'Privacy mode', 'Force local LLM (Ollama) for triage. Data stays on device.', 'local'),
     toggleRow('llmTriage', 'LLM triage', 'Filter false positives with LLM (Cerebras / Groq / Ollama).', 'recommended'),
     toggleRow('allowLivePoc', 'Live PoC artifacts', 'Let PoC Studio emit runnable Frida/curl/HTML exploit scripts for confirmed dynamic findings. Off → markdown-only reproduction guides.', 'authorized only'),
-    toggleRow('planner', 'Adaptive planner', 'LLM-driven agent ordering; falls back to heuristic when no LLM is available.', 'experimental'),
+    toggleRow('planner', 'AI Agent Ordering (experimental)', 'LLM-driven agent ordering; falls back to heuristic when no LLM is available.', 'experimental'),
     toggleRow('fuzz', 'AFL++ JNI fuzzing', 'Compile + fuzz the libFuzzer harnesses META_006 emits. Requires clang/afl-fuzz/qemu-user-static on PATH; skips cleanly when absent.', 'toolchain'),
-    toggleRow('mlStrategy', 'ML strategy', 'Use the GradientBoostingClassifier in sentinel.learning.ml_strategy instead of the rule-based map. Falls back to the map when sklearn is missing.', 'sklearn'),
+    toggleRow('mlStrategy', 'AI Finding Prioritiser', 'Use the GradientBoostingClassifier in sentinel.learning.ml_strategy instead of the rule-based map. Falls back to the map when sklearn is missing.', 'sklearn'),
   );
   wrap.appendChild(card);
 
