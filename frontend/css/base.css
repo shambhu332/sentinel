@@ -145,6 +145,29 @@ ul, ol {
   color: var(--text-primary);
 }
 
+/* Skip link — visible on keyboard focus for screen-reader / a11y navigation */
+.skip-link {
+  position: absolute;
+  top: -40px;
+  left: 8px;
+  z-index: 10000;
+  padding: 8px 14px;
+  background: var(--accent-primary);
+  color: var(--text-on-accent);
+  font-weight: 600;
+  border-radius: 4px;
+  text-decoration: none;
+  transition: top 150ms ease;
+}
+
+.skip-link:focus,
+.skip-link:focus-visible {
+  top: 8px;
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+  color: var(--text-on-accent);
+}
+
 /* Utility classes */
 .sr-only {
   position: absolute;

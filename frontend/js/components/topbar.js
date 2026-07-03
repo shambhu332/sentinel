@@ -35,14 +35,14 @@ export function renderTopbar(container) {
 
   const actions = el('div', { class: 'topbar-actions' },
     statusPill,
-    el('button', { class: 'topbar-action', 'data-tip': 'Notifications' },
+    el('button', { class: 'topbar-action', 'data-tip': 'Notifications', 'aria-label': 'Notifications' },
       el('i', { 'data-lucide': 'bell' }),
       el('span', { class: 'notif-dot' }),
     ),
-    el('button', { class: 'topbar-action', 'data-tip': 'New Scan', id: 'topbar-new-scan' },
+    el('button', { class: 'topbar-action', 'data-tip': 'New Scan', id: 'topbar-new-scan', 'aria-label': 'New scan' },
       el('i', { 'data-lucide': 'plus-circle' }),
     ),
-    el('button', { class: 'topbar-action', 'data-tip': 'Help' },
+    el('button', { class: 'topbar-action', 'data-tip': 'Help', 'aria-label': 'Help' },
       el('i', { 'data-lucide': 'help-circle' }),
     ),
   );
