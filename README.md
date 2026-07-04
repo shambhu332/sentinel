@@ -174,6 +174,7 @@ of truth — see `sentinel/api/routes/agents.py`. A condensed view:
 | `RN_*`      | React Native        | 1     | RN_001 — JS bundle auditor with Hermes-magic detection + short-circuit; AsyncStorage/cleartext/secrets/WebView/dangerouslySetInnerHTML (see `docs/CROSSPLATFORM.md`) |
 | `FL_*`      | Flutter (exp.)      | 1     | FL_001 — `libapp.so` string-level audit (cleartext URLs, embedded secrets); always emits a `FLUTTER_ANALYSIS_EXPERIMENTAL` notice. Deep Dart analysis (reFlutter / Doldrums) is future work |
 | `P_*`       | Platform / IPC      | 4     | P_001 deep-link hijack, P_004 content-provider IDOR, P_010 Intent Redirect (CWE-926, tree-sitter AST), IPC_001 exported-component exposure |
+| `API_*`     | Backend API         | 4     | API_001 OpenAPI surface inference, API_002 BOLA replay verifier (mutates captured IDs ±1 / canary), API_003 Mass-assignment fuzzer (is_admin / role / price payloads), API_004 Excessive Data Exposure (SAST↔DAST cross-reference on JSON responses). See `docs/API_SECURITY.md` |
 
 #### CLI extras
 
