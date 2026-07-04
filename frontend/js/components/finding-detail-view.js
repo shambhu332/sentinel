@@ -34,6 +34,12 @@ export function renderFindingDetailView(finding, agent, ctx) {
   const repro = stepsToReproduceSection(finding, ctx);
   if (repro) root.appendChild(repro);
 
+  // Djini-style exploitation proof: renders exploit_proof, PoC download
+  // buttons, and the API replay evidence table when the Phase 7.5 driver
+  // populated them. Silent when the finding has no exploitation data.
+  const exploit = exploitationProofSection(finding, ctx);
+  if (exploit) root.appendChild(exploit);
+
   root.appendChild(remediationSection(finding));
 
   // Supplementary panels (compliance / impact / swarm) hang at the
@@ -438,4 +444,113 @@ function remediationSection(finding) {
       el('p', { class: 'fd-prose' }, finding.recommendation || '—'),
     ),
   );
+}
+
+// ---------- 6.5 Exploitation proof (Djini-style) ----------
+// Renders four data planes when the Phase 7.5 driver populated them:
+//   - Exploitation status badge (Verified_Exploited / Auth_Gated / etc.)
+//   - Exfiltrated data block (finding.exploit_proof)
+//   - PoC artifact download buttons (finding.poc_artifacts)
+//   - API replay evidence table (finding.api_replay_logs)
+// Returns null if none of the above are present — the section only
+// appears for findings the exploit pipeline actually touched.
+function exploitationProofSection(finding, ctx) {
+  const status = finding.exploitation_status;
+  const proof = finding.exploit_proof;
+  const artifacts = Array.isArray(finding.poc_artifacts) ? finding.poc_artifacts.filter(Boolean) : [];
+  const replay = Array.isArray(finding.api_replay_logs) ? finding.api_replay_logs.filter(Boolean) : [];
+  if (!status && !proof && artifacts.length === 0 && replay.length === 0) return null;
+
+  const section = el('section', { class: 'fd-section fd-exploitation' });
+  section.appendChild(el('h3', { class: 'fd-section-title' },
+    el('i', { 'data-lucide': 'target' }), 'Exploitation Proof'));
+
+  if (status) {
+    const label = String(status).replace(/_/g, ' ');
+    const cls = (status === 'Verified_Exploited') ? 'ok' :
+                (status === 'Auth_Gated') ? 'warn' :
+                (status === 'Runtime_Failed') ? 'err' : '';
+    section.appendChild(el('div', { class: 'fd-exploitation-status' },
+      el('span', { class: `badge ${cls}` }, label),
+    ));
+  }
+
+  if (proof) {
+    section.appendChild(el('div', { class: 'fd-exploitation-proof' },
+      el('div', { class: 'fd-subhead' }, 'Exfiltrated data'),
+      el('pre', { class: 'fd-code' }, proof),
+    ));
+  }
+
+  if (artifacts.length) {
+    const list = el('div', { class: 'fd-poc-list' });
+    artifacts.forEach((rel) => {
+      const filename = String(rel).split('/').pop();
+      const kind = filename.endsWith('.py') ? 'Python' :
+                   filename.endsWith('.sh') ? 'Bash (ADB)' :
+                   filename.endsWith('.js') ? 'Frida JS' : 'PoC';
+      const href = ctx?.session_id
+        ? `/reports/${encodeURIComponent(ctx.session_id)}/${rel}`
+        : `#${rel}`;
+      list.appendChild(el('a', {
+        class: 'btn btn-ghost fd-poc-download',
+        href,
+        download: filename,
+      }, el('i', { 'data-lucide': 'download' }), `Download PoC (${kind})`));
+    });
+    section.appendChild(el('div', { class: 'fd-poc-block' },
+      el('div', { class: 'fd-subhead' }, 'Reproducible PoC scripts'),
+      list,
+    ));
+  }
+
+  if (replay.length) {
+    section.appendChild(apiReplayTable(replay));
+  }
+
+  return section;
+}
+
+function apiReplayTable(replay) {
+  const details = el('details', { class: 'fd-api-replay', open: true });
+  details.appendChild(el('summary', {}, `API replay evidence (${replay.length} attempt${replay.length === 1 ? '' : 's'})`));
+  const wrap = el('div', { class: 'fd-api-replay-body' });
+  const table = el('table', { class: 'fd-api-replay-table' });
+  table.appendChild(el('thead', {}, el('tr', {},
+    el('th', {}, 'Mutation'),
+    el('th', {}, 'URL'),
+    el('th', {}, 'Baseline → Response'),
+    el('th', {}, 'Verdict'),
+  )));
+  const tbody = el('tbody');
+  replay.forEach((entry) => {
+    const mutation = entry.mutated_id != null
+      ? `id → ${entry.mutated_id}`
+      : entry.signal_key
+        ? `+${entry.signal_key}=${JSON.stringify(entry.payload?.[entry.signal_key])}`
+        : '(see snippet)';
+    const url = entry.url || '';
+    const base = entry.baseline_status ?? '—';
+    const got = entry.status ?? entry.error ?? '—';
+    const verdict = entry.verdict || '';
+    const verdictCls = (verdict === 'bola' || verdict === 'reflected' || verdict === 'accepted') ? 'err' :
+                       (verdict === 'no-signal' || verdict === 'rejected') ? '' : 'warn';
+    tbody.appendChild(el('tr', {},
+      el('td', { class: 'mono' }, mutation),
+      el('td', { class: 'mono' }, url),
+      el('td', { class: 'mono' }, `${base} → ${got}`),
+      el('td', {}, el('span', { class: `badge ${verdictCls}` }, verdict || '—')),
+    ));
+    if (entry.response_snippet) {
+      tbody.appendChild(el('tr', { class: 'fd-api-replay-snippet' },
+        el('td', { colspan: '4' },
+          el('pre', { class: 'fd-code fd-code-sm' }, String(entry.response_snippet).slice(0, 800)),
+        ),
+      ));
+    }
+  });
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+  details.appendChild(wrap);
+  return details;
 }

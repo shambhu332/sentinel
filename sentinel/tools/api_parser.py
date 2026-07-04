@@ -31,6 +31,47 @@ from sentinel.tools.mitmproxy_runner import CapturedFlow
 logger = logging.getLogger(__name__)
 
 
+# ---------- Public structured view ----------
+
+@dataclass
+class APITrafficMap:
+    """High-level view of a mitmproxy capture used by API-testing agents.
+
+    Attributes:
+        endpoints: Templated ``(host, method, path)`` → list of captured
+            flows. Same shape as :func:`group_by_endpoint` — the map is a
+            typed façade over that dict so downstream code can consume it
+            without also importing ``EndpointKey``.
+        auth_headers: One representative auth header set per endpoint.
+            Header names preserve wire casing so replays remain
+            byte-identical to the captured request.
+        sample_payloads: One representative decoded request body per
+            endpoint (dict for JSON, string for anything else, ``None``
+            for empty). Consumers use this to build mutated payloads
+            without re-parsing per-flow.
+    """
+
+    endpoints: dict["EndpointKey", list[CapturedFlow]]
+    auth_headers: dict["EndpointKey", dict[str, str]]
+    sample_payloads: dict["EndpointKey", Any]
+
+    def __iter__(self):
+        return iter(self.endpoints.items())
+
+    def __len__(self) -> int:
+        return len(self.endpoints)
+
+    def flows_for_method(self, method: str) -> list[CapturedFlow]:
+        """All representative flows whose method matches (case-insensitive)."""
+        wanted = method.upper()
+        out: list[CapturedFlow] = []
+        for key, group in self.endpoints.items():
+            if key.method != wanted or not group:
+                continue
+            out.append(group[0])
+        return out
+
+
 # ---------- Constants ----------
 
 # Path segments that look like IDs get templated. Kept in sync with the
@@ -259,6 +300,41 @@ def extract_object_ids(flow: CapturedFlow) -> list[ObjectId]:
 
 
 # ---------- Convenience: mutate an ID inside a URL path ----------
+
+def build_traffic_map(flows: Iterable[CapturedFlow]) -> APITrafficMap:
+    """One-shot: consume a flow iterable and return the structured view.
+
+    Picks the first flow in each endpoint group as the representative for
+    auth headers and sample payload — subsequent flows just fatten the
+    replay-target list.
+    """
+    endpoints = group_by_endpoint(flows)
+    auth_headers: dict[EndpointKey, dict[str, str]] = {}
+    sample_payloads: dict[EndpointKey, Any] = {}
+    for key, group in endpoints.items():
+        if not group:
+            continue
+        representative = group[0]
+        auth_headers[key] = extract_auth_headers(representative)
+        sample_payloads[key] = _decode_body(representative.request_body)
+    return APITrafficMap(
+        endpoints=endpoints,
+        auth_headers=auth_headers,
+        sample_payloads=sample_payloads,
+    )
+
+
+def _decode_body(body: str) -> Any:
+    body = (body or "").strip()
+    if not body:
+        return None
+    if body[0] in "{[":
+        try:
+            return json.loads(body)
+        except json.JSONDecodeError:
+            pass
+    return body
+
 
 def replace_path_segment(path: str, segment_index: int, new_value: str) -> str:
     """Return ``path`` with the segment at ``segment_index`` replaced.

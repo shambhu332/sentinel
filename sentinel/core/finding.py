@@ -27,6 +27,23 @@ VerificationState = Literal[
     "verified", "auth_gated", "code_only", "runtime_failed",
 ]
 
+# Discrete outcome of the active exploitation pipeline (Phase 7.5).
+# Distinct from VerificationState: verification says whether the *bug*
+# was seen; exploitation says whether we *proved impact* by chaining
+# auth-bypass + payload + exfil listener.
+#   Verified_Exploited — attacker path fired end-to-end and exfiltrated data
+#   Auth_Gated         — attempted but blocked at login/authz
+#   Code_Only          — no runtime attempt (SAST-only finding)
+#   Runtime_Failed     — attempted but the driver crashed / target rejected
+#   Unverified         — default; nothing has attempted exploitation yet
+ExploitationStatus = Literal[
+    "Verified_Exploited",
+    "Auth_Gated",
+    "Code_Only",
+    "Runtime_Failed",
+    "Unverified",
+]
+
 MAX_STRING_LEN = 10_000
 MAX_EVIDENCE_FIELDS = 50
 SESSION_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{8,64}$")
@@ -138,6 +155,21 @@ class Finding(BaseModel):
     # "Untrusted Web Content"). Rendered as the metadata-row source
     # badges in the detail view.
     source_tags: list[str] = Field(default_factory=list, max_length=20)
+    # Outcome of the Phase 7.5 active-exploitation pipeline. See
+    # ExploitationStatus for the discrete value semantics. Reports render
+    # this as a badge next to verification_status.
+    exploitation_status: ExploitationStatus | None = Field(default=None)
+    # Filesystem paths (relative to workspace/{session_id}/) of standalone
+    # PoC scripts the frontend exposes as "Download PoC" links.
+    poc_artifacts: list[str] | None = Field(default=None, max_length=10)
+    # Ordered mutated-request / response log entries emitted by API_002 /
+    # API_003 replay agents. Each dict is free-form to accommodate variant
+    # payloads; typical keys: url, mutated_id | signal_key, payload,
+    # baseline_status, status, response_snippet, verdict.
+    api_replay_logs: list[dict[str, Any]] | None = Field(default=None, max_length=50)
+    # Concrete data the exploit driver exfiltrated (e.g. a JWT snippet).
+    # Length-capped so a runaway response body can't blow up the report.
+    exploit_proof: str | None = Field(default=None, max_length=4000)
     triage: TriageState = TriageState.UNREVIEWED
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 

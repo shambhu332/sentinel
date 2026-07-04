@@ -338,6 +338,36 @@ class Orchestrator:
                     )
                 result.phase_timings["phase7"] = asyncio.get_event_loop().time() - start
 
+            # Phase 7.5: Active Exploitation & API Replay
+            # Chains the ExploitDriver against every eligible High/Critical
+            # finding, then writes standalone PoC scripts for anything the
+            # driver promoted to Verified_Exploited. Best-effort — a failure
+            # here must never kill the scan.
+            if result.findings:
+                start = asyncio.get_event_loop().time()
+                try:
+                    exploited = await self._phase7_5_active_exploitation(
+                        result.findings,
+                    )
+                    # In-place replace so downstream phases (report) see the
+                    # updated exploitation_status / poc_artifacts fields.
+                    result.findings = exploited
+                except Exception as e:  # noqa: BLE001
+                    logger.exception(
+                        "[%s] Phase 7.5 active exploitation failed",
+                        self._context.session_id,
+                    )
+                    result.warnings.append(
+                        f"Phase 7.5 active exploitation failed: {str(e)[:200]}",
+                    )
+                    await self._memory.publish_event(
+                        self._context.session_id, "phase.failed",
+                        {"phase": 7.5, "error": str(e)[:500]},
+                    )
+                result.phase_timings["phase7_5"] = (
+                    asyncio.get_event_loop().time() - start
+                )
+
             # Phase 8: VAPT report generation (R_001).
             # The agent reads every finding back out of memory and writes
             # markdown + HTML + JSON artifacts to <workspace>/reports/.
@@ -1507,6 +1537,101 @@ class Orchestrator:
             {"phase": 7, "chains_detected": len(chain_findings)},
         )
         return chain_findings
+
+    # ---------- Phase 7.5: Active Exploitation & API Replay ----------
+
+    async def _phase7_5_active_exploitation(
+        self, findings: list[Finding],
+    ) -> list[Finding]:
+        """Drive High/Critical findings through ExploitDriver + PoCGenerator.
+
+        For each eligible finding the driver returns an updated Finding with
+        ``exploitation_status``, ``exploit_proof``, ``api_replay_logs``, and
+        ``severity_rationale`` populated. Verified_Exploited findings also
+        get standalone PoC scripts written under
+        ``workspace/{session}/poc_artifacts/`` with the paths recorded on
+        ``Finding.poc_artifacts`` for the frontend "Download PoC" link.
+
+        Best-effort per finding — one crashed driver call must not stop
+        other findings from being processed.
+        """
+        from sentinel.exploit.driver import ExploitDriver
+        from sentinel.exploit.poc_generator import PoCGenerator
+
+        logger.info(
+            "[%s] Phase 7.5: active exploitation over %d findings",
+            self._context.session_id, len(findings),
+        )
+        await self._memory.publish_event(
+            self._context.session_id, "phase.started", {"phase": 7.5},
+        )
+
+        credential_manager = None
+        try:
+            from sentinel.tools.credential_manager import CredentialManager
+            credential_manager = CredentialManager.from_env(
+                workspace=self._context.workspace,
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("Phase 7.5: credential_manager unavailable")
+
+        driver = ExploitDriver(credential_manager=credential_manager)
+        poc = PoCGenerator(workspace=self._context.workspace)
+
+        exploited_count = 0
+        updated: list[Finding] = []
+        for finding in findings:
+            try:
+                outcome = await driver.exploit(
+                    finding, context=self._context,
+                )
+                new_finding = outcome.finding
+                if outcome.exploited or outcome.poc_kind:
+                    try:
+                        artifacts = poc.generate_for(
+                            new_finding,
+                            driver_hint=outcome.poc_metadata,
+                        )
+                        if artifacts:
+                            new_finding = new_finding.model_copy(update={
+                                "poc_artifacts": [
+                                    a.relative_path for a in artifacts
+                                ],
+                            })
+                    except Exception:  # noqa: BLE001
+                        logger.exception(
+                            "Phase 7.5: PoC generation failed for %s",
+                            finding.agent_id,
+                        )
+                if outcome.exploited:
+                    exploited_count += 1
+                # Best-effort persist — upserts by finding_id.
+                try:
+                    await self._memory.save_finding(new_finding)
+                except Exception:  # noqa: BLE001
+                    logger.debug(
+                        "Phase 7.5: memory upsert failed for %s",
+                        new_finding.agent_id,
+                    )
+                updated.append(new_finding)
+            except Exception:  # noqa: BLE001
+                logger.exception(
+                    "Phase 7.5: driver crashed on %s; keeping original finding",
+                    finding.agent_id,
+                )
+                updated.append(finding)
+
+        if credential_manager is not None:
+            try:
+                await credential_manager.aclose()
+            except Exception:  # noqa: BLE001
+                pass
+
+        await self._memory.publish_event(
+            self._context.session_id, "phase.completed",
+            {"phase": 7.5, "exploited": exploited_count},
+        )
+        return updated
 
     # ---------- Phase 4.7: AFL++ fuzz run (opt-in) ----------
 
