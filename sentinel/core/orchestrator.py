@@ -137,6 +137,11 @@ class Orchestrator:
         swarm_enabled: bool = False,
         swarm_llm_query: Any = None,
         swarm_max_concurrency: int = 4,
+        # UI driver — off | monkey | appium. When "off" (the default),
+        # Phase 4 just sleeps during the capture window as before.
+        # Anything else exercises the app automatically so the mitmproxy
+        # capture is populated without a human touching the device.
+        ui_driver: str = "off",
     ) -> None:
         self._context = context
         self._memory = memory
@@ -157,6 +162,7 @@ class Orchestrator:
         self._swarm_enabled = swarm_enabled
         self._swarm_llm_query = swarm_llm_query
         self._swarm_max_concurrency = swarm_max_concurrency
+        self._ui_driver_kind = ui_driver
 
     @staticmethod
     def _assert_unique_agent_ids(agents: list[type[BaseAgent]]) -> None:
@@ -815,7 +821,52 @@ class Orchestrator:
                     "package": package,
                 },
             )
-            await asyncio.sleep(self._dynamic_duration_seconds)
+            # Autonomous UI driver (--ui-driver monkey|appium|off).
+            # When enabled, the driver exercises the app concurrently with
+            # mitmproxy so the capture is populated without a human. When
+            # "off" or if the driver falls back, we sleep as before so
+            # someone can drive the app manually.
+            driver_kind = getattr(self, "_ui_driver_kind", "off")
+            if driver_kind and driver_kind != "off":
+                try:
+                    from sentinel.tools.ui_driver import build_driver
+                    ui = build_driver(
+                        driver_kind,
+                        target_package=package,
+                        serial=device.serial,
+                    )
+                    ready = await ui.setup()
+                    if ready:
+                        await ui.launch_and_login(credentials=None)
+                        drive_result = await ui.execute_flow(
+                            self._dynamic_duration_seconds,
+                        )
+                        health["ui_driver"] = {
+                            "kind": ui.name,
+                            "ok": drive_result.ok,
+                            "events": drive_result.events,
+                            "reason": drive_result.reason,
+                        }
+                        await ui.teardown()
+                    else:
+                        health["ui_driver"] = {
+                            "kind": ui.name,
+                            "ok": False,
+                            "reason": "setup failed; sleeping instead",
+                        }
+                        await asyncio.sleep(self._dynamic_duration_seconds)
+                except Exception as e:  # noqa: BLE001
+                    logger.exception(
+                        "Phase 4: UI driver crashed; falling back to sleep",
+                    )
+                    health["ui_driver"] = {
+                        "kind": driver_kind,
+                        "ok": False,
+                        "reason": str(e)[:200],
+                    }
+                    await asyncio.sleep(self._dynamic_duration_seconds)
+            else:
+                await asyncio.sleep(self._dynamic_duration_seconds)
 
             # 6.5) Frida sub-phase
             if self._frida_enabled:
@@ -1586,6 +1637,19 @@ class Orchestrator:
                     finding, context=self._context,
                 )
                 new_finding = outcome.finding
+                # Djini-parity: any finding the driver enriched (rationale,
+                # replay logs, exploit proof) belongs in the "AI-Powered"
+                # section of the report. Static findings that fell through
+                # to Code_Only keep the default Static_Tool category.
+                if (
+                    new_finding.severity_rationale
+                    or new_finding.exploit_proof
+                    or new_finding.api_replay_logs
+                    or outcome.exploited
+                ):
+                    new_finding = new_finding.model_copy(update={
+                        "finding_category": "AI-Powered",
+                    })
                 if outcome.exploited or outcome.poc_kind:
                     try:
                         artifacts = poc.generate_for(

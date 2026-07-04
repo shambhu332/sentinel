@@ -44,6 +44,13 @@ ExploitationStatus = Literal[
     "Unverified",
 ]
 
+# Djini-parity split between AI-narrated / dynamic findings (which
+# render with the full 7-layer detail view) and pure SAST / manifest
+# findings (which render with the concise Static Tool view). Default
+# is Static_Tool — agents opt-in to AI-Powered when they populate
+# severity_rationale, context_factors, or the exploitation fields.
+FindingCategory = Literal["AI-Powered", "Static_Tool"]
+
 MAX_STRING_LEN = 10_000
 MAX_EVIDENCE_FIELDS = 50
 SESSION_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{8,64}$")
@@ -170,6 +177,11 @@ class Finding(BaseModel):
     # Concrete data the exploit driver exfiltrated (e.g. a JWT snippet).
     # Length-capped so a runaway response body can't blow up the report.
     exploit_proof: str | None = Field(default=None, max_length=4000)
+    # Djini-style report split. "AI-Powered" enables the 7-layer detail
+    # view (rationale + context factors + reproduction + exploit proof);
+    # "Static_Tool" renders the concise variant. Auto-promoted by Phase
+    # 7.5 when a finding gains a severity_rationale or exploitation data.
+    finding_category: FindingCategory = "Static_Tool"
     triage: TriageState = TriageState.UNREVIEWED
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 

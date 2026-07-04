@@ -233,6 +233,7 @@ class BOLAVerifierAgent(BaseAgent):
             # table even when Phase 7.5 (ExploitDriver) is disabled.
             api_replay_logs=replay_logs,
             exploitation_status="Verified_Exploited",
+            finding_category="AI-Powered",
         )
 
     # ---------- Scope check ----------

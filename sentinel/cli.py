@@ -146,6 +146,16 @@ def serve(host: str, port: int, reload: bool) -> None:
                    "refuse to run when a proxy is set (Signal, banking apps, "
                    "secure messengers). Frida hooks still fire normally; "
                    "mitmproxy-based agents (N_003/N_004) produce no findings.")
+@click.option("--ui-driver", "ui_driver", type=click.Choice(
+                  ["off", "noop", "monkey", "appium"], case_sensitive=False,
+              ),
+              default="off",
+              help="Automated UI driver for Phase 4. 'off'/'noop' (default) "
+                   "waits for a human to exercise the app; 'monkey' fires "
+                   "bounded, non-destructive adb shell monkey events "
+                   "(--pct-syskeys 0 --pct-anyevent 0, 300ms throttle); "
+                   "'appium' is a placeholder — falls back to noop with a "
+                   "warning until the Appium implementation lands.")
 @click.option("--keep-workspace", is_flag=True,
               help="Keep the per-scan workspace directory "
                    "(decompiled sources, mitmproxy capture, frida events) "
@@ -255,6 +265,7 @@ def scan(
     frida_duration: int,
     frida_spawn: bool,
     no_proxy: bool,
+    ui_driver: str,
     keep_workspace: bool,
     profile_name: str | None,
     static_only: bool,
@@ -310,6 +321,7 @@ def scan(
         frida_duration=frida_duration,
         frida_spawn=frida_spawn,
         no_proxy=no_proxy,
+        ui_driver=ui_driver,
         keep_workspace=keep_workspace,
         profile_name=profile_name,
         active_replay=active_replay,
@@ -348,6 +360,7 @@ async def _run_scan(
     frida_duration: int,
     frida_spawn: bool,
     no_proxy: bool,
+    ui_driver: str,
     keep_workspace: bool,
     profile_name: str | None = None,
     active_replay: bool = False,
@@ -839,6 +852,7 @@ async def _run_scan(
             tenant_plan=tenant_plan,
             swarm_enabled=swarm_enabled and swarm_llm_query is not None,
             swarm_llm_query=swarm_llm_query,
+            ui_driver=ui_driver,
         )
 
         # Status message reflects which optional phases are enabled

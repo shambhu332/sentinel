@@ -169,6 +169,7 @@ class DataExposureAgent(BaseAgent):
                 "found in decompiled Java/Kotlin/XML/Smali."
             ),
             verification_status="verified by API_004 SAST cross-reference",
+            finding_category="AI-Powered",
         )
 
 

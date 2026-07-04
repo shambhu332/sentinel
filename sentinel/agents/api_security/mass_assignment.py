@@ -256,6 +256,7 @@ class MassAssignmentFuzzerAgent(BaseAgent):
             # table even without Phase 7.5.
             api_replay_logs=replay_logs,
             exploitation_status="Verified_Exploited",
+            finding_category="AI-Powered",
         )
 
     # ---------- Scope check ----------

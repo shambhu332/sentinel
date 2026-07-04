@@ -18,6 +18,13 @@ import { renderSwarmPanel } from './swarm-panel.js';
 import { getReproRecipe } from './repro-recipes.js';
 
 export function renderFindingDetailView(finding, agent, ctx) {
+  // Djini-parity split: Static Tool findings render in a concise variant
+  // (title, description, metadata, code, remediation only) so pure SAST
+  // hits don't bury the AI-Powered narrative under empty sections.
+  if (isStaticToolFinding(finding)) {
+    return renderStaticToolDetailView(finding, agent, ctx);
+  }
+
   const root = el('div', { class: 'finding-detail-v2' });
   root.appendChild(headerBanner(finding, ctx));
   root.appendChild(descriptionSection(finding, agent));
@@ -553,4 +560,41 @@ function apiReplayTable(replay) {
   wrap.appendChild(table);
   details.appendChild(wrap);
   return details;
+}
+
+// ---------- Djini-parity: category detection + concise Static variant ----------
+function isStaticToolFinding(finding) {
+  if (!finding) return false;
+  if (finding.finding_category === 'Static_Tool') return true;
+  if (finding.finding_category === 'AI-Powered') return false;
+  // No explicit category — infer. Anything the Phase 7.5 pipeline or
+  // API replay agents touched has rationale / exploit fields; everything
+  // else is treated as a Static Tool finding.
+  if (finding.severity_rationale) return false;
+  if (finding.exploit_proof) return false;
+  if (Array.isArray(finding.api_replay_logs) && finding.api_replay_logs.length) return false;
+  if (Array.isArray(finding.poc_artifacts) && finding.poc_artifacts.length) return false;
+  if (finding.exploitation_status
+      && finding.exploitation_status !== 'Unverified'
+      && finding.exploitation_status !== 'Code_Only') return false;
+  return true;
+}
+
+function renderStaticToolDetailView(finding, agent, ctx) {
+  const root = el('div', { class: 'finding-detail-v2 finding-detail-static' });
+  root.appendChild(headerBanner(finding, ctx));
+  root.appendChild(el('section', { class: 'fd-section' },
+    el('h3', {}, el('i', { 'data-lucide': 'file-text', 'aria-hidden': 'true' }), 'Description'),
+    el('p', { class: 'fd-prose' },
+      finding.evidence?.description || finding.evidence?.summary || finding.recommendation || '—'),
+    agent ? el('div', { class: 'fd-agent-attribution text-muted' },
+      `Detected by ${agent.id}${agent.name ? ' — ' + agent.name : ''}`) : null,
+  ));
+  const meta = metadataTagsSection(finding);
+  if (meta) root.appendChild(meta);
+  const code = affectedCodeSection(finding);
+  if (code) root.appendChild(code);
+  root.appendChild(remediationSection(finding));
+  refreshIcons();
+  return root;
 }

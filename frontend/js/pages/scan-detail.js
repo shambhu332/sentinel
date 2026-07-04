@@ -322,12 +322,19 @@ function sevCard(cls, label, count) {
 // same two buckets the JSON report uses. Keep these two in sync.
 function findingBucket(f) {
   const ev = f.evidence || {};
+  // finding_category is the authoritative Djini-parity field. When the
+  // backend sets it explicitly (Phase 7.5 promotion, API replay agents),
+  // trust that verdict and skip the heuristics.
+  if (f.finding_category === 'AI-Powered') return 'ai_powered';
+  if (f.finding_category === 'Static_Tool') return 'static_tool';
   if (f.severity_rationale) return 'ai_powered';
   if (f.verification_status && f.verification_status !== 'Code-level only') return 'ai_powered';
   if (ev._verify && ev._verify.outcome) return 'ai_powered';
   if (ev._swarm) return 'ai_powered';
   if (ev.dynamic_target) return 'ai_powered';
   if (f.llm_rationale || ev.llm_rationale) return 'ai_powered';
+  if (f.exploitation_status && f.exploitation_status !== 'Unverified'
+      && f.exploitation_status !== 'Code_Only') return 'ai_powered';
   return 'static_tool';
 }
 
