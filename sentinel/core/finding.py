@@ -206,8 +206,34 @@ class BountyScope(BaseModel):
             return False
         return package in self.in_scope_packages
 
+    def domain_in_scope(self, host: str) -> bool:
+        """Return True if ``host`` is allowed for active testing.
+
+        Matches a leading ``*.`` wildcard against the host suffix so bounty
+        scopes like ``*.example.com`` cover ``api.example.com``. An empty
+        scope is unrestricted (matches ``package_in_scope`` semantics).
+        """
+        if not host:
+            return False
+        host = host.lower()
+        if self.is_unrestricted():
+            return True
+        if any(_matches_host(host, pat) for pat in self.out_of_scope_domains):
+            return False
+        return any(_matches_host(host, pat) for pat in self.in_scope_domains)
+
     def technique_allowed(self, technique: str) -> bool:
         return technique not in self.forbidden_techniques
+
+
+def _matches_host(host: str, pattern: str) -> bool:
+    pattern = (pattern or "").lower().strip()
+    if not pattern:
+        return False
+    if pattern.startswith("*."):
+        suffix = pattern[1:]  # keep the leading "."
+        return host == suffix[1:] or host.endswith(suffix)
+    return host == pattern
 
 
 # ---------- Verification-state derivation ----------

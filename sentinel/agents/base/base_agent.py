@@ -153,6 +153,9 @@ class BaseAgent(ABC):
         package = evidence.get("package")
         if package and not scope.package_in_scope(str(package)):
             return False
+        host = evidence.get("host")
+        if host and scope.in_scope_domains and not scope.domain_in_scope(str(host)):
+            return False
         return True
 
     async def _capture_screenshot(
