@@ -381,7 +381,11 @@ async def _run_scan(
         SessionTokenInUrlAgent,
         TapJackingAgent,
     )
-    from sentinel.agents.api_security import BOLAVerifierAgent, MassAssignmentFuzzerAgent
+    from sentinel.agents.api_security import (
+        BOLAVerifierAgent,
+        DataExposureAgent,
+        MassAssignmentFuzzerAgent,
+    )
     from sentinel.agents.auth_storage import InsecureAuthStorageAgent
     from sentinel.agents.backup import InsecureBackupAgent
     from sentinel.agents.business import (
@@ -725,6 +729,7 @@ async def _run_scan(
                 GraphqlPersistedQueryAgent,   # D_017 (Sprint 8.9 mitmproxy)
                 BOLAVerifierAgent,            # API_002 (BOLA replay verifier)
                 MassAssignmentFuzzerAgent,    # API_003 (mass assignment fuzzer)
+                DataExposureAgent,            # API_004 (excessive data exposure)
             ])
         if dynamic and frida:
             agent_list.append(RuntimeCryptoAgent)        # A_003 (Sprint 8.2A DAST)
@@ -1518,7 +1523,11 @@ async def _run_static_scan(
         SessionTokenInUrlAgent,
         TapJackingAgent,
     )
-    from sentinel.agents.api_security import BOLAVerifierAgent, MassAssignmentFuzzerAgent
+    from sentinel.agents.api_security import (
+        BOLAVerifierAgent,
+        DataExposureAgent,
+        MassAssignmentFuzzerAgent,
+    )
     from sentinel.agents.auth_storage import InsecureAuthStorageAgent
     from sentinel.agents.backup import InsecureBackupAgent
     from sentinel.agents.business import (
