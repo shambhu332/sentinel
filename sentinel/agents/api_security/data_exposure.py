@@ -57,6 +57,8 @@ _DEFAULT_SENSITIVE_KEYS: tuple[str, ...] = (
     "internal_url",
     "api_secret",
     "client_secret",
+    "dob",
+    "date_of_birth",
 )
 
 _SOURCE_SUFFIXES: tuple[str, ...] = (".java", ".kt", ".xml", ".smali", ".json")

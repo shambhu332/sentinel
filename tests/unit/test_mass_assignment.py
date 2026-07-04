@@ -242,7 +242,7 @@ async def test_skips_payloads_already_present_in_baseline(memory, tmp_path, monk
     payloads_sent = [json.loads(c.content) for c in transport.calls]
     keys_seen = {k for p in payloads_sent for k in p.keys() if k not in body}
     assert "role" not in keys_seen
-    assert keys_seen == {"is_admin", "price"}
+    assert keys_seen == {"is_admin", "price", "balance"}
 
 
 # ---------- Scope gate ----------
@@ -272,8 +272,8 @@ async def test_out_of_scope_host_is_skipped(memory, tmp_path, monkeypatch):
 # ---------- Safety bound ----------
 
 @pytest.mark.asyncio
-async def test_no_more_than_three_probes_per_endpoint(memory, tmp_path, monkeypatch):
-    """At most 3 default payloads; no combinatorial fuzzing."""
+async def test_no_more_than_four_probes_per_endpoint(memory, tmp_path, monkeypatch):
+    """At most 4 default payloads (is_admin/role/price/balance); no combinatorial fuzzing."""
     ctx = _mk_context(tmp_path, flows=[_flow()])
 
     def responder(request: httpx.Request) -> httpx.Response:
@@ -286,7 +286,7 @@ async def test_no_more_than_three_probes_per_endpoint(memory, tmp_path, monkeypa
         context=ctx, memory=memory, config={"delay_seconds": 0.0},
     )
     await agent.analyze()
-    assert len(transport.calls) <= 3
+    assert len(transport.calls) <= 4
 
 
 @pytest.mark.asyncio

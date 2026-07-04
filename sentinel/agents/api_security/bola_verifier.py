@@ -229,6 +229,10 @@ class BOLAVerifierAgent(BaseAgent):
                 _curl_reproduction(flow, target, bola_hit["mutated_id"]),
             ],
             verification_status=f"verified by API_002 replay against {flow.host}",
+            # Top-level field so the frontend can render the API replay
+            # table even when Phase 7.5 (ExploitDriver) is disabled.
+            api_replay_logs=replay_logs,
+            exploitation_status="Verified_Exploited",
         )
 
     # ---------- Scope check ----------

@@ -60,6 +60,7 @@ _DEFAULT_PAYLOADS: tuple[dict[str, Any], ...] = (
     {"is_admin": True},
     {"role": "admin"},
     {"price": 0},
+    {"balance": 999999},
 )
 
 
@@ -251,6 +252,10 @@ class MassAssignmentFuzzerAgent(BaseAgent):
             verification_status=(
                 f"verified by API_003 replay against {flow.host}"
             ),
+            # Top-level field so the frontend can render the API replay
+            # table even without Phase 7.5.
+            api_replay_logs=replay_logs,
+            exploitation_status="Verified_Exploited",
         )
 
     # ---------- Scope check ----------
