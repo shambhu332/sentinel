@@ -1,11 +1,11 @@
 """META_005 — App Profiler Agent (Phase 1.5).
 
-A lightweight pre-scan agent that runs BEFORE the main 88+ analysis
+A lightweight pre-scan agent that runs BEFORE the main analysis
 agents. Its job is to build a quick fingerprint of the target APK so
 the orchestrator can make intelligent decisions about which agents to
 run (Risk-Weighted Scanning).
 
-Why this matters: running all 88 agents against a Flutter app wastes
+Why this matters: running all agents against a Flutter app wastes
 time — most Java-focused agents find nothing because >95% of the logic
 lives in libapp.so. Conversely, a pure-Java app doesn't need the
 native analysis agents. By profiling first, we cut scan time by 30–50%

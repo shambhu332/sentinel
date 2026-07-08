@@ -22,6 +22,8 @@ from fastapi import FastAPI, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.datastructures import MutableHeaders
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from sentinel.api.routes import agents, auth, devices, reports, scans, scope
 from sentinel.core.config import get_settings
@@ -36,10 +38,70 @@ MAX_REQUEST_SIZE = 600 * 1024 * 1024  # 600 MB (APK upload cap)
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Run once at startup and shutdown."""
+    import asyncio
+    from sentinel.core.janitor import start_janitor
+
     settings = get_settings()
     logger.info("SENTINEL API starting (workspace=%s)", settings.workspace)
+
+    janitor_task = start_janitor(
+        workspace_root=settings.workspace,
+        retention_days=settings.scan_retention_days,
+        interval_seconds=settings.janitor_interval_seconds,
+    )
+
     yield
+
     logger.info("SENTINEL API shutting down")
+    janitor_task.cancel()
+    try:
+        await asyncio.wait_for(asyncio.shield(janitor_task), timeout=5.0)
+    except (asyncio.CancelledError, asyncio.TimeoutError):
+        pass
+
+
+class _AuditLogMiddleware:
+    """Pure ASGI audit-log middleware.
+
+    Using BaseHTTPMiddleware/call_next causes anyio.WouldBlock → CancelledError
+    tracebacks on graceful shutdown because its internal stream bridge races
+    with task cancellation. A raw ASGI class avoids that entirely.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self._app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self._app(scope, receive, send)
+            return
+
+        rid = (
+            dict(scope.get("headers") or [])
+            .get(b"x-request-id", b"")
+            .decode()
+            or uuid.uuid4().hex[:12]
+        )
+        method = scope.get("method", "")
+        path = scope.get("path", "")
+        start = time.monotonic()
+        status_code = 500
+
+        async def send_wrapper(message: dict) -> None:
+            nonlocal status_code
+            if message["type"] == "http.response.start":
+                status_code = message["status"]
+                headers = MutableHeaders(scope=message)
+                headers["X-Request-ID"] = rid
+                if path.startswith("/ui/"):
+                    headers["Cache-Control"] = "no-store, max-age=0"
+            await send(message)
+
+        try:
+            await self._app(scope, receive, send_wrapper)
+        finally:
+            duration_ms = int((time.monotonic() - start) * 1000)
+            logger.info("%s %s %s %d %dms", rid, method, path, status_code, duration_ms)
 
 
 def create_app() -> FastAPI:
@@ -77,23 +139,14 @@ def create_app() -> FastAPI:
         max_age=86400,
     )
 
-    @app.middleware("http")
-    async def audit_log(request: Request, call_next):
-        """Assign request ID, log method+path+status+duration."""
-        rid = request.headers.get("X-Request-ID") or uuid.uuid4().hex[:12]
-        start = time.monotonic()
-        response: Response = await call_next(request)
-        duration_ms = int((time.monotonic() - start) * 1000)
-        logger.info(
-            "%s %s %s %d %dms",
-            rid, request.method, request.url.path, response.status_code, duration_ms,
-        )
-        response.headers["X-Request-ID"] = rid
-        # The frontend has no build hash, so stale browser cache keeps
-        # showing edits-ago content. Force revalidation on every UI asset.
-        if request.url.path.startswith("/ui/"):
-            response.headers["Cache-Control"] = "no-store, max-age=0"
-        return response
+    app.add_middleware(_AuditLogMiddleware)
+
+    # Phase 1.3 — RBAC middleware sits *outside* audit log so audit
+    # records the deny/allow decision for every request. Middlewares
+    # run outer-first for both request and response, so ordering here
+    # (add RBAC after audit) means audit wraps RBAC — desired.
+    from sentinel.auth.rbac import RBACMiddleware  # local import — avoids cycle at module load
+    app.add_middleware(RBACMiddleware)
 
     @app.exception_handler(Exception)
     async def unhandled_exception(request: Request, exc: Exception) -> JSONResponse:
@@ -110,10 +163,11 @@ def create_app() -> FastAPI:
         return {
             "service": "SENTINEL",
             "version": "0.1.0",
+            "description": "Autonomous Android security scanner for AppSec teams and bug bounty hunters.",
             "docs": "/docs",
-            "disclaimer": (
+            "legal": (
                 "Use only against targets you have explicit written permission to test. "
-                "Always respect bug bounty program scope. "
+                "Always respect bug bounty program scope and rules of engagement. "
                 "The authors assume no liability for misuse."
             ),
         }

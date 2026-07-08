@@ -1,0 +1,63 @@
+name: Benchmark
+
+on:
+  schedule:
+    - cron: '0 2 * * 0'   # Weekly Sunday 02:00 UTC
+  workflow_dispatch:
+    inputs:
+      fail_on_threshold:
+        description: 'Fail if recall/precision below threshold'
+        required: false
+        default: 'true'
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install Poetry
+        run: pip install poetry
+
+      - name: Install dependencies
+        run: poetry install --no-interaction
+
+      - name: Cache benchmark corpus
+        uses: actions/cache@v4
+        with:
+          path: tests/benchmark/corpus
+          key: benchmark-corpus-v1
+
+      - name: Run benchmark
+        run: |
+          poetry run python tests/benchmark/mstg_runner.py --output benchmark-results.json
+        continue-on-error: ${{ github.event.inputs.fail_on_threshold != 'true' }}
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-results
+          path: benchmark-results.json
+
+      - name: Comment summary on PR (if triggered manually)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          python - <<'EOF'
+          import json, sys
+          try:
+              with open('benchmark-results.json') as f:
+                  r = json.load(f)
+              print(f"Recall: {r.get('overall_recall')} | Precision: {r.get('overall_precision')} | F1: {r.get('f1_score')}")
+              for app in r.get('per_app', []):
+                  print(f"  {app['app']}: findings={app['total_findings']} recall={app['category_recall']} duration={app['scan_duration_s']}s")
+          except Exception as e:
+              print(f"Could not parse results: {e}", file=sys.stderr)
+          EOF

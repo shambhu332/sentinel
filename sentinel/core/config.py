@@ -30,6 +30,13 @@ class Settings(BaseSettings):
     mistral_api_key: SecretStr = Field(default=SecretStr(""), alias="MISTRAL_API_KEY")
     github_token: SecretStr = Field(default=SecretStr(""), alias="GITHUB_TOKEN")
     ollama_host: str = Field(default="http://localhost:11434", alias="OLLAMA_HOST")
+    # Local vLLM / TensorRT-LLM endpoint (OpenAI-compatible). Takes priority over cloud.
+    local_llm_url: str = Field(default="", alias="SENTINEL_LOCAL_LLM_URL")
+    local_llm_model: str = Field(default="local-model", alias="SENTINEL_LOCAL_LLM_MODEL")
+
+    # Infrastructure
+    database_url: str = Field(default="", alias="DATABASE_URL")
+    redis_url: str = Field(default="", alias="REDIS_URL")
 
     # Runtime
     jwt_secret: SecretStr = Field(default=SecretStr(""), alias="SENTINEL_JWT_SECRET")
@@ -43,6 +50,17 @@ class Settings(BaseSettings):
     max_apk_size_mb: int = Field(default=500, alias="SENTINEL_MAX_APK_SIZE_MB", ge=1, le=2048)
     scan_timeout_seconds: int = Field(
         default=1800, alias="SENTINEL_SCAN_TIMEOUT_SECONDS", ge=60, le=86400
+    )
+    # Phase 1.4 — at-rest encryption.
+    # Empty string means encryption is disabled (dev / local mode).
+    # In production set to `base64.b64encode(os.urandom(32)).decode()`.
+    master_key: str = Field(default="", alias="SENTINEL_MASTER_KEY")
+    # Phase 1.4 — janitor retention window and poll interval.
+    scan_retention_days: int = Field(
+        default=30, alias="SENTINEL_SCAN_RETENTION_DAYS", ge=1, le=3650
+    )
+    janitor_interval_seconds: int = Field(
+        default=3600, alias="SENTINEL_JANITOR_INTERVAL_SECONDS", ge=60, le=86400
     )
 
     @field_validator("log_level")
@@ -60,8 +78,18 @@ class Settings(BaseSettings):
         resolved.mkdir(parents=True, exist_ok=True)
         return resolved
 
+    def encryption_enabled(self) -> bool:
+        """True when a master key is configured and encryption is active."""
+        return bool(self.master_key.strip())
+
     def has_cerebras_key(self) -> bool:
         return bool(self.cerebras_api_key.get_secret_value().strip())
+
+    def has_local_llm(self) -> bool:
+        return bool(self.local_llm_url.strip())
+
+    def has_redis(self) -> bool:
+        return bool(self.redis_url.strip())
 
     def parsed_cors_origins(self) -> list[str]:
         return [

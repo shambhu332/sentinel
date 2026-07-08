@@ -1,8 +1,17 @@
-"""JWT authentication implementation."""
+"""JWT authentication implementation.
+
+Phase 1.3 additions:
+    * `org_id` claim (mirrors User.tenant_id) so downstream RBAC and
+      Postgres RLS can enforce tenant isolation without a DB lookup.
+    * `jti` claim (UUID4) that admins can add to the revocation store
+      to kill a stolen token before its natural expiry.
+    * Revocation check on every `get_current_user` call.
+"""
 from __future__ import annotations
 
 import secrets
-from datetime import datetime, timedelta
+import uuid
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from fastapi import Depends, HTTPException, status
@@ -10,6 +19,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 
+from sentinel.auth.revocation import get_revocation_store
 from sentinel.core.config import get_settings
 
 if TYPE_CHECKING:
@@ -45,17 +55,41 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
 
-def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
-    """Create a JWT access token."""
+def create_access_token(
+    data: dict,
+    expires_delta: timedelta | None = None,
+    *,
+    org_id: str | None = None,
+    role: str | None = None,
+) -> str:
+    """Create a JWT access token.
+
+    Phase 1.3 mandatory claims (in addition to `sub` and `exp`):
+        * `org_id` — tenant identifier (nullable for unbound users)
+        * `role`   — UserRole string
+        * `jti`    — UUID4, indexed in the revocation store
+    """
     to_encode = data.copy()
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = datetime.now(UTC) + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = datetime.now(UTC) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
 
-    to_encode.update({"exp": expire})
+    if org_id is not None and "org_id" not in to_encode:
+        to_encode["org_id"] = org_id
+    if role is not None and "role" not in to_encode:
+        to_encode["role"] = role
+    to_encode.setdefault("jti", uuid.uuid4().hex)
+    to_encode["exp"] = expire
+
     encoded_jwt = jwt.encode(to_encode, _secret_key(), algorithm=ALGORITHM)
     return encoded_jwt
+
+
+async def revoke_token(jti: str, ttl_seconds: int = ACCESS_TOKEN_EXPIRE_MINUTES * 60) -> None:
+    """Mark a token's jti as revoked. Idempotent."""
+    store = get_revocation_store()
+    await store.revoke(jti, ttl_seconds)
 
 
 def decode_token(token: str) -> dict:
@@ -114,6 +148,18 @@ async def get_current_user(
             detail="Invalid authentication credentials",
         )
 
+    # Revocation check — a stolen token can be killed by adding its
+    # jti to the revocation store before its natural expiry.
+    jti = payload.get("jti")
+    if jti:
+        store = get_revocation_store()
+        if await store.is_revoked(jti):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token revoked",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
     # Fetch user from database (mock for now)
     user_data = _users_db.get(user_id)
     if user_data is None:
@@ -124,7 +170,14 @@ async def get_current_user(
             detail="User not found",
         )
 
-    return User(**user_data)
+    user = User(**user_data)
+    # Overlay the org_id from the token if the DB row hasn't caught up yet
+    # (e.g. mid-membership-transfer). Token is the source of truth on
+    # tenant binding for the lifetime of the token.
+    org_id = payload.get("org_id")
+    if org_id and user.tenant_id != org_id:
+        user = user.model_copy(update={"tenant_id": org_id})
+    return user
 
 
 async def get_current_active_user(

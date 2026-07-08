@@ -1,11 +1,12 @@
 """Scan lifecycle endpoints — wire the GUI to the real orchestrator.
 
-POST   /scans                multipart upload of an APK + options
-GET    /scans                list every scan tracked by this process
-GET    /scans/{id}           summary + progress
-GET    /scans/{id}/findings  full findings list
-GET    /scans/{id}/result    full structured result (matches CLI JSON)
-DELETE /scans/{id}           cancel + cleanup
+POST   /scans                   multipart upload of an APK + options
+GET    /scans                   list every scan tracked by this process
+GET    /scans/{id}              summary + progress
+GET    /scans/{id}/findings     full findings list
+GET    /scans/{id}/result       full structured result (matches CLI JSON)
+GET    /scans/{id}/events       SSE stream of real-time scan events
+DELETE /scans/{id}              cancel + cleanup
 """
 from __future__ import annotations
 
@@ -26,7 +27,7 @@ from fastapi import (
     UploadFile,
     status,
 )
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from sentinel.api.scan_runner import (
     ScanJob,
@@ -120,7 +121,12 @@ async def create_scan(
             detail=f"unsupported extension {suffix!r} (need .apk/.aab/.xapk)",
         )
 
-    upload_dir = settings.workspace / "uploads"
+    # Phase 1.3 — tenant-scoped uploads. The current_user comes from
+    # the JWT-carried org_id claim; unauthenticated / dev-bypass users
+    # fall into the `public` tenant bucket via resolve_upload_dir.
+    from sentinel.core.workspace import resolve_upload_dir
+    tenant_id = getattr(current_user, "tenant_id", None) if current_user else None
+    upload_dir = resolve_upload_dir(settings.workspace, tenant_id)
     upload_dir.mkdir(parents=True, exist_ok=True)
 
     safe_name = (
@@ -158,9 +164,19 @@ async def create_scan(
             detail="uploaded APK is empty",
         )
 
+    # Phase 1.4 — encrypt at rest when a master key is configured.
+    if settings.encryption_enabled():
+        from sentinel.core.crypto import decode_master_key, derive_tenant_key, encrypt_file
+        master_key = decode_master_key(settings.master_key)
+        dek = derive_tenant_key(master_key, tenant_id or "public")
+        stored_path = encrypt_file(stored_path, dek)
+        logger.debug("Encrypted upload %s", stored_path.name)
+
     opts = _parse_options(options)
     _bounded_int_option(opts, "dynamic_duration", 30, 1, 300)
     _bounded_int_option(opts, "frida_duration", 30, 1, 300)
+    # Stash tenant_id in options so scan_runner can derive the right DEK.
+    opts["_tenant_id"] = tenant_id or "public"
     job = await launch_scan(
         apk_path=stored_path,
         apk_filename=safe_name,
@@ -259,3 +275,107 @@ async def delete_scan(
     if not ok:
         raise HTTPException(status_code=404, detail="scan not found")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# ---------------------------------------------------------------------------
+# SSE event stream (Phase 7)
+# ---------------------------------------------------------------------------
+
+@router.get("/{session_id}/events")
+async def scan_events(
+    session_id: str,
+    current_user: Any = Depends(get_current_active_user),
+) -> StreamingResponse:
+    """Server-Sent Events stream for real-time scan progress.
+
+    Clients connect with ``EventSource('/scans/{id}/events')``.
+    Each event is a JSON object matching the ScanJob state snapshot.
+
+    When Redis pub/sub is configured (REDIS_URL set), events are
+    forwarded from the Redis channel ``scan:{session_id}:events``.
+    Otherwise the endpoint polls the in-process ScanJob registry at
+    500ms intervals and streams state changes — no Redis required for
+    local dev.
+
+    The stream ends automatically when the scan reaches a terminal
+    state (completed / failed / cancelled).
+    """
+    import asyncio
+
+    _job_or_404(session_id)  # 404 early if unknown
+
+    async def _poll_stream():
+        """Polling fallback: stream ScanJob snapshots every 500ms."""
+        last_status: str | None = None
+        last_finding_count: int = -1
+
+        while True:
+            try:
+                job: ScanJob = _job_or_404(session_id)
+            except HTTPException:
+                yield _sse_event({"type": "error", "detail": "scan not found"})
+                return
+
+            current_count = len(job.finding_dicts())
+            if job.status != last_status or current_count != last_finding_count:
+                last_status = job.status
+                last_finding_count = current_count
+                yield _sse_event({
+                    "type": "state",
+                    "session_id": session_id,
+                    "status": job.status,
+                    "findings_count": current_count,
+                    "severity_counts": job.severity_counts(),
+                    "phase_timings": job.phase_timings,
+                    "error": job.error,
+                })
+
+            if job.status in ("completed", "failed", "cancelled"):
+                yield _sse_event({"type": "done", "status": job.status})
+                return
+
+            await asyncio.sleep(0.5)
+
+    async def _redis_stream():
+        """Redis pub/sub: forward scan events from channel."""
+        import asyncio
+        import redis.asyncio as aioredis
+
+        settings = get_settings()
+        client = aioredis.from_url(settings.redis_url)
+        pubsub = client.pubsub()
+        channel = f"scan:{session_id}:events"
+        await pubsub.subscribe(channel)
+
+        try:
+            async for message in pubsub.listen():
+                if message["type"] == "message":
+                    raw = message["data"]
+                    yield _sse_event(json.loads(raw) if isinstance(raw, (str, bytes)) else raw)
+                    # Check for terminal event
+                    try:
+                        data = json.loads(raw) if isinstance(raw, (str, bytes)) else raw
+                        if data.get("type") == "done":
+                            return
+                    except Exception:  # noqa: BLE001
+                        pass
+        finally:
+            await pubsub.unsubscribe(channel)
+            await client.aclose()
+
+    settings = get_settings()
+    generator = _redis_stream() if settings.redis_url else _poll_stream()
+
+    return StreamingResponse(
+        generator,
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",  # Disable nginx buffering
+        },
+    )
+
+
+def _sse_event(data: dict[str, Any]) -> str:
+    """Format a dict as a Server-Sent Event data line."""
+    return f"data: {json.dumps(data)}\n\n"

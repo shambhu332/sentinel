@@ -837,9 +837,27 @@ async def _run_job(job: ScanJob) -> None:
                 logger.warning("Scope parse failed: %s", e)
                 job.warnings.append(f"Scope parse failed: {e}")
 
+        # Phase 1.4 — decrypt encrypted uploads to a temp plaintext path.
+        # The .enc file stays on disk (the at-rest copy); the plaintext is
+        # removed by the registry.remove() cleanup path after the scan ends.
+        _plaintext_tmp: Path | None = None
+        scan_apk_path = job.apk_path
+        if settings.encryption_enabled() and scan_apk_path.suffix == ".enc":
+            from sentinel.core.crypto import decode_master_key, derive_tenant_key, decrypt_file
+            master_key = decode_master_key(settings.master_key)
+            tenant_id = job.options.get("_tenant_id", "public")
+            dek = derive_tenant_key(master_key, str(tenant_id))
+            _plaintext_tmp = decrypt_file(
+                scan_apk_path,
+                dek,
+                dst=scan_apk_path.with_suffix(""),  # strip .enc
+            )
+            scan_apk_path = _plaintext_tmp
+            logger.debug("Decrypted %s for scan", job.apk_path.name)
+
         ctx = ScanContext(
             session_id=job.session_id,
-            apk_path=job.apk_path,
+            apk_path=scan_apk_path,
             workspace=settings.workspace,
             scope=scope,
             data_sensitivity="private" if bool(job.options.get("privacy", False)) else "public",
@@ -929,6 +947,12 @@ async def _run_job(job: ScanJob) -> None:
             await memory.close()
         except Exception:  # noqa: BLE001
             logger.exception("Scan %s: memory.close() failed", job.session_id)
+        # Phase 1.4 — remove the decrypted temp file; the .enc copy stays.
+        if _plaintext_tmp is not None and _plaintext_tmp.exists():
+            try:
+                _plaintext_tmp.unlink()
+            except OSError:
+                logger.warning("Could not remove plaintext tmp %s", _plaintext_tmp)
         if ctx is not None and not bool(job.options.get("keep_workspace", False)):
             _cleanup_web_scan_artifacts(ctx.workspace, job.apk_path)
         registry.persist(job)

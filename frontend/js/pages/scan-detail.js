@@ -16,10 +16,12 @@ const PHASE_LABELS = {
 };
 
 let pollHandle = null;
+let sseHandle = null;
 
 export function renderScanDetail(main, scanId) {
-  // Clear any pending poll from a previous render
+  // Clear any pending poll/SSE from a previous render
   if (pollHandle) { clearTimeout(pollHandle); pollHandle = null; }
+  if (sseHandle) { sseHandle.close(); sseHandle = null; }
 
   main.appendChild(el('div', { id: `scan-shell-${scanId}` },
     el('div', { class: 'scan-loading' },
@@ -43,7 +45,68 @@ async function loadAndRender(scanId) {
   paint(scanId, summary);
 
   if (ACTIVE_STATES.has(summary.status)) {
-    pollHandle = setTimeout(() => loadAndRender(scanId), POLL_MS);
+    // Open SSE for live updates. Only open once — if already open, do nothing.
+    if (!sseHandle) {
+      sseHandle = api.scanEvents(scanId, {
+        onState: (ev) => patchLiveUI(scanId, ev),
+        onDone:  () => { sseHandle = null; loadAndRender(scanId); },
+        onError: () => {
+          // SSE unavailable — fall back to 1500ms polling
+          if (sseHandle) { sseHandle.close(); sseHandle = null; }
+          if (!pollHandle) {
+            pollHandle = setTimeout(() => { pollHandle = null; loadAndRender(scanId); }, POLL_MS);
+          }
+        },
+      });
+    }
+  } else {
+    // Scan is terminal — ensure both are closed
+    if (sseHandle) { sseHandle.close(); sseHandle = null; }
+    if (pollHandle) { clearTimeout(pollHandle); pollHandle = null; }
+  }
+}
+
+// Lightweight in-place DOM patch on SSE state events.
+// Updates phase pills, severity counts, and findings count without
+// tearing down and rebuilding the full page.
+function patchLiveUI(scanId, ev) {
+  const shell = document.getElementById(`scan-shell-${scanId}`);
+  if (!shell) return;
+
+  // Phase progress pills
+  const timings = ev.phase_timings || {};
+  shell.querySelectorAll('[data-phase-pill]').forEach((pill) => {
+    const p = pill.dataset.phasePill;
+    const done = timings[p] !== undefined;
+    const active = ev.status === 'running' && !done;
+    pill.className = `phase-pill ${done ? 'done' : active ? 'active' : 'pending'}`;
+    const timeEl = pill.querySelector('[data-phase-time]');
+    if (timeEl) {
+      timeEl.textContent = done
+        ? formatDuration(Math.max(1, Math.round(timings[p])))
+        : (active ? '…' : '—');
+    }
+  });
+
+  // Current phase label in the progress card header
+  const phaseEl = shell.querySelector('[data-current-phase]');
+  if (phaseEl) {
+    const keys = Object.keys(timings);
+    phaseEl.textContent = keys.length ? `phase: ${keys[keys.length - 1]}` : '';
+  }
+
+  // Severity count cards
+  const sev = ev.severity_counts || {};
+  ['critical', 'high', 'medium', 'low'].forEach((k) => {
+    const countEl = shell.querySelector(`[data-sev-count="${k}"]`);
+    if (countEl) countEl.textContent = String(sev[k] || 0);
+  });
+
+  // Findings count in the header meta line
+  const fcEl = shell.querySelector('[data-findings-count]');
+  if (fcEl) {
+    const n = ev.findings_count || 0;
+    fcEl.textContent = `${n} finding${n !== 1 ? 's' : ''}`;
   }
 }
 
@@ -149,7 +212,7 @@ function buildHeader(summary, findings) {
       el('span', { class: 'scan-info-dot' }),
       el('span', {}, summary.completed_at ? `Duration: ${formatDuration(durationSec(summary))}` : 'Running…'),
       el('span', { class: 'scan-info-dot' }),
-      el('span', {}, `${totalFindings} finding${totalFindings !== 1 ? 's' : ''}`),
+      el('span', { 'data-findings-count': '' }, `${totalFindings} finding${totalFindings !== 1 ? 's' : ''}`),
     ),
   );
 
@@ -175,7 +238,7 @@ function buildProgress(summary) {
   const card = el('div', { class: 'card', style: 'padding: 16px; margin-bottom: 16px;' },
     el('div', { class: 'card-header', style: 'margin: 0 0 12px;' },
       el('div', { class: 'card-title' }, el('i', { 'data-lucide': 'activity' }), 'Pipeline progress'),
-      el('span', { class: 'text-muted', style: 'font-size: 12px;' },
+      el('span', { class: 'text-muted', style: 'font-size: 12px;', 'data-current-phase': '' },
         summary.phase ? `phase: ${summary.phase}` : ''),
     ),
     el('div', { class: 'phase-progress' },
@@ -183,9 +246,9 @@ function buildProgress(summary) {
         const done = timings[p] !== undefined;
         const active = ACTIVE_STATES.has(summary.status) && !done;
         const cls = done ? 'done' : (active ? 'active' : 'pending');
-        return el('div', { class: `phase-pill ${cls}` },
+        return el('div', { class: `phase-pill ${cls}`, 'data-phase-pill': p },
           el('div', { class: 'phase-pill-name' }, PHASE_LABELS[p].replace(/^Phase \d+ · /, '')),
-          el('div', { class: 'phase-pill-time' },
+          el('div', { class: 'phase-pill-time', 'data-phase-time': '' },
             done ? formatDuration(Math.max(1, Math.round(timings[p]))) : (active ? '…' : '—')),
         );
       }),
@@ -278,7 +341,7 @@ function renderSummaryPane(summary, findings, result) {
         el('div', {},
           el('div', { style: 'font-weight: 600;' }, 'Scan running'),
           el('div', { class: 'text-muted', style: 'font-size: 12px;' },
-            'Progress polls every ' + (POLL_MS / 1000) + 's. Findings will populate as agents finish.'),
+            'Live updates via SSE stream. Findings populate as agents finish.'),
         ),
       ),
     ));
@@ -314,7 +377,7 @@ function humanBytes(b) {
 function sevCard(cls, label, count) {
   return el('div', { class: `severity-card ${cls}` },
     el('div', { class: 'sev-label' }, label),
-    el('div', { class: 'sev-count' }, String(count)),
+    el('div', { class: 'sev-count', 'data-sev-count': cls }, String(count)),
   );
 }
 

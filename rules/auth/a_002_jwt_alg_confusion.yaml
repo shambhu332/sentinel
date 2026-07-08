@@ -1,0 +1,53 @@
+rules:
+  - id: a_002_alg_none_java_jwt
+    agent_id: A_002
+    languages: [java, kotlin]
+    message: "JWT Algorithm.none() detected — signature bypass — CWE-287"
+    severity: ERROR
+    pattern-either:
+      - pattern: Algorithm.none()
+      - pattern: JWT.require(Algorithm.none())
+    metadata:
+      cwe: "CWE-287"
+      owasp: "M5: Insufficient Cryptography"
+      masvs: "MASVS-AUTH-2"
+      remediation: "Never allow alg:none. Explicitly whitelist RS256 or HS256."
+
+  - id: a_002_parse_claims_jwt_unsigned
+    agent_id: A_002
+    languages: [java, kotlin]
+    message: "Jwts.parser().parseClaimsJwt() accepts unsigned tokens — CWE-287"
+    severity: ERROR
+    pattern: Jwts.parser().$CHAIN.parseClaimsJwt($TOKEN)
+    metadata:
+      cwe: "CWE-287"
+      owasp: "M5: Insufficient Cryptography"
+      masvs: "MASVS-AUTH-2"
+      remediation: "Use parseClaimsJws() (signed) not parseClaimsJwt() (unsigned)."
+
+  - id: a_002_hmac_with_rsa_key
+    agent_id: A_002
+    languages: [java, kotlin]
+    message: "HMAC-SHA256 initialized with RSA key — key confusion attack — CWE-347"
+    severity: ERROR
+    pattern: Algorithm.HMAC256($KEY)
+    metavariable-regex:
+      $KEY:
+        regex: '(?i)(rsa|publicKey|RSAPublic|public_key)'
+    metadata:
+      cwe: "CWE-347"
+      owasp: "M5: Insufficient Cryptography"
+      masvs: "MASVS-AUTH-2"
+      remediation: "Use asymmetric algorithms (RS256) with proper key pairs. Never pass RSA public keys to HMAC functions."
+
+  - id: a_002_jwt_decode_no_algorithms
+    agent_id: A_002
+    languages: [java, kotlin]
+    message: "JWT.decode() without algorithm whitelist — CWE-287"
+    severity: WARNING
+    pattern: JWT.decode($TOKEN)
+    metadata:
+      cwe: "CWE-287"
+      owasp: "M5: Insufficient Cryptography"
+      masvs: "MASVS-AUTH-2"
+      remediation: "Always specify allowed algorithms. Use JWT.require(Algorithm.RSA256(...)) instead."

@@ -23,6 +23,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse, JSONResponse, Response
+from pydantic import BaseModel
 
 from sentinel.auth.jwt_auth import get_current_active_user
 from sentinel.core.config import get_settings
@@ -423,3 +424,49 @@ def _read_json_summary(path: Path) -> dict:
         return json.loads(path.read_text(errors="replace"))
     except (OSError, json.JSONDecodeError):
         return {}
+
+
+# ---------------------------------------------------------------------------
+# Async report generation endpoints (Phase 6)
+# ---------------------------------------------------------------------------
+
+class AsyncReportRequest(BaseModel):
+    formats: list[str] = ["markdown", "html", "json", "sarif"]
+    webhook_url: str = ""
+
+
+@router.post("/{session_id}/generate")
+def generate_report_async(
+    session_id: str,
+    body: AsyncReportRequest | None = None,
+    current_user=Depends(get_current_active_user),
+) -> JSONResponse:
+    """Enqueue async report generation. Returns job_id for polling.
+
+    When Redis is configured, delegates to an RQ worker and returns
+    immediately with status=queued. When Redis is absent, generates
+    synchronously and returns status=completed.
+    """
+    if not _SESSION_ID.match(session_id):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid session_id")
+
+    from sentinel.queue.jobs import enqueue_report
+
+    req = body or AsyncReportRequest()
+    result = enqueue_report(
+        session_id=session_id,
+        formats=req.formats,
+        webhook_url=req.webhook_url,
+    )
+    http_status = 202 if result.get("status") == "queued" else 200
+    return JSONResponse(content=result, status_code=http_status)
+
+
+@router.get("/jobs/{job_id}")
+def get_job_status(
+    job_id: str,
+    current_user=Depends(get_current_active_user),
+) -> JSONResponse:
+    """Poll async report job status and result."""
+    from sentinel.queue.jobs import get_job_status as _get_status
+    return JSONResponse(content=_get_status(job_id))

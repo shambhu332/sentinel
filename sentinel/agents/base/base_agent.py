@@ -1,4 +1,4 @@
-"""BaseAgent — abstract contract every one of the 88 agents implements."""
+"""BaseAgent — abstract contract every detection agent implements."""
 from __future__ import annotations
 
 import asyncio

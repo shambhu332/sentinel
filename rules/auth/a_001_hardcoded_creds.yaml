@@ -1,0 +1,60 @@
+rules:
+  - id: a_001_aws_access_key
+    agent_id: A_001
+    languages: [java, kotlin]
+    message: "AWS Access Key ID hardcoded in source — CWE-798"
+    severity: ERROR
+    pattern-regex: '(AKIA|ASIA|AROA)[A-Z0-9]{16}'
+    metadata:
+      cwe: "CWE-798"
+      owasp: "M2: Insecure Data Storage"
+      masvs: "MASVS-STORAGE-2"
+      remediation: "Remove from source. Rotate key immediately. Use IAM roles or AWS Secrets Manager."
+
+  - id: a_001_google_api_key
+    agent_id: A_001
+    languages: [java, kotlin]
+    message: "Google API key hardcoded in source — CWE-798"
+    severity: ERROR
+    pattern-regex: 'AIza[0-9A-Za-z_\-]{35}'
+    metadata:
+      cwe: "CWE-798"
+      owasp: "M2: Insecure Data Storage"
+      masvs: "MASVS-STORAGE-2"
+      remediation: "Restrict key in Google Console. Fetch from secure backend. Never embed in APK."
+
+  - id: a_001_stripe_live_key
+    agent_id: A_001
+    languages: [java, kotlin]
+    message: "Stripe live secret key hardcoded — CWE-798"
+    severity: ERROR
+    pattern-regex: 'sk_live_[0-9a-zA-Z]{24,}'
+    metadata:
+      cwe: "CWE-798"
+      owasp: "M2: Insecure Data Storage"
+      masvs: "MASVS-STORAGE-2"
+      remediation: "Rotate key immediately. Move all Stripe calls to a backend server."
+
+  - id: a_001_github_token
+    agent_id: A_001
+    languages: [java, kotlin]
+    message: "GitHub personal access token hardcoded — CWE-798"
+    severity: ERROR
+    pattern-regex: '(ghp_|gho_|ghu_|ghs_)[A-Za-z0-9]{36,}'
+    metadata:
+      cwe: "CWE-798"
+      owasp: "M2: Insecure Data Storage"
+      masvs: "MASVS-STORAGE-2"
+      remediation: "Revoke token immediately. Use GitHub Actions secrets or Secrets Manager."
+
+  - id: a_001_private_key_pem
+    agent_id: A_001
+    languages: [java, kotlin]
+    message: "PEM private key embedded in source — CWE-798"
+    severity: ERROR
+    pattern-regex: '-----BEGIN (RSA |DSA |EC |OPENSSH )?PRIVATE KEY-----'
+    metadata:
+      cwe: "CWE-798"
+      owasp: "M2: Insecure Data Storage"
+      masvs: "MASVS-STORAGE-2"
+      remediation: "Remove private key. Use Android Keystore. Rotate key pair immediately."

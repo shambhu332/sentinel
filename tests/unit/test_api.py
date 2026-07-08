@@ -92,7 +92,7 @@ def test_root():
     assert r.status_code == 200
     body = r.json()
     assert body["service"] == "SENTINEL"
-    assert "disclaimer" in body
+    assert "legal" in body
 
 
 def test_health():

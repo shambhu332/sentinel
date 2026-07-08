@@ -123,6 +123,54 @@ export const api = {
     return `${API_BASE}/reports/${encodeURIComponent(sessionId)}/${encodeURIComponent(fmt)}`;
   },
 
+  // Open an SSE stream for real-time scan progress.
+  // Uses fetch (not EventSource) so the Authorization header is sent.
+  // Returns a handle with a .close() method.
+  //
+  // Callbacks:
+  //   onState(ev)  — called on every state snapshot (phase/severity updates)
+  //   onDone(ev)   — called once when the scan reaches a terminal state
+  //   onError(err) — called on connection failure (caller should fall back to poll)
+  scanEvents(sessionId, { onState, onDone, onError } = {}) {
+    const url = `${API_BASE}/scans/${encodeURIComponent(sessionId)}/events`;
+    const controller = new AbortController();
+    const headers = applyAuth({ Accept: 'text/event-stream', 'Cache-Control': 'no-cache' });
+    let active = true;
+
+    (async () => {
+      try {
+        const res = await fetch(url, { headers, signal: controller.signal });
+        if (!res.ok) {
+          onError?.(new ApiError(`SSE ${res.status}`, res.status, null));
+          return;
+        }
+        const reader = res.body.getReader();
+        const dec = new TextDecoder();
+        let buf = '';
+        while (active) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          const parts = buf.split('\n');
+          buf = parts.pop(); // keep the last incomplete line in the buffer
+          for (const line of parts) {
+            if (!line.startsWith('data: ')) continue;
+            try {
+              const ev = JSON.parse(line.slice(6));
+              if (ev.type === 'state') onState?.(ev);
+              else if (ev.type === 'done') { onDone?.(ev); active = false; }
+              else if (ev.type === 'error') onError?.(new ApiError(ev.detail || 'SSE error', 0, ev));
+            } catch (_) { /* skip malformed lines */ }
+          }
+        }
+      } catch (err) {
+        if (err.name !== 'AbortError') onError?.(err);
+      }
+    })();
+
+    return { close() { active = false; controller.abort(); } };
+  },
+
   async createScan({ file, options = {}, onProgress }) {
     const form = new FormData();
     form.append('apk', file, file.name);
