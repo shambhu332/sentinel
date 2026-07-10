@@ -60,7 +60,7 @@ _DEFAULT_CANARY_ID = "1"
 class BOLAVerifierAgent(BaseAgent):
     """API_002: replay captured GET requests with mutated object IDs."""
 
-    AGENT_ID = "API_002"
+    AGENT_ID = "API_005"
     VULN_CLASS = "Broken Object Level Authorization"
     PHASE = "Phase 4"
 

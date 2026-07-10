@@ -66,7 +66,7 @@ _CTX_LINES = 15
 class A001AIHardcodedCredsAgent(AIAutonomousAgent):
     """A_001 rebuilt as AI-autonomous: rules suggest, LLM decides."""
 
-    AGENT_ID = "A_001"
+    AGENT_ID = "A_015"
     VULN_CLASS = "Hardcoded Credentials"
 
     def __init__(

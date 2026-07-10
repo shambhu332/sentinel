@@ -99,7 +99,7 @@ _PROXIMITY_WINDOW = 1000
 class InsecureAuthStorageAgent(BaseAgent):
     """A_001: detects auth tokens or credentials persisted to insecure storage."""
 
-    AGENT_ID = "A_001"
+    AGENT_ID = "A_014"
     VULN_CLASS = "Insecure Auth Token Storage"
     PHASE = "static"
 

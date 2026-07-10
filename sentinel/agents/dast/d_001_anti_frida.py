@@ -56,7 +56,7 @@ Java.perform(function() {
 
 
 class D001AntiFridaAgent(BaseDASTAgent):
-    AGENT_ID = "D_001"
+    AGENT_ID = "DAST_001"
     VULN_CLASS = "Anti-Tampering Detection"
     _DESCRIPTION = "Detect and bypass anti-Frida, anti-debug, and anti-emulator checks at runtime"
 

@@ -67,7 +67,7 @@ _MAX_FILES_TO_SCAN = 3000
 class MissingCertPinningAgent(BaseAgent):
     """N_001: detects HTTPS apps that don't implement certificate pinning."""
 
-    AGENT_ID = "N_001"
+    AGENT_ID = "N_002"
     VULN_CLASS = "Missing Certificate Pinning"
     PHASE = "static"
 

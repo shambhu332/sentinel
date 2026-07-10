@@ -214,6 +214,7 @@ from sentinel.agents.dynamic.d065_file_provider_fuzzer import (
     FileProviderFuzzerAgent,
 )
 from sentinel.agents.dynamic.d066_a11y_abuser import A11yAbuserAgent
+from sentinel.agents.dynamic.d090_intent_auth_verifier import IntentAuthVerifierAgent
 from sentinel.agents.dynamic.d067_split_apk import SplitApkAgent
 from sentinel.agents.dynamic.d068_wearable_bridge import WearableBridgeAgent
 from sentinel.agents.dynamic.d069_autofill_sniffer import AutofillSnifferAgent
@@ -306,6 +307,7 @@ __all__ = [
     "SqliteProberAgent",
     "StatePoisonerAgent",
     "JniShadowAgent",
+    "IntentAuthVerifierAgent",
     "TwaBreakerAgent",
     "WearableBridgeAgent",
     "WebSocketInjectorAgent",

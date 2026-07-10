@@ -94,7 +94,7 @@ _COMMENT_LINE_RE = re.compile(r'^\s*(?://|\*|/\*|System\.out|Log\.|logger\.)', r
 class A002JWTAlgConfusionAgent(BaseAgent):
     """A_002: JWT algorithm confusion detection."""
 
-    AGENT_ID = "A_002"
+    AGENT_ID = "A_016"
     VULN_CLASS = "JWT Algorithm Confusion"
 
     def __init__(

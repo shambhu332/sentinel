@@ -81,7 +81,7 @@ _PROGUARD_RULE_EXAMPLE = (
 class InsecureLoggingAgent(BaseAgent):
     """A_007: detects sensitive data printed to log output."""
 
-    AGENT_ID = "A_007"
+    AGENT_ID = "LOG_002"
     VULN_CLASS = "Insecure Logging"
     PHASE = "static"
 

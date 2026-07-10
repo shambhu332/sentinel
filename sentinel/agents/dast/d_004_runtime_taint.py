@@ -108,7 +108,7 @@ _SINK_SEVERITY: dict[str, tuple[Severity, str, str]] = {
 
 
 class D004RuntimeTaintAgent(BaseDASTAgent):
-    AGENT_ID = "D_004"
+    AGENT_ID = "DAST_004"
     VULN_CLASS = "Runtime Taint Flow"
     _DESCRIPTION = "Track taint from Intent/SharedPrefs sources to WebView/SQL/exec sinks at runtime"
 

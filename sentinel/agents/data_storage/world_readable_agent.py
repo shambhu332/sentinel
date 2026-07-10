@@ -60,7 +60,7 @@ _MAX_HITS_PER_FINDING = 20
 class WorldReadableStorageAgent(BaseAgent):
     """C_002: detects MODE_WORLD_READABLE / WRITEABLE storage usage."""
 
-    AGENT_ID = "C_002"
+    AGENT_ID = "STG_001"
     VULN_CLASS = "World-Readable Storage"
     PHASE = "static"
 

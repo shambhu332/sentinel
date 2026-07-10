@@ -73,7 +73,7 @@ Java.perform(function() {
 
 
 class D003RuntimeCryptoAgent(BaseDASTAgent):
-    AGENT_ID = "D_003"
+    AGENT_ID = "DAST_003"
     VULN_CLASS = "Runtime Crypto Weakness"
     _DESCRIPTION = "Validate SAST crypto findings at runtime via Frida — confirms ECB, static IV, weak PRNG"
 

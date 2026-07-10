@@ -29,7 +29,7 @@ _CTX_LINES = 10
 class N001CleartextHTTPAgent(AIAutonomousAgent):
     """N_001: Detects cleartext HTTP usage — rules flag, LLM confirms."""
 
-    AGENT_ID = "N_001"
+    AGENT_ID = "N_016"
     VULN_CLASS = "Cleartext HTTP Transmission"
 
     def __init__(

@@ -57,7 +57,7 @@ _MAX_FILES_TO_SCAN = 3000
 class InsecureWebViewAgent(BaseAgent):
     """C_004: detects insecure WebView configurations."""
 
-    AGENT_ID = "C_004"
+    AGENT_ID = "WV_002"
     VULN_CLASS = "Insecure WebView"
     PHASE = "static"
 

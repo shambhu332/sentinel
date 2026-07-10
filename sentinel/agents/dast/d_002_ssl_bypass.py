@@ -54,7 +54,7 @@ Java.perform(function() {
 
 
 class D002SSLBypassAgent(BaseDASTAgent):
-    AGENT_ID = "D_002"
+    AGENT_ID = "DAST_002"
     VULN_CLASS = "SSL Pinning Bypass"
     _DESCRIPTION = "Detect SSL certificate pinning and validate bypass via Frida"
 

@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 class InsecureBackupAgent(BaseAgent):
     """C_001: detects Android apps that allow ADB-based backup of private data."""
 
-    AGENT_ID = "C_001"
+    AGENT_ID = "BAK_001"
     VULN_CLASS = "Insecure Backup"
     PHASE = "static"
 

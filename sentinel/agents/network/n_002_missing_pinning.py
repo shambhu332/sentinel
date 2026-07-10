@@ -30,7 +30,7 @@ _CTX_LINES = 10
 class N002MissingPinningAgent(AIAutonomousAgent):
     """N_002: Detects certificate pinning bypasses — rules flag, LLM confirms."""
 
-    AGENT_ID = "N_002"
+    AGENT_ID = "N_017"
     VULN_CLASS = "Missing Certificate Pinning"
 
     def __init__(

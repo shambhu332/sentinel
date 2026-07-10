@@ -70,7 +70,7 @@ _MAX_URL_SAMPLES = 10
 class CleartextTrafficAgent(BaseAgent):
     """N_002: detects insecure HTTP traffic configurations."""
 
-    AGENT_ID = "N_002"
+    AGENT_ID = "N_001"
     VULN_CLASS = "Cleartext Traffic"
     PHASE = "static"
 
