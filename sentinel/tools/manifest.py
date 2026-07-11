@@ -28,14 +28,17 @@ class ManifestParser:
             exported_components, deep_links, uses_cleartext_traffic,
             allow_backup, debuggable
         """
-        try:
-            from androguard.core.apk import APK
-        except ImportError as e:
-            raise ManifestError(f"androguard not installed: {e}") from e
-
         apk_path = apk_path.expanduser().resolve()
         if not apk_path.exists():
             raise ManifestError(f"APK not found: {apk_path}")
+
+        try:
+            try:
+                from androguard.core.bytecodes.apk import APK  # androguard 3.x
+            except ImportError:
+                from androguard.core.apk import APK  # androguard 4.x
+        except ImportError as e:
+            raise ManifestError(f"androguard not installed: {e}") from e
 
         try:
             apk = APK(str(apk_path))

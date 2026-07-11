@@ -491,7 +491,7 @@ class Orchestrator:
         if isinstance(jadx_res, BaseException):
             logger.exception("JADX task crashed", exc_info=jadx_res)
             scan_result.warnings.append(f"JADX crashed: {jadx_res}")
-        elif jadx_res and jadx_res.success:
+        elif jadx_res is not None and jadx_res.success:
             self._context.sources["jadx"] = jadx_res.data
             self._context.decompiled_dir = decompile_dir
             logger.info(
@@ -501,14 +501,14 @@ class Orchestrator:
             for w in jadx_res.warnings:
                 scan_result.warnings.append(f"JADX: {w}")
         else:
-            error = jadx_res.error if jadx_res else "unknown"
+            error = jadx_res.error if jadx_res is not None else "unknown"
             logger.warning("JADX failed: %s", error)
             scan_result.warnings.append(f"JADX failed: {error}")
 
         if isinstance(androguard_res, BaseException):
             logger.exception("Androguard task crashed", exc_info=androguard_res)
             scan_result.warnings.append(f"Androguard crashed: {androguard_res}")
-        elif androguard_res and androguard_res.success:
+        elif androguard_res is not None and androguard_res.success:
             self._context.sources["androguard"] = androguard_res.data
             logger.info(
                 "Androguard analyzed in %.1fs: %d classes, %d strings",
@@ -519,7 +519,7 @@ class Orchestrator:
             for w in androguard_res.warnings:
                 scan_result.warnings.append(f"Androguard: {w}")
         else:
-            error = androguard_res.error if androguard_res else "unknown"
+            error = androguard_res.error if androguard_res is not None else "unknown"
             logger.warning("Androguard failed: %s", error)
             scan_result.warnings.append(f"Androguard failed: {error}")
 

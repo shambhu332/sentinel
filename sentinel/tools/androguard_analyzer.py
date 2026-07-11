@@ -314,8 +314,12 @@ class AndroguardAnalyzer:
     def __init__(self) -> None:
         # Defer Androguard imports to avoid load-time failures
         try:
-            from androguard.core.apk import APK
-            from androguard.core.dex import DEX
+            try:
+                from androguard.core.bytecodes.apk import APK   # androguard 3.x
+                from androguard.core.bytecodes.dvm import DalvikVMFormat as DEX
+            except ImportError:
+                from androguard.core.apk import APK              # androguard 4.x
+                from androguard.core.dex import DEX
             self._APK = APK
             self._DEX = DEX
             self._import_error: Optional[str] = None

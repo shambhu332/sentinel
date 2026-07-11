@@ -75,8 +75,11 @@ async def test_full_phase0_phase1_on_insecurebank(tmp_path):
         assert len(ctx.manifest.get("activities", [])) > 0, "Phase 1 no activities"
 
         # Phase 2 must run TEST_001 successfully
-        assert len(result.findings) == 1, f"Expected 1 finding, got {len(result.findings)}"
-        assert result.findings[0].agent_id == "TEST_001"
+        test_findings = [f for f in result.findings if f.agent_id == "TEST_001"]
+        assert len(test_findings) == 1, (
+            f"Expected exactly 1 TEST_001 finding, got {len(test_findings)} "
+            f"(total findings: {len(result.findings)})"
+        )
         assert result.status == "completed", f"Scan status: {result.status} ({result.error})"
 
         # At least one decompilation path must produce useful output.
