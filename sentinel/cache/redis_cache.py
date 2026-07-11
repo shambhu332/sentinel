@@ -14,8 +14,16 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-def _cache_key(messages: list[dict[str, str]], model: str, temperature: float) -> str:
-    payload = json.dumps({"m": messages, "model": model, "t": temperature}, sort_keys=True)
+def _cache_key(
+    messages: list[dict[str, str]],
+    model: str,
+    temperature: float,
+    namespace: str = "",
+) -> str:
+    payload = json.dumps(
+        {"m": messages, "model": model, "t": temperature, "ns": namespace},
+        sort_keys=True,
+    )
     return f"llm:v1:{hashlib.sha256(payload.encode()).hexdigest()}"
 
 
@@ -39,12 +47,14 @@ class LLMCache:
         messages: list[dict[str, str]],
         model: str,
         temperature: float,
+        *,
+        namespace: str = "",
     ) -> dict[str, Any] | None:
         if self._noop or temperature != 0.0:
             # Only cache deterministic (temperature=0) calls.
             return None
         try:
-            raw = await self._client.get(_cache_key(messages, model, temperature))
+            raw = await self._client.get(_cache_key(messages, model, temperature, namespace))
             if raw:
                 logger.debug("[llm-cache] HIT model=%s", model)
                 return json.loads(raw)
@@ -59,12 +69,14 @@ class LLMCache:
         temperature: float,
         result: dict[str, Any],
         ttl: int = 86400,
+        *,
+        namespace: str = "",
     ) -> None:
         if self._noop or temperature != 0.0:
             return
         try:
             await self._client.setex(
-                _cache_key(messages, model, temperature),
+                _cache_key(messages, model, temperature, namespace),
                 ttl,
                 json.dumps(result),
             )

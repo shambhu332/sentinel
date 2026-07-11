@@ -1057,7 +1057,14 @@ class Orchestrator:
             self._frida_duration_seconds,
         )
 
-        await frida.wait(self._frida_duration_seconds)
+        # Guard: if the scan is cancelled during the capture window, detach
+        # the Frida session before propagating so the device isn't left with
+        # a live hook script injected and the process still instrumented.
+        try:
+            await frida.wait(self._frida_duration_seconds)
+        except asyncio.CancelledError:
+            await frida.detach()
+            raise
 
         detach_result = await frida.detach()
         if detach_result.success:

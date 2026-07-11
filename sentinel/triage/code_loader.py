@@ -45,6 +45,14 @@ def load_code_context(
         return "", ""
 
     file_abs = decompiled_dir / file_rel
+    # Guard against path traversal: evidence fields come from APK content and
+    # could contain "../../../etc/passwd"-style sequences.
+    try:
+        file_abs.resolve().relative_to(decompiled_dir.resolve())
+    except ValueError:
+        logger.warning("[triage] Path traversal blocked for evidence path: %s", file_rel)
+        return "", ""
+
     if not file_abs.exists() or not file_abs.is_file():
         logger.debug("[triage] File not found for context: %s", file_abs)
         return "", file_rel
