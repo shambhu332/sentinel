@@ -28,7 +28,8 @@ class A11yAbuserAgent(BaseAgent):
 
     async def analyze(self) -> list[Finding]:
         root = self._context.decompiled_dir
-        assert root is not None
+        if root is None:
+            return []
         services: set[str] = set()
         gesture_users: set[str] = set()
         click_dispatchers: set[str] = set()

@@ -1,4 +1,4 @@
-"""N_001 — Missing Certificate Pinning Agent.
+"""N_002 — Missing Certificate Pinning Agent.
 
 Detects Android applications that perform HTTPS networking without
 implementing certificate pinning. Without pinning, the app trusts any
@@ -65,7 +65,7 @@ _MAX_FILES_TO_SCAN = 3000
 
 
 class MissingCertPinningAgent(BaseAgent):
-    """N_001: detects HTTPS apps that don't implement certificate pinning."""
+    """N_002: detects HTTPS apps that don't implement certificate pinning."""
 
     AGENT_ID = "N_002"
     VULN_CLASS = "Missing Certificate Pinning"
@@ -74,7 +74,7 @@ class MissingCertPinningAgent(BaseAgent):
     async def is_applicable(self) -> bool:
         ctx = self._context
         if ctx.decompiled_dir is None or not ctx.decompiled_dir.exists():
-            logger.info("[N_001] No decompiled source — skipping")
+            logger.info("[N_002] No decompiled source — skipping")
             return False
         return True
 
@@ -129,11 +129,11 @@ class MissingCertPinningAgent(BaseAgent):
                     pinning_examples.append(str(xml_path.name))
 
         if not uses_https:
-            logger.info("[N_001] App does not appear to use HTTPS — skipping")
+            logger.info("[N_002] App does not appear to use HTTPS — skipping")
             return []
 
         if has_pinning:
-            logger.info("[N_001] App uses HTTPS AND has pinning indicators — clean")
+            logger.info("[N_002] App uses HTTPS AND has pinning indicators — clean")
             return []
 
         # App uses HTTPS but has no pinning indicators

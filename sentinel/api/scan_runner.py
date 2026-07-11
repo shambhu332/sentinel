@@ -356,7 +356,7 @@ _FAST_AGENT_IDS = {
 _FAST_DYNAMIC_AGENT_IDS = {
     "N_003",
     "N_004",
-    "A_003",
+    "D_075",
     "N_005",
 }
 

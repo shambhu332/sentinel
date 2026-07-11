@@ -92,7 +92,8 @@ class IapSpoofingAgent(BaseAgent):
     async def analyze(self) -> list[Finding]:
         ctx = self._context
         root = ctx.decompiled_dir
-        assert root is not None
+        if root is None:
+            return []
 
         findings: list[Finding] = []
         scanned = 0

@@ -35,7 +35,8 @@ class JobHijackerAgent(BaseAgent):
 
     async def analyze(self) -> list[Finding]:
         root = self._context.decompiled_dir
-        assert root is not None
+        if root is None:
+            return []
         # Find exported JobServices via the manifest
         services = (self._context.manifest or {}).get("services", []) or []
         exported_job_services = []

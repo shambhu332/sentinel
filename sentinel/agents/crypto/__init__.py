@@ -12,6 +12,9 @@ from sentinel.agents.crypto.c015_weak_prng_seed import WeakPrngSeedAgent
 from sentinel.agents.crypto.c016_hash_kdf import HashKdfAgent
 from sentinel.agents.crypto.c017_hardcoded_cert_finder import HardcodedCertFinderAgent
 from sentinel.agents.crypto.c018_crypto_constants import CryptoConstantsAgent
+from sentinel.agents.crypto.c019_missing_key_attestation import MissingKeyAttestationAgent
+from sentinel.agents.crypto.c_001_ecb_mode import C001ECBModeAgent
+from sentinel.agents.crypto.c_002_static_iv import C002StaticIVAgent
 from sentinel.agents.crypto.weak_crypto_agent import WeakCryptoAgent
 
 __all__ = [
@@ -25,6 +28,9 @@ __all__ = [
     "HardcodedCertFinderAgent",
     "HashKdfAgent",
     "JavaSerializationAgent",
+    "C001ECBModeAgent",
+    "C002StaticIVAgent",
+    "MissingKeyAttestationAgent",
     "WeakCryptoAgent",
     "WeakPrngSeedAgent",
 ]

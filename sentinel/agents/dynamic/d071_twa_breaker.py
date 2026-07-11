@@ -30,7 +30,8 @@ class TwaBreakerAgent(BaseAgent):
 
     async def analyze(self) -> list[Finding]:
         root = self._context.decompiled_dir
-        assert root is not None
+        if root is None:
+            return []
         twa_files: set[str] = set()
         asset_link_files: set[str] = set()
         scanned = 0

@@ -30,7 +30,8 @@ class BinderBombAgent(BaseAgent):
 
     async def analyze(self) -> list[Finding]:
         root = self._context.decompiled_dir
-        assert root is not None
+        if root is None:
+            return []
         binder_files: set[str] = set()
         ontransact_files: set[str] = set()
         scanned = 0

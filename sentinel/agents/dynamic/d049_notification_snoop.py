@@ -34,7 +34,8 @@ class NotificationSnoopAgent(BaseAgent):
 
     async def analyze(self) -> list[Finding]:
         root = self._context.decompiled_dir
-        assert root is not None
+        if root is None:
+            return []
         findings: list[Finding] = []
         scanned = 0
         for path in root.rglob("*.java"):

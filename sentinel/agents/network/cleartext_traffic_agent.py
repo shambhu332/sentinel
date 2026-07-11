@@ -1,4 +1,4 @@
-"""N_002 — Cleartext Traffic Agent.
+"""N_001 — Cleartext Traffic Agent.
 
 Detects when an Android application is configured to allow unencrypted HTTP
 traffic, either through manifest flags or through hardcoded http:// URLs in
@@ -68,7 +68,7 @@ _MAX_URL_SAMPLES = 10
 
 
 class CleartextTrafficAgent(BaseAgent):
-    """N_002: detects insecure HTTP traffic configurations."""
+    """N_001: detects insecure HTTP traffic configurations."""
 
     AGENT_ID = "N_001"
     VULN_CLASS = "Cleartext Traffic"
@@ -78,7 +78,7 @@ class CleartextTrafficAgent(BaseAgent):
         """Run when manifest exists; decompiled source is optional but preferred."""
         ctx = self._context
         if not ctx.manifest:
-            logger.info("[N_002] No manifest — skipping")
+            logger.info("[N_001] No manifest — skipping")
             return False
         return True
 
@@ -100,7 +100,7 @@ class CleartextTrafficAgent(BaseAgent):
 
         # If no manifest flag and no http URLs found, no finding
         if not manifest_flag and not http_urls:
-            logger.info("[N_002] No cleartext traffic indicators found")
+            logger.info("[N_001] No cleartext traffic indicators found")
             return findings
 
         # Build a single combined finding
@@ -129,7 +129,7 @@ class CleartextTrafficAgent(BaseAgent):
                 continue
             files_scanned += 1
             if files_scanned > _MAX_FILES_TO_SCAN:
-                logger.warning("[N_002] Stopped scanning after %d files (perf cap)",
+                logger.warning("[N_001] Stopped scanning after %d files (perf cap)",
                                _MAX_FILES_TO_SCAN)
                 break
             try:

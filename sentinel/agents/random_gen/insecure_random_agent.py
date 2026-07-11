@@ -54,7 +54,7 @@ _CONTEXT_WINDOW = 200
 class InsecureRandomAgent(BaseAgent):
     """B_002: detects predictable random number generation in security contexts."""
 
-    AGENT_ID = "B_002"
+    AGENT_ID = "RNG_001"
     VULN_CLASS = "Insecure Random"
     PHASE = "static"
 

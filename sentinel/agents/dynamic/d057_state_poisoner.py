@@ -44,7 +44,8 @@ class StatePoisonerAgent(BaseAgent):
                     break
         if not deep_link_activities:
             return []
-        assert root is not None
+        if root is None:
+            return []
         scanned = 0
         boolean_flags: set[str] = set()
         for path in root.rglob("*.java"):

@@ -36,7 +36,8 @@ class AutofillSnifferAgent(BaseAgent):
 
     async def analyze(self) -> list[Finding]:
         res = self._context.resources_dir
-        assert res is not None
+        if res is None:
+            return []
         layouts_dir = res / "res" / "layout"
         if not layouts_dir.is_dir():
             return []

@@ -33,7 +33,8 @@ class SensorSpoofingAgent(BaseAgent):
 
     async def analyze(self) -> list[Finding]:
         root = self._context.decompiled_dir
-        assert root is not None
+        if root is None:
+            return []
         sensor_files: set[str] = set()
         geofence_files: set[str] = set()
         step_files: set[str] = set()

@@ -62,7 +62,7 @@ _WEAK_ALGORITHMS: dict[str, tuple[str, Severity]] = {
 class RuntimeCryptoAgent(BaseAgent):
     """A_003: detects weak crypto algorithms in actual runtime use."""
 
-    AGENT_ID = "A_003"
+    AGENT_ID = "D_075"
     VULN_CLASS = "Runtime Weak Cryptography"
     PHASE = "dynamic"
 

@@ -169,7 +169,7 @@ class _BridgeMethod:
 class JavaScriptInterfaceBridgeAgent(BaseAgent):
     """C_008: bridge-side audit of ``@JavascriptInterface`` methods."""
 
-    AGENT_ID = "C_008"
+    AGENT_ID = "WV_003"
     VULN_CLASS = "JavaScript Interface Bridge"
     PHASE = "Phase 2"
 

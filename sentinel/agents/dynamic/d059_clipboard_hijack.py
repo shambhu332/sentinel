@@ -36,7 +36,8 @@ class ClipboardHijackAgent(BaseAgent):
 
     async def analyze(self) -> list[Finding]:
         root = self._context.decompiled_dir
-        assert root is not None
+        if root is None:
+            return []
         candidates: set[str] = set()
         sqli_routes: set[str] = set()
         scanned = 0

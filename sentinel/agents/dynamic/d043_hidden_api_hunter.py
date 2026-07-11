@@ -77,7 +77,8 @@ class HiddenApiHunterAgent(BaseAgent):
     async def analyze(self) -> list[Finding]:
         ctx = self._context
         root = ctx.decompiled_dir
-        assert root is not None
+        if root is None:
+            return []
 
         # url -> set of source files referencing it
         by_url: dict[str, set[str]] = {}

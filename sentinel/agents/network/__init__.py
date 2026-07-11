@@ -18,6 +18,9 @@ from sentinel.agents.network.n011_graphql_fuzzer import GraphqlFuzzerAgent
 from sentinel.agents.network.n012_dns_leak import DnsLeakAgent
 from sentinel.agents.network.n013_insecure_websocket import InsecureWebSocketAgent
 from sentinel.agents.network.n014_hardcoded_mtls_key import HardcodedMtlsKeyAgent
+from sentinel.agents.network.n015_internal_endpoint_scanner import InternalEndpointScannerAgent
+from sentinel.agents.network.n_001_cleartext_http import N001CleartextHTTPAgent
+from sentinel.agents.network.n_002_missing_pinning import N002MissingPinningAgent
 
 __all__ = [
     "CleartextTrafficAgent",
@@ -31,4 +34,7 @@ __all__ = [
     "WebViewDebugFlagAgent",
     "OkHttpLoggingAgent",
     "GraphqlFuzzerAgent",
+    "InternalEndpointScannerAgent",
+    "N001CleartextHTTPAgent",
+    "N002MissingPinningAgent",
 ]

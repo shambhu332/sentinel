@@ -33,7 +33,8 @@ class WearableBridgeAgent(BaseAgent):
 
     async def analyze(self) -> list[Finding]:
         root = self._context.decompiled_dir
-        assert root is not None
+        if root is None:
+            return []
         bridge_files: set[str] = set()
         pii_routes: set[str] = set()
         scanned = 0

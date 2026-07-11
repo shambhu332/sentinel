@@ -98,7 +98,8 @@ class ProviderSqliAgent(BaseAgent):
     async def analyze(self) -> list[Finding]:
         ctx = self._context
         root = ctx.decompiled_dir
-        assert root is not None
+        if root is None:
+            return []
 
         # Enumerate exported providers from the manifest
         providers = self._exported_providers(ctx.manifest or {})

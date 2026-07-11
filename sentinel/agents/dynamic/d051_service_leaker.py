@@ -79,7 +79,8 @@ class ServiceLeakerAgent(BaseAgent):
             return []
 
         root = ctx.decompiled_dir
-        assert root is not None
+        if root is None:
+            return []
 
         # Build an index of Service-subclass files for cross-ref
         impl_index = self._index_service_impls(root)

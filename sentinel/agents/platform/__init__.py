@@ -10,6 +10,9 @@ from sentinel.agents.platform.p006_unprotected_broadcast import UnprotectedBroad
 from sentinel.agents.platform.p007_activity_result_leak import ActivityResultLeakAgent
 from sentinel.agents.platform.p011_receiver_chain_hijack import ReceiverChainHijackAgent
 from sentinel.agents.platform.p012_mutable_pending_intent import MutablePendingIntentAgent
+from sentinel.agents.platform.p015_deep_link_mapper import DeepLinkMapperAgent
+from sentinel.agents.platform.p016_task_hijack import TaskHijackAgent
+from sentinel.agents.platform.p017_foreground_service_drift import ForegroundServiceDriftAgent
 from sentinel.agents.platform.ui001_activity_graph import ActivityGraphAgent
 
 __all__ = [
@@ -24,5 +27,8 @@ __all__ = [
     "IpcExposureAgent",
     "MutablePendingIntentAgent",
     "ReceiverChainHijackAgent",
+    "DeepLinkMapperAgent",
+    "ForegroundServiceDriftAgent",
+    "TaskHijackAgent",
     "UnprotectedBroadcastAgent",
 ]

@@ -41,7 +41,7 @@ _AUTH_SCHEME_HINTS = (
 class DeepLinkHijackAgent(BaseAgent):
     """Detect hijackable deep link intent filters."""
 
-    AGENT_ID = "P_001"
+    AGENT_ID = "P_002"
     VULN_CLASS = "Deep Link Hijacking"
     PHASE = "Phase 2"
 
