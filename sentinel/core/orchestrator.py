@@ -374,6 +374,28 @@ class Orchestrator:
                     asyncio.get_event_loop().time() - start
                 )
 
+            # Phase 7.6: strict proof gate. This does not perform any
+            # active action; it classifies whether the evidence already
+            # collected is candidate/code-only/runtime-verified/exploited
+            # or fully bounty-ready.
+            if result.findings:
+                start = asyncio.get_event_loop().time()
+                try:
+                    result.findings = await self._phase7_6_proof_gate(
+                        result.findings,
+                    )
+                except Exception as e:  # noqa: BLE001
+                    logger.exception(
+                        "[%s] Phase 7.6 proof gate failed",
+                        self._context.session_id,
+                    )
+                    result.warnings.append(
+                        f"Phase 7.6 proof gate failed: {str(e)[:200]}",
+                    )
+                result.phase_timings["phase7_6"] = (
+                    asyncio.get_event_loop().time() - start
+                )
+
             # Phase 8: VAPT report generation (R_001).
             # The agent reads every finding back out of memory and writes
             # markdown + HTML + JSON artifacts to <workspace>/reports/.
@@ -1701,6 +1723,45 @@ class Orchestrator:
         await self._memory.publish_event(
             self._context.session_id, "phase.completed",
             {"phase": 7.5, "exploited": exploited_count},
+        )
+        return updated
+
+    # ---------- Phase 7.6: Proof Gate ----------
+
+    async def _phase7_6_proof_gate(
+        self, findings: list[Finding],
+    ) -> list[Finding]:
+        """Classify proof strength for every finding.
+
+        The output is metadata only: no replay, Frida RPC, ADB, or network
+        action happens here. A finding becomes ``bounty_ready`` only when
+        scope, reachability, evidence, runtime verification, exploit/PoC
+        proof, impact, and same-scan uniqueness are all present.
+        """
+        from collections import Counter
+
+        from sentinel.verify.proof_gate import apply_proof_gate
+
+        logger.info("[%s] Phase 7.6: proof gate", self._context.session_id)
+        await self._memory.publish_event(
+            self._context.session_id, "phase.started", {"phase": 7.6},
+        )
+
+        updated = apply_proof_gate(findings, self._context)
+        counts = Counter(f.proof_status or "unknown" for f in updated)
+
+        for finding in updated:
+            try:
+                await self._memory.save_finding(finding)
+            except Exception:  # noqa: BLE001
+                logger.debug(
+                    "Phase 7.6: memory upsert failed for %s",
+                    finding.agent_id,
+                )
+
+        await self._memory.publish_event(
+            self._context.session_id, "phase.completed",
+            {"phase": 7.6, "proof_counts": dict(counts)},
         )
         return updated
 

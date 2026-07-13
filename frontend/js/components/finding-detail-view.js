@@ -463,14 +463,55 @@ function remediationSection(finding) {
 // appears for findings the exploit pipeline actually touched.
 function exploitationProofSection(finding, ctx) {
   const status = finding.exploitation_status;
+  const proofStatus = finding.proof_status;
+  const proofSummary = finding.proof_summary;
+  const proofRequirements = finding.proof_requirements && typeof finding.proof_requirements === 'object'
+    ? finding.proof_requirements : null;
+  const proofMissing = Array.isArray(finding.proof_missing) ? finding.proof_missing.filter(Boolean) : [];
   const proof = finding.exploit_proof;
   const artifacts = Array.isArray(finding.poc_artifacts) ? finding.poc_artifacts.filter(Boolean) : [];
   const replay = Array.isArray(finding.api_replay_logs) ? finding.api_replay_logs.filter(Boolean) : [];
-  if (!status && !proof && artifacts.length === 0 && replay.length === 0) return null;
+  if (!proofStatus && !status && !proof && artifacts.length === 0 && replay.length === 0) return null;
 
   const section = el('section', { class: 'fd-section fd-exploitation' });
   section.appendChild(el('h3', { class: 'fd-section-title' },
-    el('i', { 'data-lucide': 'target' }), 'Exploitation Proof'));
+    el('i', { 'data-lucide': 'target' }), 'Proof & Exploitation'));
+
+  if (proofStatus) {
+    const label = String(proofStatus).replace(/_/g, ' ');
+    const cls = proofStatus === 'bounty_ready' || proofStatus === 'verified_exploited' ? 'ok' :
+                proofStatus === 'auth_gated' || proofStatus === 'code_only' || proofStatus === 'candidate' ? 'warn' :
+                proofStatus === 'runtime_failed' || proofStatus === 'duplicate' ? 'err' : '';
+    section.appendChild(el('div', { class: 'fd-exploitation-status' },
+      el('span', { class: `badge ${cls}` }, label),
+    ));
+    if (proofSummary) {
+      section.appendChild(el('p', { class: 'fd-prose' }, proofSummary));
+    }
+    if (proofRequirements) {
+      const rows = Object.entries(proofRequirements);
+      const list = el('div', { class: 'fd-api-replay-body' },
+        el('table', { class: 'fd-api-replay-table' },
+          el('tbody', {},
+            ...rows.map(([key, ok]) => el('tr', {},
+              el('td', {}, String(key).replace(/_/g, ' ')),
+              el('td', {}, ok ? 'present' : 'missing'),
+            )),
+          ),
+        ),
+      );
+      section.appendChild(el('div', { class: 'fd-poc-block' },
+        el('div', { class: 'fd-subhead' }, 'Proof gate'),
+        list,
+      ));
+    }
+    if (proofMissing.length) {
+      section.appendChild(el('div', { class: 'fd-exploitation-proof' },
+        el('div', { class: 'fd-subhead' }, 'Missing proof'),
+        el('pre', { class: 'fd-code' }, proofMissing.join('\n')),
+      ));
+    }
+  }
 
   if (status) {
     const label = String(status).replace(/_/g, ' ');

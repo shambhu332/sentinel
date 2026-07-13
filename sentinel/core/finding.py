@@ -27,6 +27,21 @@ VerificationState = Literal[
     "verified", "auth_gated", "code_only", "runtime_failed",
 ]
 
+# Final proof/readiness gate used after verification and exploitation.
+# This is deliberately stricter than severity. A Critical finding can
+# still be only a candidate when it has no scope, reachability, runtime
+# proof, impact proof, or uniqueness signal.
+ProofStatus = Literal[
+    "candidate",
+    "code_only",
+    "runtime_verified",
+    "verified_exploited",
+    "bounty_ready",
+    "auth_gated",
+    "runtime_failed",
+    "duplicate",
+]
+
 # Discrete outcome of the active exploitation pipeline (Phase 7.5).
 # Distinct from VerificationState: verification says whether the *bug*
 # was seen; exploitation says whether we *proved impact* by chaining
@@ -177,6 +192,14 @@ class Finding(BaseModel):
     # Concrete data the exploit driver exfiltrated (e.g. a JWT snippet).
     # Length-capped so a runaway response body can't blow up the report.
     exploit_proof: str | None = Field(default=None, max_length=4000)
+    # Final proof gate outcome. "bounty_ready" means the finding has
+    # explicit scope, reachability, strong evidence, runtime verification,
+    # PoC/exploit artifacts, impact proof, and no same-scan duplicate.
+    proof_status: ProofStatus | None = Field(default=None)
+    proof_summary: str | None = Field(default=None, max_length=1000)
+    proof_requirements: dict[str, bool] | None = Field(default=None)
+    proof_missing: list[str] | None = Field(default=None, max_length=20)
+    duplicate_key: str | None = Field(default=None, max_length=500)
     # Djini-style report split. "AI-Powered" enables the 7-layer detail
     # view (rationale + context factors + reproduction + exploit proof);
     # "Static_Tool" renders the concise variant. Auto-promoted by Phase
@@ -318,4 +341,3 @@ def derive_verification_state(finding: "Finding") -> VerificationState | None:
     if status.startswith(("code-level", "code only", "code_only")):
         return "code_only"
     return None
-
