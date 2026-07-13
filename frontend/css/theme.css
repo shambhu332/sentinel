@@ -1,76 +1,82 @@
 /* ============================================================
    SENTINEL — theme.css
-   Dark theme tokens (Djini.AI inspired)
+   Dark product theme tokens
    ============================================================ */
 
 :root {
   /* Backgrounds */
-  --bg-primary:        #0A0E27;        /* Main background */
-  --bg-secondary:      #0F1437;        /* Secondary surfaces */
-  --bg-tertiary:       #151B3D;        /* Tertiary / elevated */
-  --bg-elevated:       #1A224A;        /* Highest elevation */
-  --bg-overlay:        rgba(10, 14, 39, 0.75);
+  --bg-primary:        #0B1017;        /* Main background */
+  --bg-secondary:      #111821;        /* Secondary surfaces */
+  --bg-tertiary:       #17212B;        /* Tertiary / elevated */
+  --bg-elevated:       #1D2935;        /* Highest elevation */
+  --bg-overlay:        rgba(11, 16, 23, 0.86);
+  --surface:           var(--bg-secondary);
+  --surface-2:         var(--bg-tertiary);
 
   /* Glass surfaces */
-  --glass-bg:          rgba(15, 20, 55, 0.6);
-  --glass-bg-strong:   rgba(21, 27, 61, 0.8);
-  --glass-border:      rgba(255, 255, 255, 0.06);
+  --glass-bg:          #111821;
+  --glass-bg-strong:   #17212B;
+  --glass-border:      #253241;
 
   /* Borders */
-  --border:            #1F2751;
-  --border-strong:     #2A3456;
-  --border-accent:     rgba(0, 212, 255, 0.4);
+  --border:            #253241;
+  --border-strong:     #344354;
+  --border-accent:     #3E5F7D;
 
   /* Text */
-  --text-primary:      #E8EEF7;
-  --text-secondary:    #9CA5B8;
-  --text-muted:        #8C96A8;
-  --text-on-accent:    #0A0E27;
+  --text-primary:      #E7ECF1;
+  --text-secondary:    #A7B1BD;
+  --text-muted:        #778493;
+  --text-on-accent:    #FFFFFF;
+  --text:              var(--text-primary);
+  --text-dim:          var(--text-muted);
 
-  /* Accent (cyan/electric blue) */
-  --accent-primary:    #00D4FF;
-  --accent-secondary:  #0099FF;
-  --accent-hover:      #33DDFF;
-  --accent-glow:       rgba(0, 212, 255, 0.4);
-  --accent-bg-soft:    rgba(0, 212, 255, 0.12);
+  /* Accent */
+  --accent-primary:    #3B82F6;
+  --accent-secondary:  #2563EB;
+  --accent-hover:      #60A5FA;
+  --accent-glow:       rgba(59, 130, 246, 0.18);
+  --accent-bg-soft:    rgba(59, 130, 246, 0.12);
+  --accent-1:          var(--accent-primary);
+  --accent-2:          var(--accent-secondary);
 
   /* Severity */
-  --sev-critical:      #FF3B30;
-  --sev-high:          #FF9500;
-  --sev-medium:        #FFCC00;
-  --sev-low:           #30B0FF;
-  --sev-info:          #8E92A0;
+  --sev-critical:      #F04438;
+  --sev-high:          #F79009;
+  --sev-medium:        #EAB308;
+  --sev-low:           #3B82F6;
+  --sev-info:          #94A3B8;
 
-  --sev-critical-bg:   rgba(255, 59, 48, 0.14);
-  --sev-high-bg:       rgba(255, 149, 0, 0.14);
-  --sev-medium-bg:     rgba(255, 204, 0, 0.14);
-  --sev-low-bg:        rgba(48, 176, 255, 0.14);
-  --sev-info-bg:       rgba(142, 146, 160, 0.14);
+  --sev-critical-bg:   rgba(240, 68, 56, 0.14);
+  --sev-high-bg:       rgba(247, 144, 9, 0.14);
+  --sev-medium-bg:     rgba(234, 179, 8, 0.14);
+  --sev-low-bg:        rgba(59, 130, 246, 0.14);
+  --sev-info-bg:       rgba(148, 163, 184, 0.14);
 
   /* Status colors */
-  --success:           #34C759;
-  --success-bg:        rgba(52, 199, 89, 0.14);
-  --warning:           #FF9500;
-  --warning-bg:        rgba(255, 149, 0, 0.14);
-  --error:             #FF3B30;
-  --error-bg:          rgba(255, 59, 48, 0.14);
-  --info:              #30B0FF;
-  --info-bg:           rgba(48, 176, 255, 0.14);
+  --success:           #22C55E;
+  --success-bg:        rgba(34, 197, 94, 0.14);
+  --warning:           #F79009;
+  --warning-bg:        rgba(247, 144, 9, 0.14);
+  --error:             #F04438;
+  --error-bg:          rgba(240, 68, 56, 0.14);
+  --info:              #3B82F6;
+  --info-bg:           rgba(59, 130, 246, 0.14);
 
   /* Shadows */
-  --shadow-sm:         0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-md:         0 4px 12px rgba(0, 0, 0, 0.35);
-  --shadow-lg:         0 12px 32px rgba(0, 0, 0, 0.5);
-  --shadow-xl:         0 24px 60px rgba(0, 0, 0, 0.6);
-  --shadow-glow:       0 0 24px rgba(0, 212, 255, 0.35);
-  --shadow-glow-soft:  0 0 12px rgba(0, 212, 255, 0.18);
+  --shadow-sm:         0 1px 2px rgba(0, 0, 0, 0.22);
+  --shadow-md:         0 8px 18px rgba(0, 0, 0, 0.22);
+  --shadow-lg:         0 14px 32px rgba(0, 0, 0, 0.28);
+  --shadow-xl:         0 24px 48px rgba(0, 0, 0, 0.36);
+  --shadow-glow:       0 10px 24px rgba(0, 0, 0, 0.22);
+  --shadow-glow-soft:  0 6px 16px rgba(0, 0, 0, 0.18);
 
   /* Radii */
   --radius-sm:         4px;
   --radius:            6px;
   --radius-md:         8px;
-  --radius-lg:         12px;
-  --radius-xl:         16px;
+  --radius-lg:         8px;
+  --radius-xl:         10px;
   --radius-full:       9999px;
 
   /* Spacing scale */
@@ -143,20 +149,15 @@
   --device-other:         #3b82f6;
 
   /* Code block syntax */
-  --code-bg:          #06091B;
-  --code-string:      #7FE787;
-  --code-fn:          #C49AFF;
+  --code-bg:          #080D13;
+  --code-string:      #86EFAC;
+  --code-fn:          #93C5FD;
   --code-prop:        #FFB76B;
 
   /* Severity hover variants */
-  --sev-critical-hover: #ff5147;
+  --sev-critical-hover: #F97066;
 }
 
-/* Subtle radial-gradient backdrop applied on the body for that Djini glow */
 body {
-  background:
-    radial-gradient(ellipse at top, rgba(0, 153, 255, 0.08), transparent 50%),
-    radial-gradient(ellipse at bottom right, rgba(0, 212, 255, 0.05), transparent 60%),
-    var(--bg-primary);
-  background-attachment: fixed;
+  background: var(--bg-primary);
 }

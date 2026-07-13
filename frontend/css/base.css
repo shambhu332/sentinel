@@ -141,7 +141,7 @@ ul, ol {
 
 /* Selection */
 ::selection {
-  background: rgba(0, 212, 255, 0.25);
+  background: rgba(59, 130, 246, 0.24);
   color: var(--text-primary);
 }
 

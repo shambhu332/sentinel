@@ -34,13 +34,13 @@ export function renderSidebar(container, activeId = 'dashboard') {
       <svg width="28" height="28" viewBox="0 0 32 32" fill="none">
         <defs>
           <linearGradient id="lg1" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stop-color="#00D4FF"/>
-            <stop offset="100%" stop-color="#0099FF"/>
+            <stop offset="0%" stop-color="#60A5FA"/>
+            <stop offset="100%" stop-color="#2563EB"/>
           </linearGradient>
         </defs>
         <path d="M16 2 L28 7 V17 C28 23 22.5 28 16 30 C9.5 28 4 23 4 17 V7 Z"
-              fill="url(#lg1)" stroke="#00F0FF" stroke-width="1" opacity="0.95"/>
-        <path d="M16 9 L12 14 L16 19 L20 14 Z M16 19 L12 24 L16 24 L20 24 Z" fill="#0A0E27"/>
+              fill="url(#lg1)" stroke="#93C5FD" stroke-width="1" opacity="0.95"/>
+        <path d="M16 9 L12 14 L16 19 L20 14 Z M16 19 L12 24 L16 24 L20 24 Z" fill="#0B1017"/>
       </svg>` }),
     el('span', { class: 'logo-text' }, 'SENTINEL'),
   );

@@ -200,9 +200,7 @@
 /* ---------- Topbar ---------- */
 .topbar {
   grid-area: topbar;
-  background: rgba(10, 14, 39, 0.85);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: var(--bg-primary);
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
@@ -423,15 +421,13 @@
   cursor: pointer;
   transition: all var(--t-base);
   text-align: center;
-  background:
-    radial-gradient(ellipse at center, rgba(0, 212, 255, 0.04), transparent 70%);
+  background: var(--bg-primary);
 }
 
 .upload-zone:hover,
 .upload-zone.dragover {
   border-color: var(--accent-primary);
-  background:
-    radial-gradient(ellipse at center, rgba(0, 212, 255, 0.1), transparent 70%);
+  background: var(--bg-tertiary);
 }
 
 .upload-zone [data-lucide] {
@@ -683,7 +679,7 @@
 
 /* Findings expansion */
 .finding-row.expanded {
-  background: rgba(0, 212, 255, 0.04);
+  background: rgba(59, 130, 246, 0.06);
 }
 
 .finding-detail {
@@ -759,7 +755,7 @@
 
 .phase-bar-fill {
   height: 100%;
-  background: linear-gradient(90deg, var(--accent-secondary), var(--accent-primary));
+  background: var(--accent-primary);
   border-radius: 4px;
 }
 
@@ -947,8 +943,6 @@
 
 .agent-card:hover {
   border-color: var(--border-accent);
-  box-shadow: var(--shadow-glow-soft);
-  transform: translateY(-2px);
 }
 
 .agent-card .agent-head {
@@ -963,7 +957,7 @@
   align-items: center;
   padding: 3px 8px;
   background: var(--accent-bg-soft);
-  border: 1px solid rgba(0, 212, 255, 0.3);
+  border: 1px solid rgba(59, 130, 246, 0.3);
   color: var(--accent-primary);
   border-radius: var(--radius-sm);
   font-family: 'JetBrains Mono', monospace;
@@ -1586,11 +1580,7 @@
 }
 .reports-summary-count {
   font-weight: 700;
-  color: var(--text);
-  background: linear-gradient(135deg, var(--accent-1), var(--accent-2));
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
+  color: var(--accent-primary);
   font-family: 'JetBrains Mono', monospace;
   margin-right: 4px;
 }
