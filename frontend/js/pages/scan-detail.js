@@ -391,7 +391,9 @@ function findingBucket(f) {
   if (f.finding_category === 'AI-Powered') return 'ai_powered';
   if (f.finding_category === 'Static_Tool') return 'static_tool';
   if (f.severity_rationale) return 'ai_powered';
-  if (f.verification_status && f.verification_status !== 'Code-level only') return 'ai_powered';
+  const codeOnlyStatuses = new Set(['code_only', 'code-level only', 'code only', 'code-only']);
+  const verificationStatus = String(f.verification_status || '').trim().toLowerCase();
+  if (verificationStatus && !codeOnlyStatuses.has(verificationStatus)) return 'ai_powered';
   if (ev._verify && ev._verify.outcome) return 'ai_powered';
   if (ev._swarm) return 'ai_powered';
   if (ev.dynamic_target) return 'ai_powered';

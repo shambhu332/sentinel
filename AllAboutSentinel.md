@@ -337,6 +337,78 @@ by itself. A bounty-grade result still needs the proof gate: reachable target,
 in-scope asset, reproducible PoC, runtime or source-backed evidence,
 exploitability/impact, and duplicate/known-issue checks.
 
+#### Recommended target tiering
+
+This is the recommended production architecture for the current 200-ID
+registry. It is a target design, not a statement that every agent already
+implements the tier correctly.
+
+| Target tier | Count | Security rule |
+|---|---:|---|
+| Rule-based vulnerability agents | **72** | Use deterministic code, manifest, API, Semgrep, Frida, ADB, traffic, or dependency evidence. No LLM is required to decide whether the issue exists. |
+| Hybrid rule + LLM vulnerability agents | **125** | Use deterministic candidate extraction first, then LLM for false-positive reduction, severity rationale, context factors, exploit-path narration, and DAST guidance. |
+| LLM-based support agents | **1** | LLM may write report narrative/enrichment, but must not be the source of vulnerability truth. |
+| Production exclusions | **2** | Registry entries that should not run as production vulnerability agents. |
+| Pure LLM-only vulnerability agents | **0** | Do not use pure LLM discovery as bounty proof. Every vulnerability needs deterministic or runtime-backed evidence. |
+
+Rule-based agents should be used when the condition is exact, cheap,
+repeatable, and auditable: manifest flags, known bad API calls, known weak
+algorithms, dependency CVEs, Semgrep rules, Frida/ADB observations, runtime
+network facts, or verifier/proof-gate outputs. Recommended rule-based IDs:
+
+`API_001`, `A_009`, `A_010`, `A_014`, `BAK_001`, `B_006`, `C_006`, `C_007`,
+`C_012`, `C_017`, `DAST_001`, `DAST_002`, `DAST_003`, `DAST_004`, `D_001`,
+`D_002`, `D_003`, `D_004`, `D_005`, `D_006`, `D_010`, `D_011`, `D_012`,
+`D_013`, `D_014`, `D_015`, `D_016`, `D_018`, `D_019`, `D_020`, `D_021`,
+`D_022`, `D_025`, `D_026`, `D_028`, `D_029`, `D_030`, `D_035`, `D_036`,
+`D_037`, `D_038`, `D_039`, `D_040`, `D_041`, `D_075`, `F_001`, `IPC_001`,
+`I_001`, `META_001`, `META_002`, `META_005`, `META_006`, `NL_001`, `N_001`,
+`N_002`, `N_003`, `N_004`, `N_005`, `N_007`, `N_008`, `N_009`, `N_012`,
+`N_013`, `RES_001`, `RES_002`, `RNG_001`, `SCA_001`, `SG_001`, `STG_001`,
+`STG_006`, `STG_009`, `TAINT_001`.
+
+Hybrid agents should be used when a raw match is not enough and context
+matters: authorization ownership, business logic, sensitive-data impact,
+cross-platform bridges, deep links, WebViews, API replay interpretation,
+complex crypto misuse, privacy SDK behavior, native/reflection flows, and
+dynamic testing targets. The deterministic stage must still emit candidates
+and evidence; the LLM can judge context and write Djini metadata, but it must
+not replace runtime proof. Recommended hybrid IDs:
+
+`API_002`, `API_003`, `API_004`, `API_005`, `A_001`, `A_002`, `A_004`,
+`A_008`, `A_011`, `A_012`, `A_013`, `A_015`, `A_016`, `B_001`, `B_003`,
+`B_004`, `B_005`, `B_007`, `B_008`, `COR_001`, `C_001`, `C_002`, `C_005`,
+`C_010`, `C_011`, `C_013`, `C_014`, `C_015`, `C_016`, `C_018`, `C_019`,
+`D_007`, `D_008`, `D_009`, `D_017`, `D_023`, `D_024`, `D_027`, `D_031`,
+`D_032`, `D_033`, `D_034`, `D_042`, `D_043`, `D_044`, `D_045`, `D_046`,
+`D_047`, `D_048`, `D_049`, `D_050`, `D_051`, `D_052`, `D_053`, `D_054`,
+`D_055`, `D_056`, `D_057`, `D_058`, `D_059`, `D_060`, `D_061`, `D_062`,
+`D_063`, `D_064`, `D_065`, `D_066`, `D_067`, `D_068`, `D_069`, `D_070`,
+`D_071`, `D_072`, `D_073`, `D_074`, `D_078`, `D_081`, `D_082`, `D_083`,
+`D_084`, `D_085`, `D_086`, `D_090`, `FL_001`, `FL_002`, `F_002`,
+`GESTURE_001`, `K_001`, `LOGIC_001`, `LOG_001`, `LOG_002`, `NL_002`,
+`N_006`, `N_010`, `N_011`, `N_014`, `N_015`, `N_016`, `N_017`, `PRIV_001`,
+`P_001`, `P_002`, `P_004`, `P_005`, `P_006`, `P_007`, `P_010`, `P_011`,
+`P_012`, `P_015`, `P_016`, `P_017`, `REFL_001`, `RN_001`, `RN_002`,
+`SCA_002`, `SCA_004`, `STG_007`, `STG_008`, `STG_010`, `STG_011`, `UI_001`,
+`WV_001`, `WV_002`, `WV_003`.
+
+LLM-based support should be limited to report writing and narrative
+enrichment. `R_001` should remain the only LLM-only support agent: it can
+summarize verified evidence, generate executive narrative, and enrich
+remediation text, but it must not decide whether a vulnerability exists.
+
+`D_000` and `TEST_001` should not run in production scans. `D_000` is the
+abstract `BaseDASTAgent`, and `TEST_001` is a pipeline smoke-test helper.
+
+Migration priority should be: first add explicit tier metadata to the ten
+current `AIAutonomousAgent` subclasses; then move `C_007` to explicit
+`RULE`; then convert high-impact context-heavy agents such as `B_001`,
+`API_003`, `API_004`, `P_004`, `WV_003`, `RN_002`, `SCA_004`, and `D_090` to
+the hybrid pattern. `B_001` should not be pure LLM-only in production: IDOR
+requires deterministic endpoint/object extraction and replay or authorization
+evidence before it can become bounty-ready.
+
 ### Full API-visible agent inventory
 
 This table lists every ID the current `sentinel.agents.*` registry exposes.

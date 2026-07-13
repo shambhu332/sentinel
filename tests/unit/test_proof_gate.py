@@ -62,6 +62,7 @@ def test_bounty_ready_requires_all_proof_gates(tmp_path: Path):
     assert finding.proof_requirements
     assert all(finding.proof_requirements.values())
     assert finding.proof_missing == []
+    assert finding.finding_category == "AI-Powered"
 
 
 def test_unrestricted_scope_prevents_bounty_ready(tmp_path: Path):
@@ -86,8 +87,26 @@ def test_code_only_finding_stays_candidate_not_bounty_ready(tmp_path: Path):
     [updated] = apply_proof_gate([finding], _scan(tmp_path, scope=scope))
 
     assert updated.proof_status == "code_only"
+    assert updated.finding_category == "Static_Tool"
     assert "runtime_verified" in updated.proof_missing
     assert "impact_proven" in updated.proof_missing
+
+
+def test_severity_rationale_promotes_code_only_to_ai_powered(tmp_path: Path):
+    scope = BountyScope(in_scope_domains=["api.example.com"])
+    finding = _api_finding(
+        verification_state="code_only",
+        exploitation_status="Code_Only",
+        exploit_proof=None,
+        api_replay_logs=[],
+        poc_artifacts=[],
+        severity_rationale="Static evidence indicates residual auth risk.",
+    )
+
+    [updated] = apply_proof_gate([finding], _scan(tmp_path, scope=scope))
+
+    assert updated.proof_status == "code_only"
+    assert updated.finding_category == "AI-Powered"
 
 
 def test_same_scan_duplicate_is_not_bounty_ready(tmp_path: Path):

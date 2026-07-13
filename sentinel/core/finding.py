@@ -27,6 +27,13 @@ VerificationState = Literal[
     "verified", "auth_gated", "code_only", "runtime_failed",
 ]
 
+# Canonical Djini report verification labels. The public
+# ``verification_status`` field still accepts legacy/free-form strings for
+# backwards compatibility, but new code should prefer these exact values.
+DjiniVerificationStatus = Literal[
+    "Verified", "Auth_Gated", "Code_Only", "Runtime_Failed",
+]
+
 # Final proof/readiness gate used after verification and exploitation.
 # This is deliberately stricter than severity. A Critical finding can
 # still be only a candidate when it has no scope, reachability, runtime
@@ -100,6 +107,7 @@ class Finding(BaseModel):
     confidence: float = Field(..., ge=0.0, le=1.0)
     evidence: dict[str, Any] = Field(default_factory=dict)
     cvss_vector: str | None = Field(default=None, max_length=200)
+    cvss_score: float | None = Field(default=None, ge=0.0, le=10.0)
     owasp: str | None = Field(default=None, max_length=50)
     masvs: str | None = Field(default=None, max_length=20)
     poc: str | None = None
@@ -145,10 +153,11 @@ class Finding(BaseModel):
     # severity rating. Surfaced under the description in the detail view
     # so reviewers can sanity-check the scoring without re-reading evidence.
     severity_rationale: str | None = Field(default=None, max_length=4000)
-    # Verification outcome for dynamic findings. Free-form so we can grow
-    # the vocabulary without a migration; today the common values are
-    # "Verified", "Unverified due to auth gating", "Code-level only".
-    verification_status: str | None = Field(default=None, max_length=120)
+    # Verification outcome for dynamic findings. Canonical Djini values are
+    # "Verified", "Auth_Gated", "Code_Only", and "Runtime_Failed"; legacy
+    # free-form strings are still accepted so existing agents/tests keep
+    # working while migration happens agent-by-agent.
+    verification_status: str | None = Field(default="Code_Only", max_length=120)
     # Discrete routing key derived from / parallel to verification_status.
     # Lets the bucket classifier, UI, and triager switch on an enum instead
     # of substring-matching a free-form sentence. Defaults to None so
@@ -180,7 +189,7 @@ class Finding(BaseModel):
     # Outcome of the Phase 7.5 active-exploitation pipeline. See
     # ExploitationStatus for the discrete value semantics. Reports render
     # this as a badge next to verification_status.
-    exploitation_status: ExploitationStatus | None = Field(default=None)
+    exploitation_status: ExploitationStatus = Field(default="Unverified")
     # Filesystem paths (relative to workspace/{session_id}/) of standalone
     # PoC scripts the frontend exposes as "Download PoC" links.
     poc_artifacts: list[str] | None = Field(default=None, max_length=10)
@@ -338,6 +347,6 @@ def derive_verification_state(finding: "Finding") -> VerificationState | None:
         return "auth_gated"
     if any(status.startswith(p) for p in _RUNTIME_FAILED_PREFIXES):
         return "runtime_failed"
-    if status.startswith(("code-level", "code only", "code_only")):
+    if status.startswith(("code-level", "code only", "code_only", "code-only")):
         return "code_only"
     return None

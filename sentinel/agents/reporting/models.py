@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from sentinel.core.finding import Finding, Severity
+from sentinel.core.finding import Finding, Severity, derive_verification_state
 
 
 @dataclass
@@ -124,6 +124,13 @@ class ReportData:
 BUCKET_AI_POWERED = "ai_powered"
 BUCKET_STATIC_TOOL = "static_tool"
 
+_CODE_ONLY_STATUSES = {
+    "code_only",
+    "code-level only",
+    "code only",
+    "code-only",
+}
+
 BUCKET_LABELS: dict[str, str] = {
     BUCKET_AI_POWERED: "AI-Powered AppSec Findings",
     BUCKET_STATIC_TOOL: "Static Tool Findings",
@@ -167,10 +174,13 @@ def bucket_for_section(section: FindingSection) -> str:
         return BUCKET_AI_POWERED
     # New: discrete state takes precedence over the free-form string.
     # Anything that isn't "code_only" is AI-Powered material.
-    if f.verification_state and f.verification_state != "code_only":
+    state = derive_verification_state(f)
+    if state and state != "code_only":
         return BUCKET_AI_POWERED
-    if f.verification_status and f.verification_status != "Code-level only":
-        return BUCKET_AI_POWERED
+    if state is None:
+        status = (f.verification_status or "").strip().lower()
+        if status and status not in _CODE_ONLY_STATUSES:
+            return BUCKET_AI_POWERED
     verify = ev.get("_verify")
     if isinstance(verify, dict) and verify.get("outcome"):
         return BUCKET_AI_POWERED

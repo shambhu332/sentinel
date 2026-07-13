@@ -56,6 +56,7 @@ def apply_proof_gate(findings: list[Finding], scan: ScanContext) -> list[Finding
             "proof_requirements": assessment.requirements,
             "proof_missing": assessment.missing,
             "duplicate_key": assessment.duplicate_key,
+            "finding_category": _finding_category(finding),
         }))
     return updated
 
@@ -152,6 +153,34 @@ def _summary_for(status: ProofStatus, missing: list[str]) -> str:
         "Candidate only; collect the missing gate(s) before treating it as "
         f"reportable: {', '.join(missing)}."
     )
+
+
+def _finding_category(finding: Finding) -> str:
+    """Return the Djini report bucket requested by Phase 7.6.
+
+    Phase 7.6 is the final place where all static, triage, runtime, and
+    exploitation metadata has converged. Keep the rule intentionally simple:
+    a finding is AI-Powered when it has an explicit severity rationale or any
+    verification state beyond Code_Only; otherwise it remains Static_Tool.
+    Legacy free-form verification_status strings are tolerated during the
+    migration to canonical Djini values.
+    """
+    if finding.severity_rationale:
+        return "AI-Powered"
+
+    state = derive_verification_state(finding)
+    if state is not None:
+        return "Static_Tool" if state == "code_only" else "AI-Powered"
+
+    status = (finding.verification_status or "").strip().lower()
+    if status and status not in {
+        "code_only",
+        "code-level only",
+        "code only",
+        "code-only",
+    }:
+        return "AI-Powered"
+    return "Static_Tool"
 
 
 def _finding_in_scope(finding: Finding, scope: BountyScope) -> bool:

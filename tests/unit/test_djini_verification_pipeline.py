@@ -69,6 +69,15 @@ def test_finding_accepts_djini_fields():
     assert f.test_credentials_used is True
 
 
+def test_finding_uses_canonical_djini_defaults():
+    f = _base_finding(cvss_score=6.5)
+
+    assert f.verification_status == "Code_Only"
+    assert f.exploitation_status == "Unverified"
+    assert f.cvss_score == 6.5
+    assert derive_verification_state(f) == "code_only"
+
+
 def test_finding_rejects_invalid_verification_state():
     with pytest.raises(Exception):
         _base_finding(verification_state="totally_made_up")
