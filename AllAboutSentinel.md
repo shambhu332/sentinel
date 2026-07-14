@@ -5,12 +5,12 @@ It distinguishes implemented behavior from intended architecture. It is not a
 claim that every named agent or runtime technique has been proven against a
 real target device.
 
-**Last refreshed:** 2026-07-13 from the local checkout.
+**Last refreshed:** 2026-07-14 from the local checkout.
 
-**Source snapshot:** 391 Python files under `sentinel/`, 242 Python files under
-`sentinel/agents/`, 13 Python files under `sentinel/exploit/`, 173 Python test
+**Source snapshot:** 392 Python files under `sentinel/`, 242 Python files under
+`sentinel/agents/`, 13 Python files under `sentinel/exploit/`, 177 Python test
 files, 39 frontend JavaScript files, 79 Frida TypeScript files, 18 Semgrep
-rules, and 2 top-level YAML rules.
+rules, 2 auth YAML rules, and 2 top-level YAML files.
 
 ## 1. Executive Summary (Current Maturity)
 
@@ -40,12 +40,15 @@ The project is capable enough for controlled, authorized assessment and
 internal research. It is not yet safe to treat as a continuously reliable
 autonomous exploitation system or a hardened SaaS service.
 
-The production hardening story is partly designed but not consistently active.
-The scan CLI and API currently instantiate the local SQLite/Chroma/NetworkX
-memory backend. Persistent identity, production tenant isolation, the full
-Postgres/Qdrant/Neo4j composition, universal prompt-injection controls, and
-active exploitation authorization need further work before a multi-tenant SaaS
-deployment is defensible.
+The production hardening story is improving but is still not consistently
+active across every entry point. The code now has first-class SAST-to-DAST
+`dynamic_target` handoff, auth-aware ADB verification, deterministic proof
+lifting, strict report-enrichment prompt delimiters, and a `CompositeMemory`
+async outbox that mirrors T1 findings into T2/T3. However, the scan CLI and API
+still commonly use the local memory backend unless explicitly configured.
+Persistent identity, production tenant isolation, production memory selection,
+universal LLM-boundary coverage, and active exploitation authorization still
+need further work before a multi-tenant SaaS deployment is defensible.
 
 **What `completed` means:** the orchestration reached its terminal path without
 an `OrchestratorError`. It does not mean every requested tool succeeded, every
@@ -91,9 +94,11 @@ flowchart TB
     Corr --> Finding
 
     Finding --> T1[T1: events and findings]
+    T1 --> Outbox[CompositeMemory async outbox]
     Triage --> RAG[RAG knowledge base]
     Corr --> T3[T3: attack graph]
-    Finding -. intended semantic index .-> T2[T2: vector search]
+    Outbox --> T2[T2: vector search]
+    Outbox --> T3
 
     T1 --> Local[Local: SQLite]
     T1 -. production design .-> PG[PostgreSQL with RLS]
@@ -116,7 +121,7 @@ flowchart LR
     P15 --> P4[4 Dynamic capture, if selected]
     P4 --> P2[2 Concurrent agents]
     P2 --> P26[2.5 Dedup and 2.6 enrichment]
-    P26 --> P46[4.6 Frida RPC dispatch, if selected]
+    P26 --> P46[4.6 ADB / Frida dynamic-target dispatch, if dynamic selected]
     P46 --> P47[4.7 Fuzzing, if selected]
     P47 --> P3[3 LLM triage, if enabled]
     P3 --> P7[7 Correlation]
@@ -136,10 +141,10 @@ one mandatory lifecycle stage.
 | Design claim | Current implementation reality | Assessment |
 |---|---|---|
 | 10-phase autonomous pipeline | Phases 0, 1, 1.5, 2, 3, 4, 4.6, 4.7, 7, 7.5, 7.6, and 8 are partially driven; no mandatory Phase 5 or 9 | Product terminology exceeds lifecycle enforcement |
-| Three-tier production memory | Adapters and migrations exist, but CLI/API scans use `LightweightMemory` | Designed, not the default deployed path |
+| Three-tier production memory | `CompositeMemory` now sync-writes T1 then asynchronously mirrors findings to T2/T3; CLI/API scans still normally use `LightweightMemory` unless configured otherwise | Implemented but not the default deployed path |
 | Tenant-scoped scan workspace | Upload path is tenant-scoped, scan workspace is globally session-scoped | Isolation claim is broken in active scan path |
 | Persistent SaaS state | Scan jobs, users, API keys, and default revocation are process-local | Single-process prototype behavior |
-| Runtime confirmation | Device/proxy/Frida flows exist and return health data | Evidence is conditional; `completed` does not prove runtime coverage |
+| Runtime confirmation | Device/proxy/Frida flows exist; first-class ADB deep-link/component probes now consume `Finding.dynamic_target` and write executed commands after runtime dispatch | Evidence is conditional; `completed` does not prove runtime coverage |
 | Autonomous exploitation safety | Standalone generator is scope-gated; orchestrated driver has inconsistent authorization | Dangerous dual-use boundary |
 
 ### Data flow
@@ -657,7 +662,7 @@ one broken plugin from sinking a scan but can silently reduce coverage.
 | Cross-platform | React Native bundle or Flutter native strings | JS/binary string and framework-specific checks | Manual/runtime confirmation |
 | Network/API | Decompiled endpoints and mitm flows | Cleartext/TLS/headers/GraphQL/API shape analysis | API replay, mutation, response comparison |
 | Frida observers | Runtime hook event stream | Observe actual Java/native calls and runtime state | Runtime finding with hook evidence |
-| Hybrid targets | Static candidate plus `frida_payload` | Static candidate emits a bounded runtime probe request | Phase 4.6 Frida RPC dispatch |
+| Hybrid targets | Static candidate plus first-class `Finding.dynamic_target`, or legacy `evidence.dynamic_target` plus `frida_payload` | Static candidate emits a bounded runtime probe request; SAST must not pretend the ADB command already ran | Phase 4.6 ADB deep-link/component dispatch or legacy Frida RPC dispatch |
 | Correlation | Persisted findings and graph edges | Hard-coded attack-chain pattern matching | Chain finding; novel LLM chains are not implemented |
 
 ### Detection is not exploitation
@@ -667,14 +672,16 @@ evidence levels are: manifest/source observation < static trace < captured
 runtime event < repeatable replay result < independently reviewed PoC. LLM
 approval is useful classification but is not runtime confirmation.
 
-## 4. RAG + Memory System Analysis (T1/T2/T3 Gaps)
+## 4. RAG + Memory System Analysis (T1/T2/T3)
 
 ### Architecture
 
 ```mermaid
 flowchart TB
     E[Events and findings] --> T1
-    F[Finding text] -. explicit indexing required .-> T2
+    T1 --> O[CompositeMemory async outbox]
+    O --> T2
+    O --> T3
     C[Correlation detector] --> T3
     K[MASVS, OWASP, CWE, ATT&CK, optional OSV] --> KB[RAG Chroma collection]
     KB --> RET[KnowledgeRetriever]
@@ -706,9 +713,11 @@ canonical JSONB envelope. RLS is driven by `set_config('sentinel.tenant_id',
 ...)`. Migrations also define an append-only audit log and indexes for event
 tailing and tenant queries.
 
-**Gap:** scan entry points do not currently select `CompositeMemory` or
-`PostgresMemory`; the Postgres model is present but not the normal runtime
-path.
+**Current gap:** scan entry points do not consistently select
+`CompositeMemory` or `PostgresMemory`; the Postgres model is present but not
+the normal runtime path. When `CompositeMemory` is selected, `save_finding()`
+now writes T1 synchronously and queues the finding for asynchronous T2/T3
+indexing.
 
 ### T2: vector similarity
 
@@ -722,9 +731,12 @@ session filtering in point payload. Default embeddings are local
 test-only `NullEmbedder` generates deterministic hash vectors and has no
 semantic value. Qdrant stores up to 2,000 characters of indexed text.
 
-**Critical wiring gap:** regular finding persistence calls `save_finding()` but
-does not call `add_embedding()`. The T2 adapters exist, but the standard scan
-does not automatically populate semantic finding memory.
+**Current wiring status:** `CompositeMemory.save_finding()` now pushes each
+T1-saved finding into an async `MemoryWorker` outbox. The worker calls
+`add_embedding()` for T2 and `add_graph_node()` for T3 without blocking the scan
+pipeline. This fixes the old CompositeMemory disconnect, but the benefit only
+appears when the scan path actually uses `CompositeMemory`; default local scans
+can still remain on `LightweightMemory`.
 
 ### T3: graph memory
 
@@ -738,6 +750,10 @@ The correlation detector turns findings into graph nodes and pattern-derived
 edges, then emits chain findings. This is useful for known combinations such
 as exposure plus weak authorization, but LLM-based novel-chain discovery is a
 placeholder and there is no graph-wide inference engine.
+
+When `CompositeMemory` is active, every saved finding is also mirrored as a T3
+`finding` node through the async outbox. Correlation-specific edges still come
+from the correlation layer; the outbox does not infer attack chains by itself.
 
 ### RAG knowledge base
 
@@ -795,11 +811,25 @@ RPC exports. Hooks cover crypto API use, pinning bypass attempts, clipboard,
 biometric, WebView, notification, IPC, storage, native, and other runtime
 signals depending on the loaded bundle.
 
-Hybrid agents find a static candidate, attach `dynamic_target: true` and a
-`frida_payload`, then Phase 4.6 invokes a mapped RPC method. Dispatch uses low
-concurrency because aggressive hooks can destabilize a device. Runtime results
-are projected to `verification_state` such as `verified`, `runtime_failed`, or
-`auth_gated`.
+Hybrid agents now have two supported handoff shapes:
+
+1. **First-class ADB target:** the SAST finding sets
+   `Finding.dynamic_target`, for example
+   `{"type": "deep_link", "scheme": "app", "path": "load", "param": "url"}`.
+   The SAST agent must not write `reproduction_commands`; Phase 4.6 builds and
+   executes the live ADB command from device/app state, then writes the exact
+   executed command back to the finding.
+2. **Legacy Frida target:** older agents set `evidence.dynamic_target = true`
+   and provide `evidence.frida_payload`. Phase 4.6 attaches Frida and invokes
+   the mapped RPC method.
+
+ADB dispatch supports deep-link and explicit-component probes. Authenticated
+targets can request auth preflight; `AdbRunner` calls the credential manager's
+Frida-backed `auto_login()` before firing the malicious intent. If login fails,
+the verifier captures the blocking UI, sets `Auth_Gated`, and deliberately does
+not execute the exploit intent. Runtime results are projected to
+`verification_state` values such as `verified`, `runtime_failed`, or
+`auth_gated` by `apply_runtime_result()`.
 
 **Known wiring defect:** D_081 emits `dast_payload`, but the Frida dispatcher
 only accepts `frida_payload`; its backup extraction workflow is not dispatched
@@ -953,14 +983,20 @@ AI-native agents use a similar flow: deterministic fast prefilter ->
 confidence rule that the LLM rejects becomes uncertain rather than being
 silently discarded.
 
-#### Prompt security limitations
+#### Prompt security boundary
 
-Source code, dynamic evidence, and RAG passages are placed in ordinary prompt
-sections. JSON-only instructions reduce formatting failures but do not provide
-prompt-injection isolation. There is no general provenance label, hostile
-instruction detector, robust data/instruction separation, or mandatory secret
-redaction layer before cloud providers. The swarm has targeted evidence
-sanitization, but that is not a platform-wide LLM boundary.
+The reporting enrichment layer now treats target-controlled material as
+untrusted data. `sentinel/agents/reporting/enrich.py` wraps recommendation,
+observed runtime output, code snippets, and raw evidence in
+`<untrusted_evidence>...</untrusted_evidence>` tags and adds a system rule that
+forbids obeying instructions inside those tags. The triage prompt layer also
+has Djini-style evidence delimiters for code/evidence blocks.
+
+This is a real improvement, but it is not yet a universal platform-wide LLM
+boundary. Remediation, swarm, RAG passage assembly, future agent prompts, and
+provider egress policy still need consistent redaction, provenance labels,
+hostile-instruction tests, and secret-handling controls before cloud LLM use is
+safe for arbitrary customer APKs.
 
 #### HON_001 calibration
 
@@ -988,6 +1024,15 @@ ground truth or external validation.
   and Neo4j tenant payloads in the production design.
 - Device proxy cleanup, force-stop cleanup, bounded dynamic duration, bounded
   dispatcher concurrency, and loopback-only exploit listener.
+- First-class `dynamic_target` handoff for ADB deep-link/component verification;
+  Phase 4.6 writes executed `reproduction_commands` only after runtime dispatch.
+- Auth-aware ADB verification: auto-login is attempted before firing protected
+  intents; failed login becomes `Auth_Gated` with blocking UI evidence instead
+  of a fake exploit attempt.
+- Reporting LLM prompt injection defense for narrative enrichment using
+  `<untrusted_evidence>` tags and strict system instructions.
+- `CompositeMemory` async outbox that sync-writes T1 and mirrors findings to
+  T2/T3 without blocking the scan pipeline.
 - Phase 7.6 proof gate that keeps findings as candidates/code-only unless
   earlier phases provide the required scope, runtime proof, PoC/replay,
   impact, and uniqueness evidence.
@@ -999,11 +1044,11 @@ ground truth or external validation.
 | Critical | ExploitDriver scope authorization is inconsistent and incorrect | Empty/unrestricted scope can reach active payload delivery; restricted scopes fail due to incompatible authorization call | One mandatory `ExploitContext` gate before all active actions; deny by default; regression tests |
 | Critical | Tenant workspace isolation is not used by the active scan path | Evidence, reports, decompiled code, and PoCs can be placed in a global session directory | Resolve tenant + session once, pass it into `ScanContext`, registry, report and artifact access |
 | High | Development auth bypass defaults to enabled and identity/key state is in memory | Any production configuration error can expose scanner control or lose identity/revocation state on restart | Fail closed outside explicit local profile; persistent users/keys/revocation; startup validation |
-| High | APK/runtime/RAG content is directly included in LLM prompts | Malicious target content can steer triage/remediation, and cloud mode can exfiltrate sensitive code/evidence | Treat inputs as untrusted data, redact, isolate instructions, test hostile inputs, require egress policy |
+| High | LLM prompt boundary is only partially enforced | Reporting enrichment and triage have evidence delimiters, but remediation, swarm, RAG assembly, future prompts, and cloud egress still need uniform controls | Treat every APK/RAG/runtime string as untrusted data, redact secrets, isolate instructions, test hostile inputs, require egress policy |
 | High | `completed` can mask absent runtime coverage | Operators may report DAST/Frida success after skipped device, proxy, or hook failures | Outcome taxonomy and policy gates based on tool-health/evidence quality |
 | High | PoC/proof evidence can be incomplete for many agent classes | Most agents find candidates; only replay/Frida/exploit-backed classes can prove real impact automatically | Keep proof gate strict; never label code-only findings as bounty-ready |
-| High | T2 semantic memory is not populated by normal finding persistence | Cross-scan semantic search and memory claims are not realized | Transactional/outbox indexing after T1 save, with observable backlog/failure state |
-| Medium | Production adapters are not selected by CLI/API | RLS, Qdrant, Neo4j, and durable state are mostly dormant | Environment-specific memory factory and deployment smoke tests |
+| Medium | T2/T3 outbox only helps when `CompositeMemory` is selected | The async mirror now exists, but default local scans can still bypass production Qdrant/Neo4j behavior | Make production memory selection explicit and add health/backlog telemetry |
+| Medium | Production adapters are not selected by CLI/API by default | RLS, Qdrant, Neo4j, and durable state are mostly dormant unless deployment configuration selects them | Environment-specific memory factory and deployment smoke tests |
 | Medium | Scope fetch validates DNS before connection only | DNS rebinding can bypass basic SSRF assumptions | Resolve/connect against an approved IP or use an egress proxy policy |
 | Medium | Audit schema is not used by API middleware | Audit trail is not immutable/durable in the deployed path | Wire request audit writes asynchronously with failure policy |
 | Medium | Abstract `D_000` appears in `/agents` and scan rosters | Catalog and roster counts are inflated; Phase 2 logs a construction crash and silently loses that slot | Filter abstract classes and base IDs during discovery; test registry/roster parity |
@@ -1047,12 +1092,12 @@ fixed before expanding autonomous runtime or exploit capabilities.
 
 ### Medium-term improvements
 
-1. Select `CompositeMemory` in production, persist all T1 writes first, and
-   asynchronously populate Qdrant/T3 through a durable outbox. Expose indexing
-   lag and retry failures as health data.
-2. Establish an LLM security boundary: classify all APK/RAG/runtime strings as
-   untrusted, redact secrets, delimit evidence as data, minimize context, and
-   test prompt injection against triage, remediation, reporting, and swarm.
+1. Make `CompositeMemory` the explicit production selection path, keep the new
+   async T2/T3 outbox, and expose indexing lag, queue depth, and retry failures
+   as health data.
+2. Finish the LLM security boundary across every prompt path: reporting and
+   triage now delimit evidence, but remediation, swarm, RAG, and future agent
+   prompts still need the same treatment plus redaction and egress policy.
 3. Split agents into supported, experimental, and lab-only tiers; publish an
    evidence contract and regression corpus for each supported runtime agent.
 4. Replace the in-process scan registry with durable jobs/workers and add
@@ -1064,23 +1109,22 @@ fixed before expanding autonomous runtime or exploit capabilities.
 
 ### Current local quality signals
 
-This refresh ran `python -m compileall -q sentinel scripts` successfully.
-`timeout 120s pytest --collect-only -q` completed in 8.55 seconds and reported
-1,908 collected tests out of 1,922 total, with 14 deselected and warnings from
-`pytest_asyncio` plus Starlette/TestClient deprecations.
-
-After adding the proof gate, these targeted tests passed:
+The 2026-07-14 hybrid proof-pipeline update ran these checks successfully:
 
 ```bash
-pytest -q tests/unit/test_proof_gate.py tests/unit/test_vapt_report.py tests/unit/test_poc_generator.py
+python -m compileall -q sentinel/core/orchestrator.py sentinel/tools/adb_runner.py sentinel/memory/composite.py sentinel/agents/reporting/enrich.py tests/unit/test_adb_truth_engine.py tests/unit/test_enrich_boilerplate.py tests/unit/test_memory_outbox.py
+
+pytest -q tests/unit/test_adb_truth_engine.py tests/unit/test_enrich_boilerplate.py tests/unit/test_memory_outbox.py tests/unit/test_proof_gate.py tests/unit/test_djini_verification_pipeline.py::test_finding_accepts_djini_fields tests/unit/test_dynamic_dispatch.py tests/unit/test_finding_contracts.py::test_finding_model_accepts_new_djini_fields
+
+git diff --check
 ```
 
-Result: 31 passed, 1 warning. A selected API/TestClient run still hung and was
-interrupted, matching existing repo instability around API tests. I did not run
-the full pytest suite, Ruff, or mypy during this documentation refresh.
-Collection and compilation are useful smoke checks, but they are not
-substitutes for full runtime, external-service, and rooted-device integration
-tests.
+Result: 49 passed, with `pytest_asyncio` deprecation warnings. Earlier proof
+gate/VAPT checks also passed in targeted runs. I did not run the full pytest
+suite, Ruff, mypy, external Postgres/Qdrant/Neo4j integration tests, or rooted
+device integration tests during this documentation refresh. Compilation and
+targeted unit tests are useful smoke checks, but they are not substitutes for
+full runtime, external-service, and device-backed validation.
 
 ## 8. Questions for the Developer
 
@@ -1107,125 +1151,172 @@ step is not adding more agents. It is making the trust boundaries, production
 backends, dynamic-tool health, evidence provenance, tenant isolation, and
 active-testing safety controls consistently real across every entry point.
 
-How SENTINEL Builds A Finding
-  SENTINEL has one central object: Finding. Every agent must produce this object, and almost every report/UI field comes from it. The important fields are defined in sentinel/core/
-  finding.py:97: severity, evidence, CVSS, PoC, recommendation, affected code snippets, verification status, reproduction commands, observed result, exploitation proof, replay logs,
-  proof gate fields, and estimated financial impact.
+## 9. How SENTINEL Builds a Finding
 
-  flowchart TD
-    A[APK / app target] --> B[Static + Dynamic Agents]
+SENTINEL has one central object: `Finding`. Every detector must produce this
+object, and almost every report/UI field comes from it. The important fields
+are defined in `sentinel/core/finding.py`: severity, evidence, CVSS, PoC,
+recommendation, affected code snippets, verification status, dynamic handoff
+target, reproduction commands, observed result, screenshots, exploit proof,
+API replay logs, proof-gate fields, and estimated financial impact.
+
+```mermaid
+flowchart TD
+    A[APK / app target] --> B[Static + dynamic agents]
     B --> C[Finding model]
-    C --> D[IMPACT_001 + CVSS + Compliance]
-    C --> E[LLM Triage / RAG]
-    C --> F[Runtime Verifiers / API Replay / Exploit Driver]
-    D --> G[Proof Gate]
-    E --> G
-    F --> G
-    G --> H[Report Builder]
-    H --> I[Narrative Enrichment]
-    I --> J[HTML / Markdown / JSON / SARIF]
-    J --> K[Web Finding Detail View]
+    C --> D[Impact + CVSS + compliance enrichment]
+    C --> E[LLM triage / RAG]
+    C --> F[SAST-to-DAST dynamic_target handoff]
+    F --> G[ADB / Frida runtime verifier]
+    G --> H[apply_runtime_result]
+    D --> I[Proof gate]
+    E --> I
+    H --> I
+    I --> J[Report builder]
+    J --> K[Prompt-safe narrative enrichment]
+    K --> L[HTML / Markdown / JSON / SARIF]
+    L --> M[Web finding detail view]
+```
 
-  Main Rule
-  A finding is not “real exploited proof” just because it has a title or high severity. SENTINEL separates:
+### Main Rule
 
-  - evidence: what scanner saw.
-  - steps_to_reproduce: how reviewer can confirm.
-  - poc: a runnable/static demonstration snippet or artifact.
-  - verification_status: whether runtime verification happened.
-  - exploitation_status: whether active exploit impact was proven.
-  - proof_status: final bounty-readiness classification.
+A finding is not "real exploited proof" just because it has a title, high
+severity, or LLM-generated rationale. SENTINEL separates these facts:
 
-  The proof gate requires explicit scope, in-scope target, reachability, valid evidence, runtime verification, PoC/replay, impact proof, and uniqueness before marking a finding
-  bounty_ready; see sentinel/verify/proof_gate.py:73.
+| Field | Meaning |
+|---|---|
+| `evidence` | What the scanner actually saw: manifest entry, code match, traffic, Frida event, or API replay data. |
+| `dynamic_target` | Machine-readable SAST-to-DAST handoff. Static agents populate this instead of inventing ADB commands. |
+| `reproduction_commands` | Commands actually executed by a verifier or deterministic recipe. For runtime handoff, Phase 4.6 writes these only after execution. |
+| `observed_result` | Runtime stdout/stderr/activity result observed after the command ran, or the auth-gate/blocking result. |
+| `verification_status` / `verification_state` | Whether runtime verification is `Verified`, `Auth_Gated`, `Code_Only`, or `Runtime_Failed`. |
+| `exploitation_status` | Whether active exploit impact was proven, auth-gated, code-only, failed, or still unverified. |
+| `proof_status` | Final bounty-readiness classification after all gates are checked. |
 
-  Where Each Report Part Comes From
+The proof gate requires explicit scope, in-scope target, reachability, valid
+evidence, runtime verification, PoC/replay material, impact proof, and
+same-scan uniqueness before marking a finding `bounty_ready`.
 
-   Report Part              Source
-  ━━━━━━━━━━━━━━━━━━━━━━━  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   Description / Summary    section.narrative["summary"], generated by enrich.py; fallback is deterministic per-agent recipe.
-  ───────────────────────  ───────────────────────────────────────────────────────────────────────────────────────────────────
-   Evidence                 Raw finding.evidence plus code snippets; this is the scanner’s factual payload.
-  ───────────────────────  ───────────────────────────────────────────────────────────────────────────────────────────────────
-   Affected Code            finding.code_snippet or finding.code_snippets; rendered as file, line, and code block.
-  ───────────────────────  ───────────────────────────────────────────────────────────────────────────────────────────────────
-   Steps to Reproduce       narrative["repro_steps"] plus finding.reproduction_commands.
-  ───────────────────────  ───────────────────────────────────────────────────────────────────────────────────────────────────
-   PoC                      narrative["poc_snippet"], finding.poc, or generated poc_artifacts.
-  ───────────────────────  ───────────────────────────────────────────────────────────────────────────────────────────────────
-   Proof / Exploitation     proof_status, proof_summary, exploit_proof, api_replay_logs, exploitation_status.
-  ───────────────────────  ───────────────────────────────────────────────────────────────────────────────────────────────────
-   Remediation              finding.recommendation, expanded into fix_bullets by enrichment.
-  ───────────────────────  ───────────────────────────────────────────────────────────────────────────────────────────────────
-   Estimated Impact         financial_impact_score, evidence["_impact"], and context_factors.
-  ───────────────────────  ───────────────────────────────────────────────────────────────────────────────────────────────────
-   CVSS                     cvss_vector and evidence["cvss_v3_score"] from deterministic CVSS stamping.
+### Where Each Report Part Comes From
 
-  Report Generation Flow
-  R_001 is the report agent. It loads all findings from memory, stamps CVSS, filters out INFO and false positives, builds ReportData, enriches narratives, then writes Markdown, HTML,
-  JSON, and SARIF under workspace/<session>/reports; see sentinel/agents/reporting/r001_report_agent.py:53.
+| Report part | Source |
+|---|---|
+| Description / summary | `section.narrative["summary"]`, generated by report enrichment; deterministic fallback is used when the LLM is unavailable. |
+| Severity rationale | `finding.severity_rationale`, from triage/enrichment/runtime context. |
+| Evidence | Raw `finding.evidence` plus `code_snippet` / `code_snippets`; this is the scanner's factual payload. |
+| Affected code | `finding.code_snippet` or `finding.code_snippets`, rendered as file, line, and code block. |
+| Steps to reproduce | Deterministic recipe steps plus runtime `finding.reproduction_commands` when commands were actually executed. |
+| PoC | Deterministic `narrative["poc_snippet"]`, `finding.poc`, or generated `poc_artifacts`. Unknown findings do not get LLM-invented PoC text. |
+| Proof / exploitation | `proof_status`, `proof_summary`, `proof_requirements`, `proof_missing`, `exploit_proof`, `api_replay_logs`, and `exploitation_status`. |
+| Remediation | `finding.recommendation`, expanded into `fix_bullets` by enrichment. |
+| Estimated impact | `financial_impact_score`, `evidence["_impact"]`, and `context_factors`. |
+| CVSS | `cvss_vector`, `cvss_score`, and deterministic CVSS stamping. |
 
-  The narrative layer asks for summary, affected components, evidence notes, repro steps, PoC, impact, fixes, and references. But after the latest fix, deterministic vulnerability-
-  specific recipes win over generic LLM reproduction/proof text; see sentinel/agents/reporting/enrich.py:177.
+### SAST-to-DAST Handoff
 
-  Proof Strength
-  The proof gate attaches:
+SAST agents should populate `dynamic_target`, not `reproduction_commands`.
+Phase 4.6 reads that target and constructs the ADB command from live package,
+device, scheme, route, component, and payload data. Supported first-class
+target types are:
 
-  - proof_status: code_only, runtime_verified, verified_exploited, bounty_ready, auth_gated, runtime_failed, duplicate, or candidate.
-  - proof_summary: human-readable explanation.
-  - proof_requirements: checklist of gates present/missing.
-  - proof_missing: exact missing gates.
+| Target type | Runtime behavior |
+|---|---|
+| `deep_link` | Builds `adb shell am start -W -a android.intent.action.VIEW -d <uri> <package>`, fires it, then parses foreground activity from `dumpsys`. |
+| `component` | Builds `adb shell am start -W -n <component>` with optional action/data URI, fires it, then parses foreground activity. |
 
-  The key logic is in sentinel/verify/proof_gate.py:83. A Code_Only finding can have good static evidence and a PoC command, but it is not runtime exploited.
+If `requires_auth` / `auth_required` / `behind_auth` is true, `AdbRunner`
+calls `credential_manager.auto_login(package, frida=...)` first. If login is
+not confirmed, the exploit intent is not fired. SENTINEL captures the blocking
+state screenshot, sets `verification_status = "Auth_Gated"`, records the
+observed activity, and keeps the finding in the AI-powered/proof-material
+bucket with an honest residual-risk narrative.
 
-  Exploitation
-  Phase 7.5 runs the exploit driver for eligible findings. If replay/exploit succeeds, it can set:
+### Report Generation Flow
 
-  - exploitation_status = "Verified_Exploited"
-  - exploit_proof
-  - api_replay_logs
-  - poc_artifacts
-  - severity_rationale
+`R_001` is the report agent. It loads findings from memory, stamps CVSS,
+filters out `INFO` and false positives, builds `ReportData`, enriches
+narratives, then writes Markdown, HTML, JSON, and SARIF under
+`workspace/<session>/reports`.
 
-  This is wired in sentinel/core/orchestrator.py:1624. API replay promotion to Verified_Exploited happens when replay logs contain a positive verdict; see sentinel/exploit/
-  driver.py:180.
+The narrative layer asks for summary, affected components, evidence notes,
+impact, fixes, and references. For reproduction and PoC, deterministic
+vulnerability-specific recipes win. If no recipe exists, the strict fallback
+renders either the executed verifier commands or a clear statement that no
+runtime command has been executed. The LLM is not allowed to invent generic
+"install the app, run Frida, verify exploit" proof text.
 
-  Estimated Impact
-  IMPACT_001 assigns a dollar estimate to financial_impact_score, stores rationale in evidence["_impact"], and derives context factors: exposure, controls, impact, likelihood. That is
-  handled in sentinel/impact/calculator.py:251. The frontend renders it as an “Estimated Impact” card only when the score exists and is positive.
+All injected report-enrichment evidence is wrapped in
+`<untrusted_evidence>...</untrusted_evidence>`. The system prompt tells the LLM
+to treat those blocks purely as data and never obey embedded instructions.
 
-  How It Appears In HTML Report
-  The VAPT HTML advisory renders this stack:
+### Proof Strength
 
-  1. Summary, including severity rationale.
-  2. Affected Components and code snippets.
-  3. Evidence in the APK.
-  4. Steps to Reproduce.
-  5. Proof of Concept.
-  6. Impact.
-  7. Suggested Fix.
-  8. References.
+The proof gate attaches:
 
-  That structure is implemented in sentinel/agents/reporting/templates/html.py:947. Static-only findings now say “Static proof commands” and “Proof status”; runtime-proven findings say
-  “Commands used by the verifier” and “Observed result”; see sentinel/agents/reporting/templates/html.py:1125.
+- `proof_status`: `code_only`, `runtime_verified`, `verified_exploited`,
+  `bounty_ready`, `auth_gated`, `runtime_failed`, `duplicate`, or `candidate`.
+- `proof_summary`: human-readable explanation.
+- `proof_requirements`: boolean checklist of all gates.
+- `proof_missing`: exact gates still missing.
 
-  How It Appears In Web UI
-  The web detail view renders:
+A `Code_Only` finding can have strong static evidence and a deterministic
+static proof command, but it is not runtime exploited. `Verified` means runtime
+behavior confirmed the target condition. `Verified_Exploited` means replay or
+exploit impact data exists. `bounty_ready` means all proof gates passed.
 
-  - Header with severity and CVSS.
-  - Description and severity rationale.
-  - Context factors.
-  - Metadata tags.
-  - Affected code.
-  - Steps to reproduce.
-  - Proof & Exploitation.
-  - Remediation.
-  - Supplementary impact/compliance/swarm panels.
+### Exploitation
 
-  The proof/exploitation UI uses proof_status, exploit_proof, poc_artifacts, and api_replay_logs; see frontend/js/components/finding-detail-view.js:481.
+Phase 7.5 runs the exploit driver for eligible findings. If replay/exploit
+succeeds, it can set:
 
-  Important Meaning
-  If you see Code_Only, SENTINEL is saying: “we have static/code evidence, but no runtime exploit proof.”
-  If you see Runtime_Verified, it means runtime behavior confirmed the bug, but not necessarily full exploit impact.
-  If you see Verified_Exploited, SENTINEL has replay/exfiltration/proof data.
-  If you see bounty_ready, all proof gates passed.
+- `exploitation_status = "Verified_Exploited"`
+- `exploit_proof`
+- `api_replay_logs`
+- `poc_artifacts`
+- `severity_rationale`
+
+API replay promotion to `Verified_Exploited` happens when replay logs contain a
+positive verdict. This is separate from Phase 4.6 runtime verification: a
+finding may be runtime-verified but still lack proven exploit impact.
+
+### Estimated Impact
+
+`IMPACT_001` assigns a dollar estimate to `financial_impact_score`, stores
+rationale in `evidence["_impact"]`, and derives context factors: exposure,
+controls, impact, and likelihood. The frontend renders the estimated-impact
+card only when the score exists and is positive.
+
+### How It Appears in HTML Report
+
+The VAPT HTML advisory renders this stack:
+
+1. Summary, including severity rationale.
+2. Affected components and code snippets.
+3. Evidence in the APK.
+4. Steps to reproduce.
+5. Proof of Concept.
+6. Impact.
+7. Suggested fix.
+8. References.
+
+Static-only findings should read as static/code evidence. Runtime-proven
+findings should show commands used by the verifier, observed result, blocking
+or verified screenshots, and the proof/exploitation state.
+
+### How It Appears in Web UI
+
+The web detail view renders:
+
+- Header with severity and CVSS.
+- Description and severity rationale.
+- Context factors.
+- Metadata tags.
+- Affected code.
+- Steps to reproduce.
+- Proof & Exploitation.
+- Remediation.
+- Supplementary impact/compliance/swarm panels.
+
+The proof/exploitation UI uses `proof_status`, `proof_summary`,
+`proof_requirements`, `proof_missing`, `exploit_proof`, `poc_artifacts`, and
+`api_replay_logs`.
