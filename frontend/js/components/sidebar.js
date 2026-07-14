@@ -21,6 +21,7 @@ const NAV_GROUPS = [
   {
     title: 'Configure',
     items: [
+      { id: 'devices',   label: 'Devices',   icon: 'smartphone',        href: '#devices' },
       { id: 'settings',  label: 'Settings',  icon: 'settings',         href: '#settings' },
     ],
   },

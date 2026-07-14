@@ -94,11 +94,17 @@ async def _check_frida_server(serial: str | None) -> CheckResult:
 
     loop = asyncio.get_event_loop()
     try:
-        device = await loop.run_in_executor(None, frida.get_usb_device, 5000)
+        if serial:
+            from sentinel.tools.frida_runner import FridaRunner
+
+            runner = FridaRunner(device_serial=serial)
+            device = await loop.run_in_executor(None, runner._get_frida_device)
+        else:
+            device = await loop.run_in_executor(None, frida.get_usb_device, 5000)
     except Exception as exc:  # noqa: BLE001
         return CheckResult(
             "frida-server on device", False,
-            f"get_usb_device failed: {exc}",
+            f"frida device discovery failed: {exc}",
         )
 
     try:

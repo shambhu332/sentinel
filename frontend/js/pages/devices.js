@@ -1,9 +1,4 @@
-// Devices page — surfaces the DeviceManager pool over /devices.
-//
-// Shows every attached Android device, its state (device / offline /
-// unauthorized / emulator), manufacturer/model, sdk, abi, and the
-// build fingerprint. Hits /devices on render + on the Refresh
-// button. Doesn't write — leasing happens server-side during scans.
+// Devices page - dynamic testing console for attached Android targets.
 import { api, ApiError } from '../api.js';
 import { el, refreshIcons, toast } from '../utils.js';
 
@@ -12,7 +7,7 @@ export function renderDevicesPage(main) {
     el('div', {},
       el('div', { class: 'page-title' }, 'Devices'),
       el('div', { class: 'page-subtitle', id: 'devices-subtitle' },
-        'DeviceManager pool — devices the orchestrator can lease for dynamic scans.'),
+        'Attached Android targets and runtime controls.'),
     ),
     el('div', { class: 'page-actions' },
       el('button', { class: 'btn btn-secondary btn-sm', id: 'devices-refresh' },
@@ -45,10 +40,7 @@ async function loadAndRender(container) {
     container.appendChild(el('div', { class: 'card', style: 'padding: 20px;' },
       el('h3', {}, 'Pool unreachable'),
       el('p', { class: 'text-muted' }, msg),
-      el('p', { class: 'text-muted' },
-        'Make sure adb is installed and at least one device is plugged in. ',
-        'When ', el('code', { class: 'inline' }, 'SENTINEL_REDIS_URL'),
-        ' is set, lease coordination uses Redis across workers.'),
+      el('p', { class: 'text-muted' }, 'No Android device is currently visible to adb.'),
     ));
     refreshIcons();
     return;
@@ -96,8 +88,31 @@ function buildDeviceCard(d) {
       'font-size:10px;text-transform:uppercase;letter-spacing:0.05em;',
   }, d.state);
 
-  return el('div', { class: 'card', style: 'padding: 16px;' },
-    el('div', { style: 'display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;' },
+  const output = el('pre', { class: 'device-output mono' }, 'Ready.');
+  const fileInput = el('input', {
+    class: 'input device-file',
+    type: 'file',
+    multiple: true,
+    accept: '.apk,application/vnd.android.package-archive',
+  });
+  const replaceInput = el('input', { type: 'checkbox', checked: true });
+  const grantInput = el('input', { type: 'checkbox', checked: true });
+  const packageInput = el('input', {
+    class: 'input mono',
+    type: 'text',
+    placeholder: 'com.example.app',
+  });
+  const activityInput = el('input', {
+    class: 'input mono',
+    type: 'text',
+    placeholder: '.MainActivity',
+  });
+
+  const online = d.state === 'device';
+  const disabled = online ? null : true;
+
+  return el('div', { class: 'card device-card' },
+    el('div', { class: 'device-card-head' },
       el('div', { class: 'mono', style: 'font-size: 13px; color: var(--accent-primary);' }, d.serial),
       stateBadge,
     ),
@@ -110,5 +125,149 @@ function buildDeviceCard(d) {
       ? el('div', { class: 'mono text-muted', style: 'font-size: 11px; margin-top: 8px; word-break: break-all;' },
           d.fingerprint)
       : null,
+    el('div', { class: 'device-action-bar' },
+      actionButton('activity', 'Preflight', () => runDeviceAction(
+        d.serial, output, 'Running preflight...', () => api.devicePreflight(d.serial),
+      ), disabled),
+      actionButton('shield-off', 'Disable verifier', () => runDeviceAction(
+        d.serial, output, 'Updating verifier settings...', () => api.disableVerifier(d.serial),
+      ), disabled),
+      actionButton('radio-tower', 'Setup Frida', () => runDeviceAction(
+        d.serial, output, 'Starting Frida...', () => api.setupFrida(d.serial),
+      ), disabled),
+      actionButton('trash-2', 'Clear logcat', () => runDeviceAction(
+        d.serial, output, 'Clearing logcat...', () => api.clearLogcat(d.serial),
+      ), disabled),
+    ),
+    el('div', { class: 'device-panel' },
+      el('div', { class: 'device-panel-title' },
+        el('i', { 'data-lucide': 'package-plus' }),
+        'Install APKs',
+      ),
+      fileInput,
+      el('div', { class: 'device-checkbox-row' },
+        el('label', { class: 'checkbox' }, replaceInput, el('span', {}, 'Replace existing')),
+        el('label', { class: 'checkbox' }, grantInput, el('span', {}, 'Grant permissions')),
+      ),
+      el('button', {
+        class: 'btn btn-primary btn-sm',
+        disabled,
+        onclick: () => {
+          const files = Array.from(fileInput.files || []);
+          if (!files.length) {
+            toast('Select at least one APK', 'error');
+            return;
+          }
+          runDeviceAction(
+            d.serial,
+            output,
+            `Installing ${files.length} APK file${files.length === 1 ? '' : 's'}...`,
+            () => api.installOnDevice(d.serial, {
+              files,
+              replace: replaceInput.checked,
+              grantPermissions: grantInput.checked,
+            }),
+          );
+        },
+      },
+        el('i', { 'data-lucide': 'upload' }),
+        'Install',
+      ),
+    ),
+    el('div', { class: 'device-panel' },
+      el('div', { class: 'device-panel-title' },
+        el('i', { 'data-lucide': 'play' }),
+        'Launch / Inspect',
+      ),
+      el('div', { class: 'device-form-grid' },
+        packageInput,
+        activityInput,
+      ),
+      el('div', { class: 'device-action-bar compact' },
+        actionButton('play', 'Launch', () => {
+          const packageName = packageInput.value.trim();
+          if (!packageName) {
+            toast('Package name required', 'error');
+            return;
+          }
+          runDeviceAction(
+            d.serial,
+            output,
+            `Launching ${packageName}...`,
+            () => api.launchOnDevice(d.serial, {
+              packageName,
+              activity: activityInput.value.trim(),
+            }),
+          );
+        }, disabled),
+        actionButton('info', 'Status', () => {
+          const packageName = packageInput.value.trim();
+          if (!packageName) {
+            toast('Package name required', 'error');
+            return;
+          }
+          runDeviceAction(
+            d.serial,
+            output,
+            `Checking ${packageName}...`,
+            () => api.packageStatus(d.serial, packageName),
+          );
+        }, disabled),
+        actionButton('scroll-text', 'Logcat', () => runDeviceAction(
+          d.serial, output, 'Reading logcat...', () => api.readLogcat(d.serial, { lines: 250 }),
+        ), disabled),
+      ),
+    ),
+    output,
   );
+}
+
+function actionButton(icon, label, onclick, disabled = null) {
+  return el('button', { class: 'btn btn-secondary btn-sm', onclick, disabled },
+    el('i', { 'data-lucide': icon }),
+    label,
+  );
+}
+
+async function runDeviceAction(serial, output, pendingText, fn) {
+  output.textContent = pendingText;
+  try {
+    const result = await fn();
+    output.textContent = renderResult(result);
+    toast(result.ok ? `Device ${serial} action complete` : `Device ${serial} action failed`,
+      result.ok ? 'success' : 'error');
+  } catch (e) {
+    const msg = e instanceof ApiError ? e.message : String(e);
+    output.textContent = msg;
+    toast(msg, 'error', 4000);
+  } finally {
+    refreshIcons();
+  }
+}
+
+function renderResult(result) {
+  const lines = [];
+  if (result.serial) lines.push(`serial: ${result.serial}`);
+  if (result.mode) lines.push(`mode: ${result.mode}`);
+  if (Array.isArray(result.files) && result.files.length) {
+    lines.push(`files: ${result.files.join(', ')}`);
+  }
+  if (typeof result.bytes === 'number') lines.push(`bytes: ${result.bytes}`);
+  if (Array.isArray(result.checks)) {
+    for (const check of result.checks) {
+      lines.push(`[${check.ok ? 'OK' : 'FAIL'}] ${check.name}: ${check.detail}`);
+    }
+  }
+  if (Array.isArray(result.actions)) {
+    for (const action of result.actions) {
+      lines.push(`[${action.ok ? 'OK' : 'FAIL'}] ${action.name}`);
+      if (action.stdout) lines.push(action.stdout.trimEnd());
+      if (action.stderr) lines.push(action.stderr.trimEnd());
+      if (action.error) lines.push(action.error);
+    }
+  }
+  if (result.stdout) lines.push(result.stdout.trimEnd());
+  if (result.error) lines.push(result.error);
+  if (!lines.length) lines.push(JSON.stringify(result, null, 2));
+  return lines.filter(Boolean).join('\n');
 }

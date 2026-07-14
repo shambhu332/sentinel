@@ -103,15 +103,24 @@ class AdbRunner:
 
     # ---------- APK install / start / stop ----------
 
-    async def install_apk(self, apk_path: Path, serial: Optional[str] = None,
-                          replace: bool = True) -> ToolResult[str]:
+    async def install_apk(
+        self,
+        apk_path: Path,
+        serial: Optional[str] = None,
+        replace: bool = True,
+        grant_permissions: bool = False,
+    ) -> ToolResult[str]:
         """Install an APK on the device. `-r` replaces existing."""
         args = ["install"]
         if replace:
             args.append("-r")
-        args.extend(["-t", "--bypass-low-target-sdk-block"])
-        args.append(str(apk_path))
-        result = await self._run_adb(args, serial=serial, timeout=120)
+        if grant_permissions:
+            args.append("-g")
+        args.append("-t")
+        apk = str(apk_path)
+
+        preferred_args = [*args, "--bypass-low-target-sdk-block", apk]
+        result = await self._run_adb(preferred_args, serial=serial, timeout=120)
         if not result.success:
             return ToolResult.fail(
                 f"install failed: {result.error}",
@@ -120,8 +129,103 @@ class AdbRunner:
         # adb sometimes returns success but stdout shows "Failure"
         out = result.data.stdout + result.data.stderr
         if "Success" not in out:
+            if "Unknown option --bypass-low-target-sdk-block" in out:
+                logger.info(
+                    "adb install does not support "
+                    "--bypass-low-target-sdk-block; retrying without it",
+                )
+                fallback_result = await self._run_adb(
+                    [*args, apk],
+                    serial=serial,
+                    timeout=120,
+                )
+                if not fallback_result.success:
+                    return ToolResult.fail(
+                        f"install failed: {fallback_result.error}",
+                        duration=(
+                            result.duration_seconds
+                            + fallback_result.duration_seconds
+                        ),
+                    )
+                fallback_out = (
+                    fallback_result.data.stdout + fallback_result.data.stderr
+                )
+                if "Success" in fallback_out:
+                    return ToolResult.ok(
+                        fallback_out.strip(),
+                        duration=(
+                            result.duration_seconds
+                            + fallback_result.duration_seconds
+                        ),
+                    )
+                out = fallback_out
             return ToolResult.fail(
                 f"install reported failure: {out[:300]}",
+                duration=result.duration_seconds,
+            )
+        return ToolResult.ok(out.strip(), duration=result.duration_seconds)
+
+    async def install_multiple_apks(
+        self,
+        apk_paths: list[Path],
+        serial: Optional[str] = None,
+        replace: bool = True,
+        grant_permissions: bool = False,
+    ) -> ToolResult[str]:
+        """Install a base APK plus split APKs using `adb install-multiple`."""
+        if not apk_paths:
+            return ToolResult.fail("install_multiple_apks requires at least one APK")
+
+        args = ["install-multiple"]
+        if replace:
+            args.append("-r")
+        if grant_permissions:
+            args.append("-g")
+        args.append("-t")
+
+        apks = [str(p) for p in apk_paths]
+        preferred_args = [*args, "--bypass-low-target-sdk-block", *apks]
+        result = await self._run_adb(preferred_args, serial=serial, timeout=180)
+        if not result.success:
+            return ToolResult.fail(
+                f"install-multiple failed: {result.error}",
+                duration=result.duration_seconds,
+            )
+
+        out = result.data.stdout + result.data.stderr
+        if "Success" not in out:
+            if "Unknown option --bypass-low-target-sdk-block" in out:
+                logger.info(
+                    "adb install-multiple does not support "
+                    "--bypass-low-target-sdk-block; retrying without it",
+                )
+                fallback_result = await self._run_adb(
+                    [*args, *apks],
+                    serial=serial,
+                    timeout=180,
+                )
+                if not fallback_result.success:
+                    return ToolResult.fail(
+                        f"install-multiple failed: {fallback_result.error}",
+                        duration=(
+                            result.duration_seconds
+                            + fallback_result.duration_seconds
+                        ),
+                    )
+                fallback_out = (
+                    fallback_result.data.stdout + fallback_result.data.stderr
+                )
+                if "Success" in fallback_out:
+                    return ToolResult.ok(
+                        fallback_out.strip(),
+                        duration=(
+                            result.duration_seconds
+                            + fallback_result.duration_seconds
+                        ),
+                    )
+                out = fallback_out
+            return ToolResult.fail(
+                f"install-multiple reported failure: {out[:300]}",
                 duration=result.duration_seconds,
             )
         return ToolResult.ok(out.strip(), duration=result.duration_seconds)

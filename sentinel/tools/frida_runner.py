@@ -7,7 +7,9 @@ Frida lets us hook arbitrary Java/native methods at runtime, observing
 - Sensitive data flowing through methods that never appear in logs
 
 Architecture:
-1. We use the USB-connected Android device (frida.get_usb_device)
+1. We prefer the USB-connected Android device (frida.get_usb_device).
+   When the pinned adb serial is a TCP/emulator transport, we fall back
+   to adb-forwarded Frida on 127.0.0.1:27042.
 2. A standalone frida-server runs at /data/local/tmp/frida-server on
    the phone (Frida 16.x — Frida 17 removed the built-in Java bridge)
 3. We attach to the target app's process AFTER it has been started
@@ -157,6 +159,7 @@ class FridaRunner:
 
     # Timeout for the adb pidof fallback in _find_pid.
     ADB_PIDOF_TIMEOUT_SECONDS = 5.0
+    FRIDA_REMOTE_PORT = 27042
 
     def __init__(
         self,
@@ -218,7 +221,7 @@ class FridaRunner:
             import frida
 
             self._device = await self._loop.run_in_executor(
-                None, frida.get_usb_device, 5000,
+                None, self._get_frida_device,
             )
             logger.info(
                 "Frida device: %s (%s)",
@@ -354,8 +357,12 @@ class FridaRunner:
         adb = shutil.which("adb")
         if adb is not None:
             try:
+                cmd = [adb]
+                if self._device_serial:
+                    cmd.extend(["-s", self._device_serial])
+                cmd.extend(["shell", "am", "force-stop", package])
                 subprocess.run(
-                    [adb, "shell", "am", "force-stop", package],
+                    cmd,
                     capture_output=True,
                     timeout=5,
                 )
@@ -554,7 +561,6 @@ class FridaRunner:
             raise RuntimeError(self._frida_unavailable_reason)
 
         import json
-        import frida
 
         loop = asyncio.get_event_loop()
         auth_future: asyncio.Future[bool] = loop.create_future()
@@ -579,7 +585,7 @@ class FridaRunner:
             elif event == "auth.fail":
                 loop.call_soon_threadsafe(auth_future.set_result, False)
 
-        device = await loop.run_in_executor(None, frida.get_usb_device, 5000)
+        device = await loop.run_in_executor(None, self._get_frida_device)
 
         # _find_pid reads self._device; temporarily borrow the slot so
         # we don't have to fork the helper. Restored in `finally` below.
@@ -665,6 +671,67 @@ class FridaRunner:
         return ToolResult.ok(capture, duration=duration)
 
     # ---------- Internals ----------
+
+    def _get_frida_device(self) -> Any:
+        """Return a Frida device for USB or adb-over-TCP emulators.
+
+        Frida's ``get_usb_device()`` does not always expose emulators
+        connected through TCP adb transports (for example Genymotion's
+        ``127.0.0.1:6562``). When SENTINEL was given an explicit adb
+        serial, create a local adb forward to the standard frida-server
+        port and connect through Frida's remote-device API.
+        """
+        import frida
+
+        try:
+            return frida.get_usb_device(5000)
+        except Exception as usb_exc:  # noqa: BLE001
+            if not self._device_serial:
+                raise
+            logger.info(
+                "Frida USB discovery failed for %s (%s); trying adb "
+                "forwarded remote Frida",
+                self._device_serial, usb_exc,
+            )
+            return self._get_forwarded_frida_device(usb_exc)
+
+    def _get_forwarded_frida_device(self, usb_exc: BaseException) -> Any:
+        import frida
+
+        adb = shutil.which("adb")
+        if adb is None:
+            raise RuntimeError(
+                "Frida USB discovery failed and adb is not on PATH; "
+                f"USB error was: {usb_exc}",
+            ) from usb_exc
+
+        port = str(self.FRIDA_REMOTE_PORT)
+        try:
+            subprocess.run(
+                [
+                    adb, "-s", str(self._device_serial),
+                    "forward", f"tcp:{port}", f"tcp:{port}",
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=8,
+            )
+        except Exception as forward_exc:  # noqa: BLE001
+            raise RuntimeError(
+                "Frida USB discovery failed and adb forward to "
+                f"{self._device_serial} tcp:{port} failed: {forward_exc}; "
+                f"USB error was: {usb_exc}",
+            ) from forward_exc
+
+        endpoint = f"127.0.0.1:{port}"
+        try:
+            return frida.get_device_manager().add_remote_device(endpoint)
+        except Exception as remote_exc:  # noqa: BLE001
+            raise RuntimeError(
+                f"Frida USB discovery failed and remote Frida at {endpoint} "
+                f"is not reachable: {remote_exc}; USB error was: {usb_exc}",
+            ) from remote_exc
 
     def _check_version_compatibility(self) -> Optional[str]:
         """Return a warning string when client and server majors differ.
@@ -807,8 +874,12 @@ class FridaRunner:
             logger.warning("adb not in PATH — cannot use pidof fallback")
             return None
         try:
+            cmd = [adb]
+            if self._device_serial:
+                cmd.extend(["-s", self._device_serial])
+            cmd.extend(["shell", "pidof", package])
             result = subprocess.run(
-                [adb, "shell", "pidof", package],
+                cmd,
                 capture_output=True,
                 text=True,
                 timeout=self.ADB_PIDOF_TIMEOUT_SECONDS,

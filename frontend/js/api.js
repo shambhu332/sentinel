@@ -110,6 +110,45 @@ export const api = {
   listAgents()   { return request('/agents'); },
   listScans()    { return request('/scans'); },
   listDevices()  { return request('/devices'); },
+  devicePreflight(serial) {
+    return request(`/devices/${encodeURIComponent(serial)}/preflight`, { method: 'POST' });
+  },
+  disableVerifier(serial) {
+    return request(`/devices/${encodeURIComponent(serial)}/disable-verifier`, { method: 'POST' });
+  },
+  setupFrida(serial) {
+    return request(`/devices/${encodeURIComponent(serial)}/frida/setup`, { method: 'POST' });
+  },
+  fridaStatus(serial) {
+    return request(`/devices/${encodeURIComponent(serial)}/frida/status`);
+  },
+  installOnDevice(serial, { files = [], replace = true, grantPermissions = true } = {}) {
+    const form = new FormData();
+    for (const file of files) form.append('apks', file, file.name);
+    form.append('replace', replace ? 'true' : 'false');
+    form.append('grant_permissions', grantPermissions ? 'true' : 'false');
+    return request(`/devices/${encodeURIComponent(serial)}/install`, {
+      method: 'POST',
+      body: form,
+    });
+  },
+  launchOnDevice(serial, { packageName, activity = '' }) {
+    return request(`/devices/${encodeURIComponent(serial)}/launch`, {
+      method: 'POST',
+      body: { package: packageName, activity },
+    });
+  },
+  packageStatus(serial, packageName) {
+    return request(
+      `/devices/${encodeURIComponent(serial)}/packages/${encodeURIComponent(packageName)}`,
+    );
+  },
+  clearLogcat(serial) {
+    return request(`/devices/${encodeURIComponent(serial)}/logcat/clear`, { method: 'POST' });
+  },
+  readLogcat(serial, { lines = 250 } = {}) {
+    return request(`/devices/${encodeURIComponent(serial)}/logcat?lines=${encodeURIComponent(lines)}`);
+  },
   getScan(id)    { return request(`/scans/${id}`); },
   getFindings(id){ return request(`/scans/${id}/findings`); },
   getResult(id)  { return request(`/scans/${id}/result`); },
