@@ -1124,12 +1124,15 @@ def _code_snippets_html(finding) -> str:
 def _repro_extra_html(finding) -> str:
     """Render reproduction_commands + observed_result under Steps to Reproduce."""
     parts: list[str] = []
+    runtime_verified = _has_runtime_verification(finding)
+    command_label = "Commands used by the verifier" if runtime_verified else "Static proof commands"
+    observed_label = "Observed result" if runtime_verified else "Proof status"
     cmds = list(getattr(finding, "reproduction_commands", None) or [])
     if cmds:
         body = "\n".join(html.escape(str(c)) for c in cmds)
         parts.append(
             "<div class='repro-cmds'>"
-            "<div class='repro-label'>Commands used by the verifier</div>"
+            f"<div class='repro-label'>{html.escape(command_label)}</div>"
             f"<pre><code>{body}</code></pre>"
             "</div>"
         )
@@ -1137,11 +1140,23 @@ def _repro_extra_html(finding) -> str:
     if observed:
         parts.append(
             "<div class='observed'>"
-            "<div class='observed-label'>Observed result</div>"
+            f"<div class='observed-label'>{html.escape(observed_label)}</div>"
             f"<p><em>{html.escape(observed.strip())}</em></p>"
             "</div>"
         )
     return "".join(parts)
+
+
+def _has_runtime_verification(finding) -> bool:
+    status = str(getattr(finding, "verification_status", "") or "").lower()
+    if "runtime" in status or "auth" in status:
+        return True
+    if "verified" in status and "llm" not in status and "code" not in status:
+        return True
+    if getattr(finding, "blocking_state_screenshot", None):
+        return True
+    screenshots = getattr(finding, "screenshots", None) or []
+    return bool(screenshots)
 
 
 def _section_block(num: int, title: str, body: str) -> str:

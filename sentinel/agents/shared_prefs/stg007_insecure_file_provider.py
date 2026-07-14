@@ -18,9 +18,10 @@ Two bug patterns we flag:
 
 1. **Over-broad mapping** — ``root-path`` (any value), ``external-path``
    or ``files-path`` with ``path="."`` / ``path=""`` / ``path="/"``.
-   Any sibling whose URI we grant access to receives the whole
-   sandbox / external storage instead of a specific file. Recipient
-   apps can read SharedPreferences, the database, code-cache, etc.
+   Static analysis can prove that the provider root is too broad. A
+   runtime disclosure still depends on a reachable share flow and grant
+   semantics, especially whether the app grants a sensitive URI or a
+   prefix URI permission.
 2. **Exported FileProvider** — ``<provider android:exported="true">``
    for the FileProvider authority. FileProvider must always be
    ``exported="false"`` and rely on the per-URI grant flag the sharer
@@ -192,13 +193,12 @@ class InsecureFileProviderAgent(BaseAgent):
                 cvss_vector="CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:N",
                 severity_rationale=(
                     f"Rated CRITICAL because {name} is declared exported. "
-                    f"FileProvider's security model relies on per-URI "
-                    f"grants issued at share time — once the provider is "
-                    f"exported those grants stop being the access "
-                    f"boundary, and any installed app can call "
-                    f"ContentResolver.query/openFileDescriptor against "
-                    f"content://{authority}/... to read files the user "
-                    f"never intended to share."
+                    f"FileProvider's security model relies on "
+                    f"android:exported=\"false\" plus per-URI grants "
+                    f"issued at share time. An exported declaration either "
+                    f"breaks the AndroidX FileProvider contract at runtime "
+                    f"or, for a permissive custom subclass, removes the "
+                    f"per-URI grant boundary."
                 ),
                 verification_status="Code-level only",
                 source_tags=[
@@ -207,20 +207,20 @@ class InsecureFileProviderAgent(BaseAgent):
                     "Manifest Misconfiguration",
                 ],
                 reproduction_commands=[
-                    "# Any unprivileged app can resolve the authority:",
-                    f"adb shell content query --uri content://{authority}/ \\",
-                    f"  --projection _display_name:_size",
+                    "# Decode or inspect the manifest provider declaration:",
+                    "apktool d target.apk -o decoded",
+                    "rg -n 'FileProvider|android:exported|grantUriPermissions' decoded/AndroidManifest.xml",
                     "",
-                    "# Or open a specific file once a path is known:",
-                    f"adb shell content read --uri content://{authority}/file_paths/secret.txt",
+                    "# Runtime confirmation, if a test build can be launched:",
+                    f"adb shell dumpsys package {package} | rg -n '{re.escape(authority)}|FileProvider|exported=true'",
                 ],
                 observed_result=(
-                    f"The provider responds to ContentResolver calls from "
-                    f"any caller — there is no permission check and the "
-                    f"per-URI grant flag at the share site is no longer "
-                    f"enforced. Files mapped under @xml/file_paths are "
-                    f"reachable to any app that learns the authority "
-                    f"name ({authority})."
+                    f"Static proof only: the manifest declares FileProvider "
+                    f"authority {authority} with android:exported=\"true\". "
+                    f"Runtime impact must be confirmed on device: AndroidX "
+                    f"FileProvider normally rejects exported providers, while "
+                    f"a permissive custom provider would expose mapped files "
+                    f"without relying on share-time URI grants."
                 ),
                 code_snippets=[{
                     "label": "FileProvider declaration",
@@ -256,15 +256,6 @@ class InsecureFileProviderAgent(BaseAgent):
             f"  <{tag} name=\"external_files\" path=\"{path_value}\" />\n"
             "</paths>"
         )
-
-        # Pick a per-tag example URI / target path so the reproduction
-        # commands and observed result point at something concrete.
-        target_example = {
-            "root-path": "/etc/hosts",
-            "external-path": "/sdcard/Android/data/<other-app>/files/secret.txt",
-            "files-path": "shared_prefs/auth_prefs.xml",
-            "cache-path": "image_cache/secret.bin",
-        }.get(tag, "some/file.txt")
 
         source_tags = [
             "FileProvider Misconfiguration",
@@ -313,32 +304,33 @@ class InsecureFileProviderAgent(BaseAgent):
             cvss_vector="CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:U/C:H/I:L/A:N",
             severity_rationale=(
                 f"Rated {severity.value} because <{tag} path=\"{path_value or '<empty>'}\"/> "
-                f"{rationale}. The moment the sharer issues a per-URI "
-                f"grant for *any* file under that root, the recipient app "
-                f"can resolve sibling paths under the same mapping and "
-                f"read everything the mapping exposes — not just the "
-                f"intended file."
+                f"{rationale}. This increases the blast radius of any "
+                f"reachable FileProvider share flow because the mapping "
+                f"may cover a much larger root than the app intended. "
+                f"Runtime exploitability still depends on proving a share "
+                f"flow that grants sensitive content or a prefix URI grant."
             ),
             verification_status="Code-level only",
             source_tags=source_tags,
             reproduction_commands=[
-                "# 1. Share any file via the FileProvider to obtain a content URI",
-                "#    (in the target app, normal share flow):",
-                f"#       Uri uri = FileProvider.getUriForFile(ctx, \"{authority}\", file);",
+                "# Decode the APK and inspect the FileProvider paths XML:",
+                "apktool d target.apk -o decoded",
+                f"cat decoded/{rel}",
                 "",
-                "# 2. From a sibling app holding that URI, traverse to a file the",
-                "#    mapping never intended to share:",
-                f"adb shell content read \\",
-                f"  --uri content://{authority}/external_files/{target_example}",
+                "# Correlate the authority with share sites and grant flags:",
+                (
+                    "rg -n "
+                    "'FileProvider|getUriForFile|FLAG_GRANT_(READ|WRITE|PREFIX)_URI_PERMISSION' "
+                    "decoded/sources decoded/AndroidManifest.xml"
+                ),
             ],
             observed_result=(
-                f"Once a single per-URI grant is issued under the "
-                f"<{tag}> mapping, the recipient app can read any file "
-                f"reachable from the mapping root — e.g. "
-                f"{target_example} — by appending the relative path to "
-                f"the granted content URI. The FileProvider does not "
-                f"re-check whether the recipient was granted that "
-                f"specific sub-path."
+                f"Static proof only: decoded/{rel} declares <{tag} "
+                f"path=\"{path_value}\"> for authority {authority}, so the "
+                f"mapping is over-broad: {rationale}. A real file-read PoC must also "
+                f"show a reachable app flow that issues a URI grant for "
+                f"sensitive content or uses FLAG_GRANT_PREFIX_URI_PERMISSION; "
+                f"this finding has not dynamically verified a content:// read."
             ),
         )
 

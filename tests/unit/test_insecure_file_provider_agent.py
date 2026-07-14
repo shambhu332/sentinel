@@ -1,6 +1,8 @@
 """Unit tests for STG_007 InsecureFileProviderAgent."""
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from sentinel.agents.shared_prefs import InsecureFileProviderAgent
@@ -114,6 +116,34 @@ async def test_wildcard_files_path_is_medium(memory, tmp_path):
     findings = await agent.analyze()
     assert len(findings) == 1
     assert findings[0].severity == Severity.MEDIUM
+
+
+def test_path_mapping_proof_is_static_not_fake_content_read(tmp_path):
+    ctx = _make_ctx(
+        tmp_path,
+        manifest={
+            "package": "com.x",
+            "exported_components": [],
+        },
+    )
+    _plant_xml(ctx, "fp.xml", """<?xml version="1.0" encoding="utf-8"?>
+<paths>
+  <cache-path name="all_cache" path="." />
+</paths>
+""")
+    agent = InsecureFileProviderAgent(context=ctx, memory=object())  # type: ignore[arg-type]
+    [finding] = asyncio.run(agent.analyze())
+
+    assert finding.verification_status == "Code-level only"
+    assert finding.reproduction_commands
+    assert any("apktool d target.apk" in c for c in finding.reproduction_commands)
+    assert any("getUriForFile" in c for c in finding.reproduction_commands)
+    assert not any("content://" in c for c in finding.reproduction_commands)
+    assert finding.observed_result
+    assert finding.observed_result.startswith("Static proof only")
+    assert "not dynamically verified" in finding.observed_result
+    assert "image_cache/secret.bin" not in finding.observed_result
+    assert "can read any file reachable" not in finding.observed_result
 
 
 # ---------- narrow path is safe ----------

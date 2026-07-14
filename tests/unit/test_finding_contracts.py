@@ -407,8 +407,12 @@ def test_stg007_emits_new_djini_fields(tmp_path: Path):
         assert "FileProvider Misconfiguration" in f.source_tags
         assert f.severity_rationale and "mapping" in f.severity_rationale.lower()
         assert f.reproduction_commands
-        assert any("content://" in c for c in f.reproduction_commands)
-        assert f.observed_result and "content URI" in f.observed_result
+        assert any("apktool d target.apk" in c for c in f.reproduction_commands)
+        assert any("getUriForFile" in c for c in f.reproduction_commands)
+        assert not any("content://" in c for c in f.reproduction_commands)
+        assert f.observed_result and f.observed_result.startswith("Static proof only")
+        assert "not dynamically verified" in f.observed_result
+        assert "image_cache/secret.bin" not in f.observed_result
         assert f.code_snippets and f.code_snippets[0]["file"].endswith("file_paths.xml")
         # Legacy singular snippet must still be populated for back-compat.
         assert f.code_snippet and f.code_snippet["content"]
@@ -421,7 +425,8 @@ def test_stg007_emits_new_djini_fields(tmp_path: Path):
     assert exp.severity is Severity.CRITICAL
     assert exp.verification_status == "Code-level only"
     assert "Exported Component" in exp.source_tags
-    assert any("content query" in c for c in exp.reproduction_commands)
+    assert any("dumpsys package" in c for c in exp.reproduction_commands)
+    assert exp.observed_result.startswith("Static proof only")
     assert exp.code_snippets and exp.code_snippets[0]["file"] == "AndroidManifest.xml"
     assert "android:exported=\"true\"" in exp.code_snippets[0]["content"]
 
@@ -674,8 +679,8 @@ def test_pipeline_contract_new_fields_survive_every_hop(tmp_path: Path):
         verdict=TriageVerdict(
             is_real_bug=True,
             confidence=0.95,
-            explanation="root-path mapping confirmed; sibling apps can "
-                        "traverse to any file once a grant is issued.",
+            explanation="root-path mapping confirmed; runtime exploitability "
+                        "requires a reachable grant flow.",
         ),
     ))
     LLMTriager._apply_triage_to_finding(
@@ -695,8 +700,10 @@ def test_pipeline_contract_new_fields_survive_every_hop(tmp_path: Path):
     assert row["severity_rationale"].startswith("root-path mapping")
     assert row["verification_status"] == "Verified by LLM triage"
     assert "FileProvider Misconfiguration" in row["source_tags"]
-    assert any("content://" in c for c in row["reproduction_commands"])
-    assert row["observed_result"].startswith("Once a single per-URI grant")
+    assert any("apktool d target.apk" in c for c in row["reproduction_commands"])
+    assert not any("content://" in c for c in row["reproduction_commands"])
+    assert row["observed_result"].startswith("Static proof only")
+    assert "not dynamically verified" in row["observed_result"]
     assert row["code_snippets"] and row["code_snippets"][0]["file"].endswith("file_paths.xml")
     assert isinstance(row["screenshots"][0], dict)
     assert row["screenshots"][0]["caption"] == "App home before traversal attempt"

@@ -263,6 +263,7 @@ function stepsToReproduceSection(finding, ctx) {
   const observed = finding.observed_result || finding.evidence?.observed_result || '';
   const verStatus = finding.verification_status
     || finding.evidence?.verification_status || '';
+  const runtimeVerified = isRuntimeVerifiedFinding(finding);
 
   if (!steps.length && !shots.length && !reproCmds.length && !observed && !verStatus) {
     return null;
@@ -338,7 +339,8 @@ function stepsToReproduceSection(finding, ctx) {
   // a developer can copy-paste the whole exploit reproduction.
   if (reproCmds.length) {
     section.appendChild(el('div', { class: 'fd-repro-cmds' },
-      el('div', { class: 'fd-repro-cmds-label' }, 'Commands used by the verifier'),
+      el('div', { class: 'fd-repro-cmds-label' },
+        runtimeVerified ? 'Commands used by the verifier' : 'Static proof commands'),
       el('pre', { class: 'fd-step-cmd' },
         el('code', {}, reproCmds.join('\n')),
       ),
@@ -347,7 +349,8 @@ function stepsToReproduceSection(finding, ctx) {
 
   if (observed) {
     section.appendChild(el('div', { class: 'fd-observed' },
-      el('div', { class: 'fd-observed-label' }, 'Observed result'),
+      el('div', { class: 'fd-observed-label' },
+        runtimeVerified ? 'Observed result' : 'Proof status'),
       el('p', { class: 'fd-observed-text' }, observed),
     ));
   }
@@ -381,6 +384,17 @@ function stepsToReproduceSection(finding, ctx) {
   }
 
   return section;
+}
+
+function isRuntimeVerifiedFinding(finding) {
+  const status = String(finding.verification_status
+    || finding.evidence?.verification_status || '').toLowerCase();
+  if (status.includes('runtime') || status.includes('auth')) return true;
+  if (status.includes('verified') && !status.includes('llm') && !status.includes('code')) {
+    return true;
+  }
+  if (finding.blocking_state_screenshot) return true;
+  return normaliseScreenshots(finding).length > 0;
 }
 
 function collectSteps(finding) {

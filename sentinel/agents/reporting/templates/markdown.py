@@ -293,14 +293,17 @@ def _finding_card(
                 "",
             ])
 
-    # Steps to reproduce — verifier commands + observed result.
+    # Steps to reproduce — verifier commands/static proof + observed result.
+    runtime_verified = _has_runtime_verification(f)
+    command_label = "Commands used by the verifier" if runtime_verified else "Static proof commands"
+    observed_label = "Observed result" if runtime_verified else "Proof status"
     if f.reproduction_commands:
-        lines.extend(["**Steps to reproduce:**", "", "```"])
+        lines.extend([f"**{command_label}:**", "", "```"])
         lines.extend(str(c) for c in f.reproduction_commands)
         lines.extend(["```", ""])
     if f.observed_result:
         lines.extend([
-            "**Observed result:**",
+            f"**{observed_label}:**",
             "",
             f"_{f.observed_result.strip()}_",
             "",
@@ -335,6 +338,18 @@ def _finding_card(
         "---",
         "",
     ])
+
+
+def _has_runtime_verification(f) -> bool:
+    status = str(getattr(f, "verification_status", "") or "").lower()
+    if "runtime" in status or "auth" in status:
+        return True
+    if "verified" in status and "llm" not in status and "code" not in status:
+        return True
+    if getattr(f, "blocking_state_screenshot", None):
+        return True
+    screenshots = getattr(f, "screenshots", None) or []
+    return bool(screenshots)
 
 
 def _references(lines: list[str], refs: Iterable[ReferenceBlock]) -> None:
