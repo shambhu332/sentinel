@@ -30,6 +30,92 @@ _POSITIVE_REPLAY_VERDICTS = {
 }
 
 
+def apply_runtime_result(finding: Finding, runtime_result: object | None) -> Finding:
+    """Lift an ADB runtime result onto first-class Finding fields.
+
+    This is intentionally deterministic. The LLM may later write the
+    severity rationale from these facts, but it cannot change the
+    verification state decided here.
+    """
+    if runtime_result is None:
+        return finding.model_copy(update={
+            "verification_status": "Code_Only",
+            "verification_state": "code_only",
+            "exploitation_status": (
+                "Code_Only"
+                if finding.exploitation_status == "Unverified"
+                else finding.exploitation_status
+            ),
+        })
+
+    target_reached = bool(getattr(runtime_result, "target_reached", False))
+    is_auth_gated = bool(getattr(runtime_result, "is_auth_gated", False))
+    observed = getattr(runtime_result, "observed_result", None)
+    screenshot = getattr(runtime_result, "blocking_state_screenshot", None)
+    verification_screenshot = getattr(runtime_result, "verification_screenshot", None)
+    command = getattr(runtime_result, "command", "")
+    test_credentials_used = bool(getattr(runtime_result, "test_credentials_used", False))
+    verified_exploited = bool(getattr(runtime_result, "verified_exploited", False))
+
+    updates: dict[str, object] = {
+        "observed_result": observed or finding.observed_result,
+    }
+    screenshots = list(finding.screenshots or [])
+    if command:
+        commands = list(finding.reproduction_commands or [])
+        if command not in commands:
+            commands.append(command)
+        updates["reproduction_commands"] = commands
+    if screenshot:
+        updates["blocking_state_screenshot"] = screenshot
+        screenshots.append({
+            "path": screenshot,
+            "caption": "UI evidence: authentication blocked the runtime probe.",
+            "label": "auth_gated",
+        })
+    if verification_screenshot:
+        screenshots.append({
+            "path": verification_screenshot,
+            "caption": "Runtime evidence: target reached after proof command.",
+            "label": "verified_exploited",
+        })
+    if screenshots:
+        updates["screenshots"] = screenshots
+    if test_credentials_used:
+        updates["test_credentials_used"] = True
+
+    if target_reached:
+        updates.update({
+            "verification_status": "Verified",
+            "verification_state": "verified",
+            "finding_category": "AI-Powered",
+        })
+        if verified_exploited:
+            updates["exploitation_status"] = "Verified_Exploited"
+    elif is_auth_gated:
+        updates.update({
+            "verification_status": "Auth_Gated",
+            "verification_state": "auth_gated",
+            "exploitation_status": (
+                "Auth_Gated"
+                if finding.exploitation_status == "Unverified"
+                else finding.exploitation_status
+            ),
+            "finding_category": "AI-Powered",
+        })
+    else:
+        updates.update({
+            "verification_status": "Runtime_Failed",
+            "verification_state": "runtime_failed",
+            "exploitation_status": (
+                "Runtime_Failed"
+                if finding.exploitation_status == "Unverified"
+                else finding.exploitation_status
+            ),
+        })
+    return finding.model_copy(update=updates)
+
+
 @dataclass(frozen=True)
 class ProofAssessment:
     status: ProofStatus

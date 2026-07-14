@@ -267,12 +267,10 @@ class Orchestrator:
             result.findings = findings
             await self._persist_findings(result.findings)
 
-            # Phase 4.6: hybrid SAST→DAST replay. The Phase 4 Frida
-            # capture runs before Phase 2 so runtime observers can feed
-            # dynamic agents. Hybrid target findings, however, only exist
-            # after Phase 2. Re-attach briefly and invoke their rpc.exports
-            # payloads here.
-            if self._dynamic_enabled and self._frida_enabled:
+            # Phase 4.6: hybrid SAST→DAST replay. First-class ADB targets
+            # only need --dynamic; legacy Frida RPC targets and auth-login
+            # preflights use Frida when --frida is enabled.
+            if self._dynamic_enabled:
                 start = asyncio.get_event_loop().time()
                 try:
                     await self._phase46_dynamic_target_dispatch(
@@ -1144,13 +1142,18 @@ class Orchestrator:
         findings: list[Finding],
         scan_result: ScanResult,
     ) -> None:
-        """Replay hybrid SAST findings through Frida RPC after Phase 2."""
-        targets = [
+        """Replay hybrid SAST findings through ADB / Frida after Phase 2."""
+        legacy_targets = [
             f for f in findings
             if (f.evidence or {}).get("dynamic_target") is True
             and isinstance((f.evidence or {}).get("frida_payload"), dict)
         ]
-        if not targets:
+        adb_targets = [
+            (idx, f, f.dynamic_target)
+            for idx, f in enumerate(findings)
+            if isinstance(f.dynamic_target, dict)
+        ]
+        if not legacy_targets and not adb_targets:
             return
 
         package = str((self._context.manifest or {}).get("package") or "")
@@ -1177,45 +1180,171 @@ class Orchestrator:
                 f"Phase 4.6 app launch warning: {relaunch.error}",
             )
 
-        frida = FridaRunner(
-            evidence_dir=self._context.workspace / "evidence",
-            device_serial=getattr(self._context, "device_serial", "") or None,
+        from sentinel.tools.credential_manager import CredentialManager
+        credential_manager = CredentialManager.from_env(
+            workspace_root=self._context.workspace,
         )
-        attach_result = await frida.attach(package, spawn=self._frida_spawn)
-        if not attach_result.success:
-            scan_result.warnings.append(
-                f"Phase 4.6 Frida attach failed: {attach_result.error}",
-            )
-            return
 
+        frida: FridaRunner | None = None
+        frida_ready = False
+        needs_frida = self._frida_enabled and (
+            bool(legacy_targets) or any(
+                self._target_requires_auth(t) for _, _, t in adb_targets
+            )
+        )
         try:
-            inject_result = await frida.inject_script(ALL_RUNTIME_HOOKS)
-            if not inject_result.success:
-                scan_result.warnings.append(
-                    f"Phase 4.6 Frida script injection failed: "
-                    f"{inject_result.error}",
+            if needs_frida:
+                frida = FridaRunner(
+                    evidence_dir=self._context.workspace / "evidence",
+                    device_serial=getattr(self._context, "device_serial", "") or None,
                 )
-                return
-            if self._frida_spawn:
-                resume_result = await frida.resume()
-                if not resume_result.success:
+                attach_result = await frida.attach(package, spawn=self._frida_spawn)
+                if not attach_result.success:
                     scan_result.warnings.append(
-                        f"Phase 4.6 Frida resume failed: "
-                        f"{resume_result.error}",
+                        f"Phase 4.6 Frida attach failed: {attach_result.error}",
                     )
+                else:
+                    inject_result = await frida.inject_script(ALL_RUNTIME_HOOKS)
+                    if not inject_result.success:
+                        scan_result.warnings.append(
+                            f"Phase 4.6 Frida script injection failed: "
+                            f"{inject_result.error}",
+                        )
+                    else:
+                        frida_ready = True
+                        if self._frida_spawn:
+                            resume_result = await frida.resume()
+                            if not resume_result.success:
+                                scan_result.warnings.append(
+                                    f"Phase 4.6 Frida resume failed: "
+                                    f"{resume_result.error}",
+                                )
 
-            from sentinel.core.dynamic_dispatch import dispatch_dynamic_targets
-            from sentinel.tools.credential_manager import CredentialManager
-            credential_manager = CredentialManager.from_env(
-                workspace_root=self._context.workspace,
-            )
-            dispatch_summary = await dispatch_dynamic_targets(
-                findings, frida,
-                session_id=self._context.session_id,
-                workspace=self._context.workspace,
-                credential_manager=credential_manager,
-            )
-            await credential_manager.aclose()
+            adb_summary = {
+                "dispatched": 0,
+                "succeeded": 0,
+                "failed": 0,
+                "auth_gated": 0,
+            }
+            if adb_targets:
+                from sentinel.verify.proof_gate import apply_runtime_result
+
+                for idx, finding, target in adb_targets:
+                    target_type = str(target.get("type") or "").strip().lower()
+                    require_auth = self._target_requires_auth(target)
+                    result = None
+                    if target_type == "deep_link":
+                        scheme = self._target_str(target, "scheme", "uri_scheme")
+                        if not scheme:
+                            scan_result.warnings.append(
+                                f"Phase 4.6 skipped {finding.finding_id}: "
+                                "deep_link target missing scheme",
+                            )
+                            adb_summary["failed"] += 1
+                            continue
+                        result = await adb.verify_deep_link(
+                            package,
+                            scheme,
+                            self._target_str(
+                                target,
+                                "url",
+                                "payload_url",
+                                "value",
+                                default="https://sentinel.invalid/poc.html",
+                            ),
+                            self._context.session_id,
+                            workspace=self._context.workspace,
+                            serial=serial,
+                            path=self._target_str(target, "path", "route", default="showPage"),
+                            param=self._target_str(target, "param", "url_param", default="url"),
+                            require_auth=require_auth,
+                            credential_manager=credential_manager,
+                            frida=frida if frida_ready else None,
+                        )
+                    elif target_type == "component":
+                        component = self._target_str(
+                            target, "component", "activity", "name",
+                        )
+                        if not component:
+                            scan_result.warnings.append(
+                                f"Phase 4.6 skipped {finding.finding_id}: "
+                                "component target missing component/activity",
+                            )
+                            adb_summary["failed"] += 1
+                            continue
+                        result = await adb.verify_component(
+                            package,
+                            component,
+                            self._context.session_id,
+                            workspace=self._context.workspace,
+                            serial=serial,
+                            action=self._target_str(target, "action", default="") or None,
+                            data_uri=self._target_str(target, "data_uri", "uri", default="") or None,
+                            require_auth=require_auth,
+                            credential_manager=credential_manager,
+                            frida=frida if frida_ready else None,
+                        )
+                    else:
+                        scan_result.warnings.append(
+                            f"Phase 4.6 skipped {finding.finding_id}: "
+                            f"unsupported dynamic_target type {target_type!r}",
+                        )
+                        adb_summary["failed"] += 1
+                        continue
+
+                    adb_summary["dispatched"] += 1
+                    if result is not None and result.success and result.data is not None:
+                        updated = apply_runtime_result(finding, result.data)
+                        findings[idx] = updated
+                        await self._memory.save_finding(updated)
+                        if updated.verification_state == "auth_gated":
+                            adb_summary["auth_gated"] += 1
+                        else:
+                            adb_summary["succeeded"] += 1
+                    else:
+                        adb_summary["failed"] += 1
+                        scan_result.warnings.append(
+                            f"Phase 4.6 ADB dispatch failed for "
+                            f"{finding.finding_id}: "
+                            f"{getattr(result, 'error', None) or 'unknown error'}",
+                        )
+
+            dispatch_summary: dict[str, Any] = dict(adb_summary)
+            if legacy_targets and frida_ready and frida is not None:
+                from sentinel.core.dynamic_dispatch import dispatch_dynamic_targets
+
+                legacy_summary = await dispatch_dynamic_targets(
+                    findings, frida,
+                    session_id=self._context.session_id,
+                    workspace=self._context.workspace,
+                    credential_manager=credential_manager,
+                )
+                dispatch_summary = {
+                    "dispatched": (
+                        adb_summary["dispatched"]
+                        + int(legacy_summary.get("dispatched", 0))
+                    ),
+                    "succeeded": (
+                        adb_summary["succeeded"]
+                        + int(legacy_summary.get("succeeded", 0))
+                    ),
+                    "failed": (
+                        adb_summary["failed"]
+                        + int(legacy_summary.get("failed", 0))
+                    ),
+                    "auth_gated": (
+                        adb_summary["auth_gated"]
+                        + int(legacy_summary.get("auth_gated", 0))
+                    ),
+                    "adb": adb_summary,
+                    "legacy_frida": legacy_summary,
+                }
+            elif legacy_targets:
+                scan_result.warnings.append(
+                    "Phase 4.6 skipped legacy Frida dynamic targets: "
+                    "Frida was not ready",
+                )
+
             self._context.sources["phase4_6_dispatch"] = dispatch_summary
             await self._memory.publish_event(
                 self._context.session_id,
@@ -1228,10 +1357,38 @@ class Orchestrator:
                 },
             )
         finally:
-            detach_result = await frida.detach()
-            if detach_result.success:
-                self._context.sources["frida_dispatch"] = detach_result.data
+            await credential_manager.aclose()
+            if frida is not None:
+                detach_result = await frida.detach()
+                if detach_result.success:
+                    self._context.sources["frida_dispatch"] = detach_result.data
             await adb.force_stop(package, serial=serial)
+
+    @staticmethod
+    def _target_requires_auth(target: dict[str, Any]) -> bool:
+        value = (
+            target.get("requires_auth")
+            if "requires_auth" in target
+            else target.get("auth_required", target.get("behind_auth", False))
+        )
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "y"}
+        return bool(value)
+
+    @staticmethod
+    def _target_str(
+        target: dict[str, Any],
+        *keys: str,
+        default: str = "",
+    ) -> str:
+        for key in keys:
+            value = target.get(key)
+            if value is None:
+                continue
+            text = str(value).strip()
+            if text:
+                return text
+        return default
 
     # ---------- LEARN_001 — per-app profile load ----------
 

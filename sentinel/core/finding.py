@@ -186,6 +186,12 @@ class Finding(BaseModel):
     # "Untrusted Web Content"). Rendered as the metadata-row source
     # badges in the detail view.
     source_tags: list[str] = Field(default_factory=list, max_length=20)
+    # SAST-to-DAST handoff descriptor. Static agents populate this with
+    # machine-readable target data (for example
+    # {"type": "deep_link", "scheme": "app", "path": "load", "param": "url"}).
+    # Phase 4 runtime verifiers convert it into live ADB commands and only
+    # then write reproduction_commands.
+    dynamic_target: dict[str, Any] | None = Field(default=None)
     # Outcome of the Phase 7.5 active-exploitation pipeline. See
     # ExploitationStatus for the discrete value semantics. Reports render
     # this as a badge next to verification_status.

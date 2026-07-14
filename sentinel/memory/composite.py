@@ -24,6 +24,8 @@ default namespace.
 """
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 import os
 from datetime import datetime
@@ -44,6 +46,46 @@ def _env_or(name: str, *fallbacks: str) -> str | None:
     return None
 
 
+class MemoryWorker:
+    """Async outbox that mirrors T1 findings into T2/T3 without blocking."""
+
+    def __init__(self, owner: "CompositeMemory") -> None:
+        self._owner = owner
+        self._queue: asyncio.Queue[Finding] = asyncio.Queue()
+        self._task: asyncio.Task[None] | None = None
+
+    def start(self) -> None:
+        if self._task is None or self._task.done():
+            self._task = asyncio.create_task(self._run())
+
+    def enqueue_finding(self, finding: Finding) -> None:
+        self.start()
+        self._queue.put_nowait(finding.model_copy(deep=True))
+
+    async def stop(self) -> None:
+        if self._task is None:
+            return
+        with contextlib.suppress(asyncio.TimeoutError):
+            await asyncio.wait_for(self._queue.join(), timeout=5.0)
+        self._task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await self._task
+        self._task = None
+
+    async def _run(self) -> None:
+        while True:
+            finding = await self._queue.get()
+            try:
+                await self._owner._write_async_memory_for_finding(finding)
+            except Exception:
+                logger.exception(
+                    "Composite: async memory outbox failed for %s",
+                    finding.finding_id,
+                )
+            finally:
+                self._queue.task_done()
+
+
 class CompositeMemory(MemoryInterface):
     """Delegates to T1/T2/T3 backends with per-tier graceful degrade."""
 
@@ -61,6 +103,7 @@ class CompositeMemory(MemoryInterface):
         self._t3 = t3
         # Ownership of a fallback LightweightMemory when tiers degrade.
         self._fallback: MemoryInterface | None = None
+        self._worker = MemoryWorker(self)
 
     # ---------- Constructors ----------
 
@@ -131,8 +174,10 @@ class CompositeMemory(MemoryInterface):
                 continue
             seen.add(id(tier))
             await tier.connect()
+        self._worker.start()
 
     async def close(self) -> None:
+        await self._worker.stop()
         seen: set[int] = set()
         for tier in (self._t1, self._t2, self._t3, self._fallback):
             if tier is None or id(tier) in seen:
@@ -160,6 +205,37 @@ class CompositeMemory(MemoryInterface):
     async def save_finding(self, finding: Finding) -> None:
         assert self._t1 is not None
         await self._t1.save_finding(finding)
+        self._worker.enqueue_finding(finding)
+
+    async def _write_async_memory_for_finding(self, finding: Finding) -> None:
+        metadata = _finding_memory_metadata(finding, self._tenant_id)
+        text = _finding_embedding_text(finding)
+        if self._t2 is not None:
+            try:
+                await self.add_embedding(
+                    finding.session_id,
+                    finding.finding_id,
+                    text,
+                    metadata,
+                )
+            except Exception:
+                logger.exception(
+                    "Composite: Tier-2 embedding write failed for %s",
+                    finding.finding_id,
+                )
+        if self._t3 is not None:
+            try:
+                await self.add_graph_node(
+                    finding.session_id,
+                    finding.finding_id,
+                    "finding",
+                    metadata,
+                )
+            except Exception:
+                logger.exception(
+                    "Composite: Tier-3 graph-node write failed for %s",
+                    finding.finding_id,
+                )
 
     async def get_findings(
         self, session_id: str, min_severity: str | None = None,
@@ -260,3 +336,47 @@ class CompositeMemory(MemoryInterface):
         except Exception:
             pass
         return out
+
+
+def _finding_embedding_text(finding: Finding) -> str:
+    parts = [
+        finding.vuln_class,
+        str(finding.severity.value if hasattr(finding.severity, "value") else finding.severity),
+        finding.severity_rationale or "",
+        finding.observed_result or "",
+        finding.recommendation or "",
+    ]
+    evidence = finding.evidence if isinstance(finding.evidence, dict) else {}
+    for key in ("issue", "title", "summary", "vector", "file", "package"):
+        value = evidence.get(key)
+        if value:
+            parts.append(str(value))
+    return "\n".join(p for p in parts if p)
+
+
+def _finding_memory_metadata(
+    finding: Finding,
+    tenant_id: str | None,
+) -> dict[str, Any]:
+    evidence = finding.evidence if isinstance(finding.evidence, dict) else {}
+    metadata: dict[str, Any] = {
+        "finding_id": finding.finding_id,
+        "agent_id": finding.agent_id,
+        "vuln_class": finding.vuln_class,
+        "severity": (
+            finding.severity.value
+            if hasattr(finding.severity, "value")
+            else str(finding.severity)
+        ),
+        "confidence": finding.confidence,
+        "verification_status": finding.verification_status,
+        "verification_state": finding.verification_state,
+        "finding_category": finding.finding_category,
+    }
+    if tenant_id:
+        metadata["tenant_id"] = tenant_id
+    for key in ("package", "file", "component", "authority", "host", "path"):
+        value = evidence.get(key)
+        if isinstance(value, (str, int, float, bool)):
+            metadata[key] = value
+    return metadata

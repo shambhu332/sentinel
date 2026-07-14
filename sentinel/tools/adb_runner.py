@@ -18,11 +18,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import shutil
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from sentinel.tools.result import ToolResult
 
@@ -43,6 +44,29 @@ class AdbCommandResult:
     stdout: str
     stderr: str
     exit_code: int
+
+
+@dataclass
+class RuntimeResult:
+    """Deterministic runtime verification result.
+
+    This is the "truth engine" payload: every field is derived from ADB
+    output or a screenshot capture. LLM code can consume this object to
+    write rationale, but must not override the booleans.
+    """
+
+    command: str
+    stdout: str
+    stderr: str
+    exit_code: int
+    observed_result: str
+    resumed_activity: str | None = None
+    target_reached: bool = False
+    is_auth_gated: bool = False
+    blocking_state_screenshot: str | None = None
+    verification_screenshot: str | None = None
+    test_credentials_used: bool = False
+    verified_exploited: bool = False
 
 
 class AdbRunner:
@@ -818,6 +842,525 @@ class AdbRunner:
             serial=serial,
         )
         return stdout, stderr, shot.get("path")
+
+    async def execute_and_capture(
+        self,
+        cmd: str | list[str],
+        *,
+        serial: Optional[str] = None,
+        timeout: float = 10.0,
+    ) -> ToolResult[str]:
+        """Run an adb command and return formatted stdout/stderr.
+
+        This is intentionally screenshot-free; use
+        ``execute_adb_command_and_capture`` when the command should be
+        paired with visual evidence.
+        """
+        import shlex
+
+        args = shlex.split(cmd) if isinstance(cmd, str) else list(cmd)
+        result = await self._run_adb(args, serial=serial, timeout=int(timeout))
+        if not result.success or result.data is None:
+            return ToolResult.fail(
+                result.error or "adb command failed",
+                duration=result.duration_seconds,
+            )
+        output = (
+            f"$ adb {' '.join(args)}\n"
+            f"[exit_code={result.data.exit_code}]\n"
+            f"stdout:\n{result.data.stdout.strip()}\n"
+            f"stderr:\n{result.data.stderr.strip()}"
+        ).strip()
+        return ToolResult.ok(output, duration=result.duration_seconds)
+
+    async def capture_auth_block(
+        self,
+        package_name: str,
+        session_id: str,
+        *,
+        workspace: Path = Path("workspace"),
+        filename: str = "login_block.png",
+        serial: Optional[str] = None,
+    ) -> ToolResult[str]:
+        """Capture the auth/blocking UI state to a deterministic path.
+
+        Saves ``adb exec-out screencap -p`` to
+        ``<workspace>/<session_id>/evidence/<filename>`` and returns the
+        path relative to ``<workspace>/<session_id>`` so it can be placed
+        directly in ``Finding.blocking_state_screenshot``.
+        """
+        start = time.monotonic()
+        if self._missing_reason:
+            return ToolResult.fail(
+                self._missing_reason, duration=time.monotonic() - start,
+            )
+
+        safe_name = Path(filename).name or "login_block.png"
+        if not safe_name.lower().endswith(".png"):
+            safe_name = f"{safe_name}.png"
+        out_dir = workspace / session_id / "evidence"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / safe_name
+
+        cmd = [self._adb_path]
+        if serial:
+            cmd.extend(["-s", serial])
+        cmd.extend(["exec-out", "screencap", "-p"])
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            try:
+                stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                    proc.communicate(), timeout=self._default_timeout,
+                )
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.wait()
+                return ToolResult.fail(
+                    "screencap timed out",
+                    duration=time.monotonic() - start,
+                )
+            if proc.returncode or not stdout_bytes:
+                return ToolResult.fail(
+                    "screencap failed for auth block "
+                    f"({package_name}): "
+                    f"{stderr_bytes.decode('utf-8', errors='replace')[:200]}",
+                    duration=time.monotonic() - start,
+                )
+            out_path.write_bytes(stdout_bytes)
+            rel = out_path.relative_to(workspace / session_id)
+            return ToolResult.ok(str(rel), duration=time.monotonic() - start)
+        except FileNotFoundError as exc:
+            return ToolResult.fail(
+                f"adb not found: {exc}", duration=time.monotonic() - start,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("auth-block screencap crashed")
+            return ToolResult.from_exception(
+                exc, duration=time.monotonic() - start,
+            )
+
+    async def verify_deep_link(
+        self,
+        package: str,
+        scheme: str,
+        url: str,
+        session_id: str,
+        *,
+        workspace: Path = Path("workspace"),
+        serial: Optional[str] = None,
+        path: str = "showPage",
+        param: str = "url",
+        require_auth: bool = False,
+        credential_manager: Any = None,
+        frida: Any = None,
+        settle_seconds: float = 1.0,
+        timeout: float = 15.0,
+    ) -> ToolResult[RuntimeResult]:
+        """Fire a deep link and capture deterministic runtime truth.
+
+        The method intentionally returns booleans instead of prose:
+        ``target_reached`` and ``is_auth_gated`` are derived from ADB
+        output only. Report/LLM layers may write narrative from these
+        hard facts, but should not reinterpret them.
+        """
+        start = time.monotonic()
+        if not package:
+            return ToolResult.fail("verify_deep_link requires package")
+        if not scheme:
+            return ToolResult.fail("verify_deep_link requires scheme")
+
+        if require_auth:
+            auth_result = await self._verify_auth_preflight(
+                package=package,
+                session_id=session_id,
+                workspace=workspace,
+                serial=serial,
+                credential_manager=credential_manager,
+                frida=frida,
+                timeout=timeout,
+                intent_label="deep link",
+            )
+            if auth_result is not None:
+                auth_result.duration_seconds = time.monotonic() - start
+                return auth_result
+
+        deep_link = self._build_deep_link_uri(scheme, url, path=path, param=param)
+        args = [
+            "shell", "am", "start", "-W",
+            "-a", "android.intent.action.VIEW",
+            "-d", deep_link,
+            package,
+        ]
+        command = f"adb {' '.join(args)}"
+
+        launch = await self._run_adb(args, serial=serial, timeout=int(timeout))
+        stdout = launch.data.stdout if launch.success and launch.data else ""
+        stderr = launch.data.stderr if launch.success and launch.data else (
+            launch.error or "adb am start failed"
+        )
+        exit_code = launch.data.exit_code if launch.success and launch.data else 1
+
+        if settle_seconds > 0:
+            await asyncio.sleep(settle_seconds)
+
+        dumpsys = await self._run_adb(
+            ["shell", "dumpsys", "activity", "activities"],
+            serial=serial,
+            timeout=int(timeout),
+        )
+        dumpsys_text = dumpsys.data.stdout if dumpsys.success and dumpsys.data else ""
+        resumed = self._parse_resumed_activity(dumpsys_text)
+        if resumed is None:
+            resumed = self._parse_activity_from_am_start(stdout + "\n" + stderr)
+
+        is_auth_gated = self._is_auth_gate_activity(resumed or "")
+        target_reached = bool(
+            launch.success
+            and resumed
+            and package in resumed
+            and not is_auth_gated
+        )
+        observed = f"Activity: {resumed}" if resumed else (
+            "Activity: <unknown>; "
+            f"am_start_stdout={stdout.strip()[:200]}; "
+            f"am_start_stderr={stderr.strip()[:200]}"
+        )
+
+        screenshot_path: str | None = None
+        verification_screenshot: str | None = None
+        if is_auth_gated:
+            shot = await self.capture_auth_block(
+                package,
+                session_id,
+                workspace=workspace,
+                filename="login_block.png",
+                serial=serial,
+            )
+            if shot.success:
+                screenshot_path = shot.data
+        elif target_reached:
+            shot = await self.capture_screenshot(
+                session_id=session_id,
+                filename="verified_exploited",
+                workspace=workspace,
+                caption="Runtime target reached after proof command.",
+                step_index=1,
+                serial=serial,
+            )
+            verification_screenshot = shot.get("path")
+
+        result = RuntimeResult(
+            command=command,
+            stdout=stdout,
+            stderr=stderr,
+            exit_code=exit_code,
+            observed_result=observed,
+            resumed_activity=resumed,
+            target_reached=target_reached,
+            is_auth_gated=is_auth_gated,
+            blocking_state_screenshot=screenshot_path,
+            verification_screenshot=verification_screenshot,
+            test_credentials_used=bool(require_auth and credential_manager is not None),
+            verified_exploited=target_reached,
+        )
+        success = launch.success and (dumpsys.success or resumed is not None)
+        if not success:
+            return ToolResult.fail(
+                stderr or dumpsys.error or "deep-link verification failed",
+                duration=time.monotonic() - start,
+            )
+        return ToolResult.ok(result, duration=time.monotonic() - start)
+
+    async def verify_component(
+        self,
+        package: str,
+        component: str,
+        session_id: str,
+        *,
+        workspace: Path = Path("workspace"),
+        serial: Optional[str] = None,
+        action: str | None = None,
+        data_uri: str | None = None,
+        require_auth: bool = False,
+        credential_manager: Any = None,
+        frida: Any = None,
+        settle_seconds: float = 1.0,
+        timeout: float = 15.0,
+    ) -> ToolResult[RuntimeResult]:
+        """Start an explicit component and capture deterministic proof."""
+        start = time.monotonic()
+        if not package:
+            return ToolResult.fail("verify_component requires package")
+        if not component:
+            return ToolResult.fail("verify_component requires component")
+
+        if require_auth:
+            auth_result = await self._verify_auth_preflight(
+                package=package,
+                session_id=session_id,
+                workspace=workspace,
+                serial=serial,
+                credential_manager=credential_manager,
+                frida=frida,
+                timeout=timeout,
+                intent_label="component",
+            )
+            if auth_result is not None:
+                auth_result.duration_seconds = time.monotonic() - start
+                return auth_result
+
+        component_name = self._normalise_component(package, component)
+        args = ["shell", "am", "start", "-W", "-n", component_name]
+        if action:
+            args.extend(["-a", action])
+        if data_uri:
+            args.extend(["-d", data_uri])
+        command = f"adb {' '.join(args)}"
+
+        launch = await self._run_adb(args, serial=serial, timeout=int(timeout))
+        stdout = launch.data.stdout if launch.success and launch.data else ""
+        stderr = launch.data.stderr if launch.success and launch.data else (
+            launch.error or "adb am start failed"
+        )
+        exit_code = launch.data.exit_code if launch.success and launch.data else 1
+
+        if settle_seconds > 0:
+            await asyncio.sleep(settle_seconds)
+
+        dumpsys = await self._run_adb(
+            ["shell", "dumpsys", "activity", "activities"],
+            serial=serial,
+            timeout=int(timeout),
+        )
+        dumpsys_text = dumpsys.data.stdout if dumpsys.success and dumpsys.data else ""
+        resumed = self._parse_resumed_activity(dumpsys_text)
+        if resumed is None:
+            resumed = self._parse_activity_from_am_start(stdout + "\n" + stderr)
+
+        is_auth_gated = self._is_auth_gate_activity(resumed or "")
+        target_reached = bool(
+            launch.success
+            and resumed
+            and package in resumed
+            and not is_auth_gated
+        )
+        observed = f"Activity: {resumed}" if resumed else (
+            "Activity: <unknown>; "
+            f"am_start_stdout={stdout.strip()[:200]}; "
+            f"am_start_stderr={stderr.strip()[:200]}"
+        )
+
+        blocking_screenshot: str | None = None
+        verification_screenshot: str | None = None
+        if is_auth_gated:
+            shot = await self.capture_auth_block(
+                package,
+                session_id,
+                workspace=workspace,
+                filename="login_block.png",
+                serial=serial,
+            )
+            if shot.success:
+                blocking_screenshot = shot.data
+        elif target_reached:
+            shot = await self.capture_screenshot(
+                session_id=session_id,
+                filename="verified_exploited",
+                workspace=workspace,
+                caption="Runtime component reached after proof command.",
+                step_index=1,
+                serial=serial,
+            )
+            verification_screenshot = shot.get("path")
+
+        result = RuntimeResult(
+            command=command,
+            stdout=stdout,
+            stderr=stderr,
+            exit_code=exit_code,
+            observed_result=observed,
+            resumed_activity=resumed,
+            target_reached=target_reached,
+            is_auth_gated=is_auth_gated,
+            blocking_state_screenshot=blocking_screenshot,
+            verification_screenshot=verification_screenshot,
+            test_credentials_used=bool(require_auth and credential_manager is not None),
+            verified_exploited=target_reached,
+        )
+        success = launch.success and (dumpsys.success or resumed is not None)
+        if not success:
+            return ToolResult.fail(
+                stderr or dumpsys.error or "component verification failed",
+                duration=time.monotonic() - start,
+            )
+        return ToolResult.ok(result, duration=time.monotonic() - start)
+
+    async def _verify_auth_preflight(
+        self,
+        *,
+        package: str,
+        session_id: str,
+        workspace: Path,
+        serial: Optional[str],
+        credential_manager: Any,
+        frida: Any,
+        timeout: float,
+        intent_label: str,
+    ) -> ToolResult[RuntimeResult] | None:
+        """Return an Auth_Gated runtime result when auto-login fails."""
+        if credential_manager is None:
+            return await self._auth_gated_preflight_result(
+                package=package,
+                session_id=session_id,
+                workspace=workspace,
+                serial=serial,
+                timeout=timeout,
+                reason="auto-login required but no credential manager was provided",
+                intent_label=intent_label,
+                test_credentials_used=False,
+            )
+
+        try:
+            auth = await credential_manager.auto_login(package, frida=frida)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("auto-login preflight crashed")
+            return await self._auth_gated_preflight_result(
+                package=package,
+                session_id=session_id,
+                workspace=workspace,
+                serial=serial,
+                timeout=timeout,
+                reason=f"auto-login crashed: {str(exc)[:160]}",
+                intent_label=intent_label,
+                test_credentials_used=True,
+            )
+
+        if getattr(auth, "succeeded", False):
+            return None
+
+        reason = str(getattr(auth, "reason", "") or "auto-login did not succeed")
+        return await self._auth_gated_preflight_result(
+            package=package,
+            session_id=session_id,
+            workspace=workspace,
+            serial=serial,
+            timeout=timeout,
+            reason=reason,
+            intent_label=intent_label,
+            test_credentials_used=True,
+        )
+
+    async def _auth_gated_preflight_result(
+        self,
+        *,
+        package: str,
+        session_id: str,
+        workspace: Path,
+        serial: Optional[str],
+        timeout: float,
+        reason: str,
+        intent_label: str,
+        test_credentials_used: bool,
+    ) -> ToolResult[RuntimeResult]:
+        dumpsys = await self._run_adb(
+            ["shell", "dumpsys", "activity", "activities"],
+            serial=serial,
+            timeout=int(timeout),
+        )
+        dumpsys_text = dumpsys.data.stdout if dumpsys.success and dumpsys.data else ""
+        resumed = self._parse_resumed_activity(dumpsys_text)
+        shot = await self.capture_auth_block(
+            package,
+            session_id,
+            workspace=workspace,
+            filename="login_block.png",
+            serial=serial,
+        )
+        screenshot = shot.data if shot.success else None
+        activity = resumed or "<unknown>"
+        result = RuntimeResult(
+            command="",
+            stdout=dumpsys_text,
+            stderr=reason,
+            exit_code=1,
+            observed_result=(
+                f"Auth_Gated before firing {intent_label}: {reason}; "
+                f"Activity: {activity}"
+            ),
+            resumed_activity=resumed,
+            target_reached=False,
+            is_auth_gated=True,
+            blocking_state_screenshot=screenshot,
+            test_credentials_used=test_credentials_used,
+        )
+        return ToolResult.ok(result)
+
+    @staticmethod
+    def _build_deep_link_uri(
+        scheme: str,
+        url: str,
+        *,
+        path: str = "showPage",
+        param: str = "url",
+    ) -> str:
+        scheme = scheme.strip()
+        normalized_path = (path or "showPage").strip().lstrip("/") or "showPage"
+        normalized_param = (param or "url").strip() or "url"
+        if "://" in scheme:
+            scheme_name, rest = scheme.split("://", 1)
+            rest = rest.strip("/")
+            prefix = f"{scheme_name}://"
+            if rest:
+                if rest == normalized_path or rest.endswith(f"/{normalized_path}"):
+                    return f"{prefix}{rest}?{normalized_param}={url}"
+                return f"{prefix}{rest}/{normalized_path}?{normalized_param}={url}"
+            return f"{prefix}{normalized_path}?{normalized_param}={url}"
+        return f"{scheme}://{normalized_path}?{normalized_param}={url}"
+
+    @staticmethod
+    def _normalise_component(package: str, component: str) -> str:
+        component = component.strip()
+        if "/" in component:
+            return component
+        if component.startswith("."):
+            return f"{package}/{component}"
+        return f"{package}/{component}"
+
+    @staticmethod
+    def _parse_resumed_activity(dumpsys_output: str) -> str | None:
+        """Extract the foreground component from dumpsys activity output."""
+        if not dumpsys_output:
+            return None
+        patterns = (
+            r"mResumedActivity:.*?\s([A-Za-z0-9_.]+/[A-Za-z0-9_.$/]+)",
+            r"Resumed:.*?\s([A-Za-z0-9_.]+/[A-Za-z0-9_.$/]+)",
+            r"mCurrentFocus=.*?\s([A-Za-z0-9_.]+/[A-Za-z0-9_.$/]+)",
+            r"mFocusedApp=.*?\s([A-Za-z0-9_.]+/[A-Za-z0-9_.$/]+)",
+        )
+        for pattern in patterns:
+            match = re.search(pattern, dumpsys_output)
+            if match:
+                return match.group(1).rstrip("}")
+        return None
+
+    @staticmethod
+    def _parse_activity_from_am_start(output: str) -> str | None:
+        if not output:
+            return None
+        match = re.search(
+            r"(?:cmp=|Activity:\s*)([A-Za-z0-9_.]+/[A-Za-z0-9_.$/]+)",
+            output,
+        )
+        return match.group(1).rstrip("}") if match else None
+
+    @staticmethod
+    def _is_auth_gate_activity(activity: str) -> bool:
+        return bool(re.search(r"(login|auth|splash)", activity or "", re.I))
 
     # ---------- Inner runner ----------
 
