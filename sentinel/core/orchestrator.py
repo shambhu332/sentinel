@@ -1232,6 +1232,12 @@ class Orchestrator:
                 for idx, finding, target in adb_targets:
                     target_type = str(target.get("type") or "").strip().lower()
                     require_auth = self._target_requires_auth(target)
+                    evidence = finding.evidence if isinstance(finding.evidence, dict) else {}
+                    finding_package = self._target_str(
+                        target,
+                        "package",
+                        default=str(evidence.get("package") or package),
+                    )
                     result = None
                     if target_type == "deep_link":
                         scheme = self._target_str(target, "scheme", "uri_scheme")
@@ -1242,25 +1248,41 @@ class Orchestrator:
                             )
                             adb_summary["failed"] += 1
                             continue
-                        result = await adb.verify_deep_link(
-                            package,
-                            scheme,
-                            self._target_str(
-                                target,
-                                "url",
-                                "payload_url",
-                                "value",
-                                default="https://sentinel.invalid/poc.html",
-                            ),
-                            self._context.session_id,
-                            workspace=self._context.workspace,
-                            serial=serial,
-                            path=self._target_str(target, "path", "route", default="showPage"),
-                            param=self._target_str(target, "param", "url_param", default="url"),
-                            require_auth=require_auth,
-                            credential_manager=credential_manager,
-                            frida=frida if frida_ready else None,
-                        )
+                        host = self._target_str(target, "host", default="")
+                        params = self._target_str(target, "params", "query", default="")
+                        if host:
+                            result = await adb.verify_deep_link(
+                                finding_package,
+                                scheme,
+                                host,
+                                params,
+                                self._context.session_id,
+                                workspace=self._context.workspace,
+                                serial=serial,
+                                require_auth=require_auth,
+                                credential_manager=credential_manager,
+                                frida=frida if frida_ready else None,
+                            )
+                        else:
+                            result = await adb.verify_deep_link(
+                                finding_package,
+                                scheme,
+                                self._target_str(
+                                    target,
+                                    "url",
+                                    "payload_url",
+                                    "value",
+                                    default="https://sentinel.invalid/poc.html",
+                                ),
+                                self._context.session_id,
+                                workspace=self._context.workspace,
+                                serial=serial,
+                                path=self._target_str(target, "path", "route", default="showPage"),
+                                param=self._target_str(target, "param", "url_param", default="url"),
+                                require_auth=require_auth,
+                                credential_manager=credential_manager,
+                                frida=frida if frida_ready else None,
+                            )
                     elif target_type == "component":
                         component = self._target_str(
                             target, "component", "activity", "name",
@@ -1273,7 +1295,7 @@ class Orchestrator:
                             adb_summary["failed"] += 1
                             continue
                         result = await adb.verify_component(
-                            package,
+                            finding_package,
                             component,
                             self._context.session_id,
                             workspace=self._context.workspace,
@@ -1284,6 +1306,53 @@ class Orchestrator:
                             credential_manager=credential_manager,
                             frida=frida if frida_ready else None,
                         )
+                    elif target_type == "permission_check":
+                        raw_dump = await adb.verify_permissions(
+                            finding_package,
+                            serial=serial,
+                        )
+                        adb_summary["dispatched"] += 1
+                        command = (
+                            f"adb shell dumpsys package {finding_package} | "
+                            "sed -n '/requested permissions:/,/install permissions:/p' | "
+                            "head -n 30"
+                        )
+                        if raw_dump.success:
+                            commands = list(finding.reproduction_commands or [])
+                            if command not in commands:
+                                commands.append(command)
+                            updated = finding.model_copy(update={
+                                "reproduction_commands": commands,
+                                "observed_result": (
+                                    "Observed output includes:\n"
+                                    f"{(raw_dump.data or '').strip()}"
+                                ),
+                                "verification_status": "Verified",
+                                "verification_state": "verified",
+                                "finding_category": "AI-Powered",
+                            })
+                            findings[idx] = updated
+                            await self._memory.save_finding(updated)
+                            adb_summary["succeeded"] += 1
+                        else:
+                            updated = finding.model_copy(update={
+                                "reproduction_commands": [command],
+                                "observed_result": (
+                                    "Permission verification failed:\n"
+                                    f"{raw_dump.error or 'unknown adb error'}"
+                                ),
+                                "verification_status": "Runtime_Failed",
+                                "verification_state": "runtime_failed",
+                                "exploitation_status": (
+                                    "Runtime_Failed"
+                                    if finding.exploitation_status == "Unverified"
+                                    else finding.exploitation_status
+                                ),
+                            })
+                            findings[idx] = updated
+                            await self._memory.save_finding(updated)
+                            adb_summary["failed"] += 1
+                        continue
                     else:
                         scan_result.warnings.append(
                             f"Phase 4.6 skipped {finding.finding_id}: "

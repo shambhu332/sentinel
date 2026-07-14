@@ -305,7 +305,9 @@ def _finding_card(
         lines.extend([
             f"**{observed_label}:**",
             "",
-            f"_{f.observed_result.strip()}_",
+            "```",
+            f.observed_result.strip(),
+            "```",
             "",
         ])
 

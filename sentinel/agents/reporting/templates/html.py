@@ -1133,7 +1133,7 @@ def _repro_extra_html(finding) -> str:
         parts.append(
             "<div class='repro-cmds'>"
             f"<div class='repro-label'>{html.escape(command_label)}</div>"
-            f"<pre><code>{body}</code></pre>"
+            f"<pre><code class='language-bash'>{body}</code></pre>"
             "</div>"
         )
     observed = getattr(finding, "observed_result", None)
@@ -1141,7 +1141,7 @@ def _repro_extra_html(finding) -> str:
         parts.append(
             "<div class='observed'>"
             f"<div class='observed-label'>{html.escape(observed_label)}</div>"
-            f"<p><em>{html.escape(observed.strip())}</em></p>"
+            f"<pre>{html.escape(observed.strip())}</pre>"
             "</div>"
         )
     return "".join(parts)

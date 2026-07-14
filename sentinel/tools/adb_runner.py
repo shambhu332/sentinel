@@ -17,17 +17,20 @@ Used by Phase 4 (DAST) to:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import re
 import shutil
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
 from sentinel.tools.result import ToolResult
 
 logger = logging.getLogger(__name__)
+_WORKSPACE_UNSET = object()
 
 
 @dataclass
@@ -44,6 +47,15 @@ class AdbCommandResult:
     stdout: str
     stderr: str
     exit_code: int
+
+
+@dataclass
+class ActivityObservation:
+    """Foreground activity observation derived from real dumpsys output."""
+
+    resumed_activity: str | None
+    raw_stdout: str
+    is_auth_gated: bool
 
 
 @dataclass
@@ -67,6 +79,17 @@ class RuntimeResult:
     verification_screenshot: str | None = None
     test_credentials_used: bool = False
     verified_exploited: bool = False
+    raw_dumpsys: str = ""
+
+    @property
+    def command_executed(self) -> str:
+        """Djini-compatible alias for the exact command string."""
+        return self.command
+
+    @property
+    def screenshot_path(self) -> str | None:
+        """Best available runtime screenshot path."""
+        return self.blocking_state_screenshot or self.verification_screenshot
 
 
 class AdbRunner:
@@ -730,14 +753,20 @@ class AdbRunner:
         session_id: str,
         filename: str,
         *,
-        workspace: Path,
+        workspace: Path | object = _WORKSPACE_UNSET,
         caption: str | None = None,
         step_index: int | None = None,
         serial: Optional[str] = None,
-    ) -> dict:
-        """Session-aware convenience wrapper over ``capture_evidence``.
+    ) -> dict | str:
+        """Session-aware screenshot capture.
 
-        Resolves the per-session evidence directory
+        Existing SENTINEL callers pass ``workspace=...`` and receive the rich
+        screenshot dict used by the frontend. Djini-compatible callers may use
+        the simple ``capture_screenshot(session_id, context_label)`` form; that
+        writes a PNG under ``workspace/<session>/evidence/``, validates it is
+        larger than 1KB, and returns the relative path string.
+
+        Rich mode resolves the per-session evidence directory
         (``<workspace>/<session_id>/evidence/screenshots/``) so dynamic
         agents and the Phase 4.5 dispatcher don't recompute that path.
 
@@ -745,7 +774,16 @@ class AdbRunner:
         the same safe-character sanitisation as ``screenshot()`` and is
         combined with a millisecond timestamp to keep captures unique.
         """
-        out_dir = workspace / session_id / "evidence" / "screenshots"
+        if workspace is _WORKSPACE_UNSET:
+            return await self._capture_png_screenshot_file(
+                session_id=session_id,
+                context_label=filename,
+                workspace=Path("workspace"),
+                serial=serial,
+            )
+
+        workspace_path = Path(workspace)
+        out_dir = workspace_path / session_id / "evidence" / "screenshots"
         return await self.capture_evidence(
             out_dir,
             label=filename,
@@ -753,6 +791,69 @@ class AdbRunner:
             caption=caption,
             serial=serial,
         )
+
+    async def _capture_png_screenshot_file(
+        self,
+        *,
+        session_id: str,
+        context_label: str,
+        workspace: Path,
+        serial: Optional[str] = None,
+    ) -> str:
+        start = time.monotonic()
+        if self._missing_reason:
+            raise RuntimeError(self._missing_reason)
+
+        safe_label = re.sub(r"[^A-Za-z0-9_.-]+", "_", context_label).strip("_")
+        safe_label = safe_label or "screenshot"
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        out_dir = workspace / session_id / "evidence"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / f"{safe_label}_{timestamp}.png"
+
+        cmd = [self._adb_path]
+        if serial:
+            cmd.extend(["-s", serial])
+        cmd.extend(["exec-out", "screencap", "-p"])
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            try:
+                stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                    proc.communicate(), timeout=self._default_timeout,
+                )
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.wait()
+                raise RuntimeError("screencap timed out")
+
+            if proc.returncode:
+                stderr = stderr_bytes.decode("utf-8", errors="replace")[:200]
+                raise RuntimeError(f"screencap failed: {stderr}")
+            if len(stdout_bytes) <= 1024:
+                raise RuntimeError(
+                    f"screencap returned too little data: {len(stdout_bytes)} bytes"
+                )
+
+            out_path.write_bytes(stdout_bytes)
+            if not out_path.exists() or out_path.stat().st_size <= 1024:
+                raise RuntimeError("screencap output file missing or <= 1KB")
+            rel = out_path.relative_to(workspace / session_id)
+            logger.info(
+                "Captured Djini screenshot -> %s in %.2fs",
+                out_path,
+                time.monotonic() - start,
+            )
+            return str(rel)
+        except Exception:
+            with contextlib.suppress(OSError):
+                if out_path.exists():
+                    out_path.unlink()
+            raise
 
     # ---------- Log capture ----------
 
@@ -944,12 +1045,52 @@ class AdbRunner:
                 exc, duration=time.monotonic() - start,
             )
 
+    async def get_top_activity(
+        self,
+        package: str,
+        *,
+        serial: Optional[str] = None,
+        timeout: float = 10.0,
+    ) -> ToolResult[ActivityObservation]:
+        """Return the foreground activity from real dumpsys output.
+
+        Executes the Djini report command shape through ``adb shell``:
+        ``dumpsys activity activities | grep -E 'Resumed:|mCurrentFocus' |
+        head -n 10``.
+        """
+        start = time.monotonic()
+        if not package:
+            return ToolResult.fail("get_top_activity requires package")
+        command = (
+            "dumpsys activity activities | "
+            "grep -E 'Resumed:|mCurrentFocus' | head -n 10"
+        )
+        result = await self._run_adb(
+            ["shell", command],
+            serial=serial,
+            timeout=int(timeout),
+        )
+        if not result.success or result.data is None:
+            return ToolResult.fail(
+                result.error or "dumpsys activity command failed",
+                duration=time.monotonic() - start,
+            )
+        raw_stdout = result.data.stdout
+        resumed = self._parse_resumed_activity(raw_stdout)
+        observation = ActivityObservation(
+            resumed_activity=resumed,
+            raw_stdout=raw_stdout,
+            is_auth_gated=self._is_auth_gate_activity(resumed or raw_stdout),
+        )
+        return ToolResult.ok(observation, duration=time.monotonic() - start)
+
     async def verify_deep_link(
         self,
         package: str,
         scheme: str,
-        url: str,
-        session_id: str,
+        url_or_host: str,
+        params_or_session_id: str,
+        session_id: str | None = None,
         *,
         workspace: Path = Path("workspace"),
         serial: Optional[str] = None,
@@ -958,7 +1099,7 @@ class AdbRunner:
         require_auth: bool = False,
         credential_manager: Any = None,
         frida: Any = None,
-        settle_seconds: float = 1.0,
+        settle_seconds: float = 2.0,
         timeout: float = 15.0,
     ) -> ToolResult[RuntimeResult]:
         """Fire a deep link and capture deterministic runtime truth.
@@ -967,12 +1108,31 @@ class AdbRunner:
         ``target_reached`` and ``is_auth_gated`` are derived from ADB
         output only. Report/LLM layers may write narrative from these
         hard facts, but should not reinterpret them.
+
+        Supports both call forms:
+
+        - legacy: ``verify_deep_link(package, scheme, url, session_id, ...)``
+        - Djini: ``verify_deep_link(package, scheme, host, params, session_id)``
         """
+        import shlex
+
         start = time.monotonic()
         if not package:
             return ToolResult.fail("verify_deep_link requires package")
         if not scheme:
             return ToolResult.fail("verify_deep_link requires scheme")
+        if session_id is None:
+            url = url_or_host
+            session_id = params_or_session_id
+            deep_link = self._build_deep_link_uri(
+                scheme, url, path=path, param=param,
+            )
+        else:
+            host = url_or_host.strip().lstrip("/")
+            params = params_or_session_id.strip().lstrip("?")
+            deep_link = f"{scheme.strip()}://{host}?{params}" if params else (
+                f"{scheme.strip()}://{host}"
+            )
 
         if require_auth:
             auth_result = await self._verify_auth_preflight(
@@ -989,14 +1149,16 @@ class AdbRunner:
                 auth_result.duration_seconds = time.monotonic() - start
                 return auth_result
 
-        deep_link = self._build_deep_link_uri(scheme, url, path=path, param=param)
         args = [
             "shell", "am", "start", "-W",
             "-a", "android.intent.action.VIEW",
             "-d", deep_link,
             package,
         ]
-        command = f"adb {' '.join(args)}"
+        command = (
+            "adb shell am start -W -a android.intent.action.VIEW "
+            f"-d {shlex.quote(deep_link)} {package}"
+        )
 
         launch = await self._run_adb(args, serial=serial, timeout=int(timeout))
         stdout = launch.data.stdout if launch.success and launch.data else ""
@@ -1008,56 +1170,75 @@ class AdbRunner:
         if settle_seconds > 0:
             await asyncio.sleep(settle_seconds)
 
-        dumpsys = await self._run_adb(
-            ["shell", "dumpsys", "activity", "activities"],
+        top = await self.get_top_activity(
+            package,
             serial=serial,
-            timeout=int(timeout),
+            timeout=timeout,
         )
-        dumpsys_text = dumpsys.data.stdout if dumpsys.success and dumpsys.data else ""
-        resumed = self._parse_resumed_activity(dumpsys_text)
+        dumpsys_text = top.data.raw_stdout if top.success and top.data else ""
+        resumed = top.data.resumed_activity if top.success and top.data else None
         if resumed is None:
             resumed = self._parse_activity_from_am_start(stdout + "\n" + stderr)
 
-        is_auth_gated = self._is_auth_gate_activity(resumed or "")
+        is_auth_gated = bool(
+            top.data.is_auth_gated if top.success and top.data
+            else self._is_auth_gate_activity(resumed or "")
+        )
         target_reached = bool(
             launch.success
             and resumed
             and package in resumed
             and not is_auth_gated
         )
-        observed = f"Activity: {resumed}" if resumed else (
+        if resumed:
+            observed = (
+                f"Activity: {resumed}\n"
+                f"Resumed: {dumpsys_text.strip()}"
+            ).strip()
+        else:
+            observed = (
             "Activity: <unknown>; "
             f"am_start_stdout={stdout.strip()[:200]}; "
             f"am_start_stderr={stderr.strip()[:200]}"
-        )
+            )
 
         screenshot_path: str | None = None
         verification_screenshot: str | None = None
+        screenshot_error: str | None = None
         if is_auth_gated:
-            shot = await self.capture_auth_block(
-                package,
-                session_id,
-                workspace=workspace,
-                filename="login_block.png",
-                serial=serial,
-            )
-            if shot.success:
-                screenshot_path = shot.data
+            try:
+                shot_path = await self._capture_png_screenshot_file(
+                    session_id=session_id,
+                    context_label="deep_link_verification",
+                    workspace=workspace,
+                    serial=serial,
+                )
+                screenshot_path = str(shot_path)
+            except Exception as exc:  # noqa: BLE001
+                screenshot_error = str(exc)
         elif target_reached:
-            shot = await self.capture_screenshot(
-                session_id=session_id,
-                filename="verified_exploited",
-                workspace=workspace,
-                caption="Runtime target reached after proof command.",
-                step_index=1,
-                serial=serial,
-            )
-            verification_screenshot = shot.get("path")
+            try:
+                shot_path = await self._capture_png_screenshot_file(
+                    session_id=session_id,
+                    context_label="deep_link_verification",
+                    workspace=workspace,
+                    serial=serial,
+                )
+                verification_screenshot = str(shot_path)
+            except Exception as exc:  # noqa: BLE001
+                screenshot_error = str(exc)
+
+        if screenshot_error:
+            observed = (
+                f"{observed}\nScreenshot capture failed: {screenshot_error}"
+            ).strip()
+            is_auth_gated = False
+            target_reached = False
 
         result = RuntimeResult(
             command=command,
             stdout=stdout,
-            stderr=stderr,
+            stderr=screenshot_error or stderr,
             exit_code=exit_code,
             observed_result=observed,
             resumed_activity=resumed,
@@ -1067,14 +1248,43 @@ class AdbRunner:
             verification_screenshot=verification_screenshot,
             test_credentials_used=bool(require_auth and credential_manager is not None),
             verified_exploited=target_reached,
+            raw_dumpsys=dumpsys_text,
         )
-        success = launch.success and (dumpsys.success or resumed is not None)
+        success = launch.success and (top.success or resumed is not None)
         if not success:
             return ToolResult.fail(
-                stderr or dumpsys.error or "deep-link verification failed",
+                stderr or top.error or "deep-link verification failed",
                 duration=time.monotonic() - start,
             )
         return ToolResult.ok(result, duration=time.monotonic() - start)
+
+    async def verify_permissions(
+        self,
+        package: str,
+        *,
+        serial: Optional[str] = None,
+        timeout: float = 10.0,
+    ) -> ToolResult[str]:
+        """Return requested/install permissions from real package dumpsys."""
+        start = time.monotonic()
+        if not package:
+            return ToolResult.fail("verify_permissions requires package")
+        command = (
+            f"dumpsys package {package} | "
+            "sed -n '/requested permissions:/,/install permissions:/p' | "
+            "head -n 30"
+        )
+        result = await self._run_adb(
+            ["shell", command],
+            serial=serial,
+            timeout=int(timeout),
+        )
+        if not result.success or result.data is None:
+            return ToolResult.fail(
+                result.error or "dumpsys package permissions command failed",
+                duration=time.monotonic() - start,
+            )
+        return ToolResult.ok(result.data.stdout, duration=time.monotonic() - start)
 
     async def verify_component(
         self,
@@ -1360,7 +1570,7 @@ class AdbRunner:
 
     @staticmethod
     def _is_auth_gate_activity(activity: str) -> bool:
-        return bool(re.search(r"(login|auth|splash)", activity or "", re.I))
+        return bool(re.search(r"(login|auth|splash|signin|sign[_-]?in)", activity or "", re.I))
 
     # ---------- Inner runner ----------
 

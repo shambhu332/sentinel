@@ -49,13 +49,13 @@ def test_verify_deep_link_marks_auth_gate_and_captures_screenshot(tmp_path):
             ),
         )
 
-    async def fake_capture(package_name, session_id, **kwargs):
-        assert package_name == "com.example.app"
+    async def fake_capture(*, session_id, context_label, workspace, serial=None):
         assert session_id == "truthsess1"
-        return ToolResult.ok("evidence/login_block.png")
+        assert context_label == "deep_link_verification"
+        return "evidence/deep_link_verification.png"
 
     runner._run_adb = fake_run  # type: ignore[method-assign]
-    runner.capture_auth_block = fake_capture  # type: ignore[method-assign]
+    runner._capture_png_screenshot_file = fake_capture  # type: ignore[method-assign]
 
     result = asyncio.run(
         runner.verify_deep_link(
@@ -72,8 +72,9 @@ def test_verify_deep_link_marks_auth_gate_and_captures_screenshot(tmp_path):
     assert isinstance(result.data, RuntimeResult)
     assert result.data.is_auth_gated is True
     assert result.data.target_reached is False
-    assert result.data.observed_result == "Activity: com.example.app/.LoginActivity"
-    assert result.data.blocking_state_screenshot == "evidence/login_block.png"
+    assert result.data.observed_result.startswith("Activity: com.example.app/.LoginActivity")
+    assert "mResumedActivity" in result.data.raw_dumpsys
+    assert result.data.blocking_state_screenshot == "evidence/deep_link_verification.png"
     assert calls[0][:8] == [
         "shell", "am", "start", "-W",
         "-a", "android.intent.action.VIEW", "-d",
@@ -104,13 +105,13 @@ def test_verify_deep_link_marks_target_reached_with_verified_screenshot(tmp_path
         auth_capture.called = True
         return ToolResult.ok("evidence/login_block.png")
 
-    async def fake_verified_capture(*args, **kwargs):
+    async def fake_verified_capture(*, session_id, context_label, workspace, serial=None):
         verified_capture.called = True
-        return {"path": "evidence/screenshots/verified.png"}
+        return "evidence/deep_link_verification.png"
 
     runner._run_adb = fake_run  # type: ignore[method-assign]
     runner.capture_auth_block = fake_capture  # type: ignore[method-assign]
-    runner.capture_screenshot = fake_verified_capture  # type: ignore[method-assign]
+    runner._capture_png_screenshot_file = fake_verified_capture  # type: ignore[method-assign]
 
     result = asyncio.run(
         runner.verify_deep_link(
@@ -128,7 +129,7 @@ def test_verify_deep_link_marks_target_reached_with_verified_screenshot(tmp_path
     assert result.data.target_reached is True
     assert result.data.is_auth_gated is False
     assert result.data.blocking_state_screenshot is None
-    assert result.data.verification_screenshot == "evidence/screenshots/verified.png"
+    assert result.data.verification_screenshot == "evidence/deep_link_verification.png"
     assert auth_capture.called is False
     assert verified_capture.called is True
 
@@ -186,6 +187,154 @@ def test_verify_deep_link_auth_preflight_blocks_before_intent(tmp_path):
     assert result.data.test_credentials_used is True
     assert "TokenManager.getToken() returned null" in result.data.observed_result
     assert all(call[:4] != ["shell", "am", "start", "-W"] for call in calls)
+
+
+def test_get_top_activity_uses_djini_dumpsys_pipeline():
+    runner = AdbRunner()
+    calls: list[list[str]] = []
+
+    async def fake_run(args, serial=None, timeout=None):
+        calls.append(args)
+        return ToolResult.ok(
+            AdbCommandResult(
+                stdout=(
+                    "mCurrentFocus=Window{123 u0 "
+                    "com.example.app/.SignInActivity}\n"
+                ),
+                stderr="",
+                exit_code=0,
+            ),
+        )
+
+    runner._run_adb = fake_run  # type: ignore[method-assign]
+
+    result = asyncio.run(runner.get_top_activity("com.example.app"))
+
+    assert result.success
+    assert result.data
+    assert result.data.resumed_activity == "com.example.app/.SignInActivity"
+    assert result.data.is_auth_gated is True
+    assert calls == [[
+        "shell",
+        "dumpsys activity activities | "
+        "grep -E 'Resumed:|mCurrentFocus' | head -n 10",
+    ]]
+
+
+def test_verify_deep_link_supports_exact_host_params_shape(tmp_path):
+    runner = AdbRunner()
+
+    async def fake_run(args, serial=None, timeout=None):
+        if args[:4] == ["shell", "am", "start", "-W"]:
+            assert args == [
+                "shell", "am", "start", "-W",
+                "-a", "android.intent.action.VIEW",
+                "-d", "mhlcrypto://showPage?url=https%3A%2F%2F10.11.3.1%2F",
+                "com.example.app",
+            ]
+            return ToolResult.ok(AdbCommandResult(stdout="Status: ok", stderr="", exit_code=0))
+        return ToolResult.ok(
+            AdbCommandResult(
+                stdout="mCurrentFocus=Window{123 u0 com.example.app/.LoginActivity}",
+                stderr="",
+                exit_code=0,
+            ),
+        )
+
+    async def fake_capture(*, session_id, context_label, workspace, serial=None):
+        return "evidence/deep_link_verification.png"
+
+    runner._run_adb = fake_run  # type: ignore[method-assign]
+    runner._capture_png_screenshot_file = fake_capture  # type: ignore[method-assign]
+
+    result = asyncio.run(
+        runner.verify_deep_link(
+            "com.example.app",
+            "mhlcrypto",
+            "showPage",
+            "url=https%3A%2F%2F10.11.3.1%2F",
+            "truthsess1",
+            workspace=tmp_path,
+            settle_seconds=0,
+        ),
+    )
+
+    assert result.success
+    assert result.data
+    assert result.data.command == (
+        "adb shell am start -W -a android.intent.action.VIEW "
+        "-d 'mhlcrypto://showPage?url=https%3A%2F%2F10.11.3.1%2F' "
+        "com.example.app"
+    )
+    assert result.data.command_executed == result.data.command
+
+
+def test_verify_deep_link_screenshot_failure_becomes_runtime_failed(tmp_path):
+    runner = AdbRunner()
+
+    async def fake_run(args, serial=None, timeout=None):
+        if args[:4] == ["shell", "am", "start", "-W"]:
+            return ToolResult.ok(AdbCommandResult(stdout="Status: ok", stderr="", exit_code=0))
+        return ToolResult.ok(
+            AdbCommandResult(
+                stdout="mCurrentFocus=Window{123 u0 com.example.app/.LoginActivity}",
+                stderr="",
+                exit_code=0,
+            ),
+        )
+
+    async def fake_capture(*, session_id, context_label, workspace, serial=None):
+        raise RuntimeError("screencap output file missing or <= 1KB")
+
+    runner._run_adb = fake_run  # type: ignore[method-assign]
+    runner._capture_png_screenshot_file = fake_capture  # type: ignore[method-assign]
+
+    result = asyncio.run(
+        runner.verify_deep_link(
+            "com.example.app",
+            "mhlcrypto",
+            "https://attacker.example/poc.html",
+            "truthsess1",
+            workspace=tmp_path,
+            settle_seconds=0,
+        ),
+    )
+
+    assert result.success
+    assert result.data
+    assert result.data.is_auth_gated is False
+    assert result.data.target_reached is False
+    updated = apply_runtime_result(_finding(), result.data)
+    assert updated.verification_status == "Runtime_Failed"
+    assert "Screenshot capture failed" in updated.observed_result
+
+
+def test_verify_permissions_uses_exact_dumpsys_pipeline():
+    runner = AdbRunner()
+    calls: list[list[str]] = []
+
+    async def fake_run(args, serial=None, timeout=None):
+        calls.append(args)
+        return ToolResult.ok(
+            AdbCommandResult(
+                stdout="requested permissions:\n  android.permission.CAMERA\n",
+                stderr="",
+                exit_code=0,
+            ),
+        )
+
+    runner._run_adb = fake_run  # type: ignore[method-assign]
+
+    result = asyncio.run(runner.verify_permissions("com.example.app"))
+
+    assert result.success
+    assert "android.permission.CAMERA" in result.data
+    assert calls == [[
+        "shell",
+        "dumpsys package com.example.app | "
+        "sed -n '/requested permissions:/,/install permissions:/p' | "
+        "head -n 30",
+    ]]
 
 
 def test_verify_component_builds_command_and_captures_verified_screenshot(tmp_path):

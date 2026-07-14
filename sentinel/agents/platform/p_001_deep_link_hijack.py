@@ -10,7 +10,7 @@ from typing import Any
 
 from sentinel.agents.base.ai_autonomous_agent import AIAutonomousAgent, Candidate
 from sentinel.core.scan_context import ScanContext
-from sentinel.llm.vulnerability_analyzer import LLMVulnerabilityAnalyzer
+from sentinel.llm.vulnerability_analyzer import LLMVerdict, LLMVulnerabilityAnalyzer
 from sentinel.memory.interface import MemoryInterface
 
 _TEST_PATH_RE = re.compile(r"[Tt]est|[Mm]ock|[Ff]ake|[Ss]tub")
@@ -114,3 +114,27 @@ class P001DeepLinkHijackAgent(AIAutonomousAgent):
 
         candidates.sort(key=lambda c: c.rule_confidence, reverse=True)
         return candidates[:50]
+
+    def _dynamic_target_for_candidate(
+        self,
+        candidate: Candidate,
+        verdict: LLMVerdict,
+    ) -> dict[str, str] | None:
+        """Emit machine-readable runtime target data; never proof commands."""
+        del candidate, verdict
+        manifest = self._context.manifest or {}
+        for entry in manifest.get("deep_links") or []:
+            activity = str(entry.get("activity") or "")
+            for data in entry.get("data_elements") or []:
+                scheme = str(data.get("scheme") or "").strip()
+                if not scheme:
+                    continue
+                host = str(data.get("host") or "showPage").strip().lstrip("/")
+                return {
+                    "type": "deep_link",
+                    "scheme": scheme,
+                    "host": host or "showPage",
+                    "params": "url=https%3A%2F%2F10.11.3.1%2F",
+                    "target_component": activity,
+                }
+        return None

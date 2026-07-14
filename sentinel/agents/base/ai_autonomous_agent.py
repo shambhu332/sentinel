@@ -211,6 +211,16 @@ class AIAutonomousAgent(BaseAgent):
 
         # CWE tags from vulnerability_type field
         compliance = self._extract_compliance_tags(verdict)
+        dynamic_target = self._dynamic_target_for_candidate(candidate, verdict)
+        if dynamic_target is not None:
+            evidence.setdefault(
+                "static_summary",
+                f"{self.VULN_CLASS} candidate at "
+                f"{candidate.file_path}:{candidate.line_number}",
+            )
+            target_component = dynamic_target.get("target_component")
+            if target_component:
+                evidence.setdefault("target_component", target_component)
 
         return Finding(
             agent_id=self.AGENT_ID,
@@ -225,6 +235,7 @@ class AIAutonomousAgent(BaseAgent):
             owasp=owasp,
             masvs=masvs,
             finding_category=cast_category(verdict),
+            dynamic_target=dynamic_target,
             code_snippet={
                 "file": candidate.file_path,
                 "line": candidate.line_number,
@@ -252,6 +263,14 @@ class AIAutonomousAgent(BaseAgent):
         retriever = KnowledgeRetriever(kb)
         self._llm_analyzer = LLMVulnerabilityAnalyzer(router=router, retriever=retriever)
         return self._llm_analyzer
+
+    def _dynamic_target_for_candidate(
+        self,
+        candidate: Candidate,
+        verdict: LLMVerdict,
+    ) -> dict[str, Any] | None:
+        """Optional SAST-to-DAST target hook for AI-autonomous agents."""
+        return None
 
     def _publish_calibration_event(self, verdict: LLMVerdict, candidate: Candidate) -> None:
         import asyncio

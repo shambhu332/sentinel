@@ -342,7 +342,7 @@ function stepsToReproduceSection(finding, ctx) {
       el('div', { class: 'fd-repro-cmds-label' },
         runtimeVerified ? 'Commands used by the verifier' : 'Static proof commands'),
       el('pre', { class: 'fd-step-cmd' },
-        el('code', {}, reproCmds.join('\n')),
+        el('code', { class: 'language-bash' }, reproCmds.join('\n')),
       ),
     ));
   }
@@ -351,7 +351,7 @@ function stepsToReproduceSection(finding, ctx) {
     section.appendChild(el('div', { class: 'fd-observed' },
       el('div', { class: 'fd-observed-label' },
         runtimeVerified ? 'Observed result' : 'Proof status'),
-      el('p', { class: 'fd-observed-text' }, observed),
+      el('pre', { class: 'fd-observed-text' }, observed),
     ));
   }
 
@@ -424,6 +424,14 @@ function normaliseScreenshots(finding) {
   const raw = Array.isArray(finding.screenshots) ? finding.screenshots
     : (Array.isArray(finding.evidence?.screenshots) ? finding.evidence.screenshots : []);
   const out = [];
+  if (finding.blocking_state_screenshot) {
+    out.push({
+      path: finding.blocking_state_screenshot,
+      caption: 'UI evidence',
+      step_index: null,
+      label: 'blocking_state',
+    });
+  }
   raw.forEach((entry, i) => {
     if (typeof entry === 'string') {
       out.push({ path: entry, caption: '', step_index: null, label: '' });

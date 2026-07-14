@@ -125,6 +125,14 @@ class ExcessivePermissionsAgent(BaseAgent):
                     "category": severity.value,
                     "rationale": rationale,
                     "permission_count_declared": len(declared),
+                    "static_summary": (
+                        f"Manifest declares sensitive permission '{perm}': "
+                        f"{rationale}"
+                    ),
+                },
+                dynamic_target={
+                    "type": "permission_check",
+                    "permission": perm,
                 },
                 recommendation=(
                     f"Confirm a documented feature requires '{perm}'. "

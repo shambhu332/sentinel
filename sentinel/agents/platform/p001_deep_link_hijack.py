@@ -82,6 +82,7 @@ class DeepLinkHijackAgent(BaseAgent):
                         "filter — any app can register the same scheme"
                     ),
                     schemes=custom_schemes,
+                    hosts=hosts,
                     vector="custom-scheme-no-host",
                     sensitive=sensitive,
                     auth_signal=auth_signal,
@@ -96,6 +97,7 @@ class DeepLinkHijackAgent(BaseAgent):
                         "enforced; resolver chooser exposed on pre-Android 12"
                     ),
                     schemes=web_schemes,
+                    hosts=hosts,
                     vector="applink-unverified",
                     sensitive=sensitive,
                     auth_signal=False,
@@ -109,6 +111,7 @@ class DeepLinkHijackAgent(BaseAgent):
         activity: str,
         issue: str,
         schemes: list[str],
+        hosts: list[str],
         vector: str,
         sensitive: bool,
         auth_signal: bool,
@@ -148,11 +151,19 @@ class DeepLinkHijackAgent(BaseAgent):
             evidence={
                 "activity": activity,
                 "schemes": schemes,
+                "hosts": hosts,
                 "vector": vector,
                 "reads_sensitive_params": sensitive,
                 "auth_scheme_signal": auth_signal,
                 "issue": issue,
+                "static_summary": issue,
+                "target_component": activity,
             },
+            dynamic_target=self._build_dynamic_target(
+                activity=activity,
+                schemes=schemes,
+                hosts=hosts,
+            ),
             recommendation=recommendation,
             owasp="M1: Improper Platform Usage",
             masvs="MSTG-PLATFORM-3",
@@ -162,6 +173,25 @@ class DeepLinkHijackAgent(BaseAgent):
                 else "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:U/C:L/I:L/A:N"
             ),
         )
+
+    @staticmethod
+    def _build_dynamic_target(
+        *,
+        activity: str,
+        schemes: list[str],
+        hosts: list[str],
+    ) -> dict[str, str] | None:
+        """Build a machine-readable runtime target, never a proof command."""
+        if not schemes:
+            return None
+        host = hosts[0] if hosts else "showPage"
+        return {
+            "type": "deep_link",
+            "scheme": schemes[0],
+            "host": host,
+            "params": "url=https%3A%2F%2F10.11.3.1%2F",
+            "target_component": activity,
+        }
 
     @staticmethod
     def _auth_scheme_signal(

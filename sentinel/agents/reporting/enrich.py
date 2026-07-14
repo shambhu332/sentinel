@@ -86,11 +86,6 @@ Finding to expand:
   {recommendation}
   </untrusted_evidence>
 
-  observed_result:
-  <untrusted_evidence field="observed_result">
-  {observed_result}
-  </untrusted_evidence>
-
   code_snippets:
   <untrusted_evidence field="code_snippets">
   {code_snippets}
@@ -182,7 +177,6 @@ async def _query_router(router: Any, finding: Finding) -> dict:
         triage="",
         evidence_keys=list(evidence.keys()) if isinstance(evidence, dict)
                      else "—",
-        observed_result=finding.observed_result or "",
         code_snippets=json.dumps(
             finding.code_snippets
             or ([finding.code_snippet] if finding.code_snippet else []),
@@ -204,6 +198,7 @@ def _coerce_narrative(data: dict, finding: Finding) -> dict:
     """Validate types, fill missing fields from deterministic fallback."""
     fb = _fallback_narrative(finding)
     strict = _strict_template_fallback(finding)
+    locked_summary = _runtime_locked_summary(finding)
     llm_impact = _strlist(data.get("impact_bullets"), [])
     llm_fix = _strlist(data.get("fix_bullets"), [])
 
@@ -216,7 +211,7 @@ def _coerce_narrative(data: dict, finding: Finding) -> dict:
     deterministic_repro = _has_specific_repro(fb)
     deterministic_poc = bool(str(fb.get("poc_snippet") or "").strip())
     out = {
-        "summary": _str(data.get("summary"), fb["summary"]),
+        "summary": locked_summary or _str(data.get("summary"), fb["summary"]),
         "affected_components": _strlist(
             data.get("affected_components"), fb["affected_components"],
         ),
@@ -1102,6 +1097,64 @@ _BOILERPLATE: dict[str, dict[str, Any]] = {
 }
 
 
+def render_deep_link_auth_gated(finding: Finding) -> str:
+    command = (
+        finding.reproduction_commands[0]
+        if finding.reproduction_commands else ""
+    )
+    return f"""Attempted to load an attacker-controlled PoC page via deep link while logged out (expected: blocked):
+
+`{command}`
+
+**Observed result:**
+{finding.observed_result or ""}
+
+**UI evidence (still on LoginActivity; WebView did not open):**
+![Login Block Evidence]({finding.blocking_state_screenshot or ""})
+
+**Note:** To dynamically confirm token exfil via dsBridge, the app must be in a logged-in state so SplashActivity forwards the VIEW intent into MainActivity -> DWebViewActivity."""
+
+
+def render_permission_verified(finding: Finding) -> str:
+    command = (
+        finding.reproduction_commands[0]
+        if finding.reproduction_commands else ""
+    )
+    return f"""Confirm requested permissions:
+
+`{command}`
+
+{finding.observed_result or ""}"""
+
+
+def render_auth_gated_description(finding: Finding) -> str:
+    evidence = finding.evidence if isinstance(finding.evidence, dict) else {}
+    static_summary = evidence.get("static_summary") or evidence.get("summary") or (
+        f"{finding.vuln_class} was identified in static analysis"
+    )
+    target_component = (
+        evidence.get("target_component")
+        or evidence.get("component")
+        or evidence.get("activity")
+        or "the target component"
+    )
+    return (
+        f"Static verification: {static_summary}. Dynamic verification could not "
+        f"reach {target_component} because the deep link path is gated behind "
+        "authentication (SplashActivity routes to LoginActivity when token is "
+        "null). Therefore, exploitability via attacker-controlled web content "
+        "is unverified on this device run."
+    )
+
+
+def _runtime_locked_summary(finding: Finding) -> str | None:
+    target = finding.dynamic_target if isinstance(finding.dynamic_target, dict) else {}
+    status = (finding.verification_status or "").strip()
+    if status == "Auth_Gated" and target.get("type") == "deep_link":
+        return render_auth_gated_description(finding)
+    return None
+
+
 def _strict_template_fallback(finding: Finding) -> dict[str, Any]:
     """Rigid fallback when no vulnerability-specific recipe exists.
 
@@ -1109,6 +1162,25 @@ def _strict_template_fallback(finding: Finding) -> dict[str, Any]:
     If commands exist, they came from the verifier and may be rendered. If
     not, the fallback says the finding is still code/static evidence only.
     """
+    target = finding.dynamic_target if isinstance(finding.dynamic_target, dict) else {}
+    status = (finding.verification_status or "").strip()
+    if status == "Auth_Gated" and target.get("type") == "deep_link":
+        return {
+            "repro_steps": [
+                "Attempted to load an attacker-controlled PoC page via deep link while logged out (expected: blocked).",
+                "Review the verifier command, observed activity, and UI evidence captured below.",
+                "To dynamically confirm token exfil via dsBridge, repeat the run in a logged-in state so SplashActivity forwards the VIEW intent into MainActivity -> DWebViewActivity.",
+            ],
+            "poc_snippet": "",
+        }
+    if status == "Verified" and target.get("type") == "permission_check":
+        return {
+            "repro_steps": [
+                "Confirm requested permissions with the verifier command captured below.",
+                "Review the raw requested/install permissions block in the observed result.",
+            ],
+            "poc_snippet": "",
+        }
     commands = [str(c).strip() for c in finding.reproduction_commands or [] if str(c).strip()]
     observed = (finding.observed_result or "").strip()
     if commands:
@@ -1138,7 +1210,8 @@ def _fallback_narrative(finding: Finding) -> dict:
         **_evidence_matched_recipe(finding, evidence),
     }
 
-    summary = bp.get("summary") or (
+    locked_summary = _runtime_locked_summary(finding)
+    summary = locked_summary or bp.get("summary") or (
         evidence.get("issue")
         if isinstance(evidence, dict) and evidence.get("issue") else None
     ) or (
