@@ -255,6 +255,41 @@ def test_unknown_agent_strict_fallback_uses_executed_commands():
     assert "LLM should not control" not in narrative["poc_snippet"]
 
 
+def test_runtime_locked_permission_finding_overrides_agent_boilerplate():
+    f = Finding(
+        session_id="testabcd",
+        agent_id="P_005",
+        vuln_class="Sensitive Permission: SYSTEM_ALERT_WINDOW",
+        severity=Severity.HIGH,
+        confidence=0.85,
+        evidence={
+            "permission": "android.permission.SYSTEM_ALERT_WINDOW",
+            "package": "com.example",
+        },
+        recommendation="Remove unnecessary permission.",
+        dynamic_target={"type": "permission_check"},
+        reproduction_commands=[
+            "adb shell dumpsys package com.example | "
+            "sed -n '/requested permissions:/,/install permissions:/p' | "
+            "head -n 30",
+        ],
+        observed_result=(
+            "Observed output includes:\n"
+            "requested permissions:\n"
+            "  android.permission.SYSTEM_ALERT_WINDOW"
+        ),
+        verification_status="Verified",
+    )
+
+    narrative = _fallback_narrative(f)
+
+    assert narrative["repro_steps"] == [
+        "Confirm requested permissions with the verifier command captured below.",
+        "Review the raw requested/install permissions block in the observed result.",
+    ]
+    assert narrative["poc_snippet"] == ""
+
+
 @pytest.mark.asyncio
 async def test_query_router_wraps_dynamic_evidence_in_untrusted_tags():
     class CapturingRouter:

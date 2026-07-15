@@ -1323,10 +1323,7 @@ class Orchestrator:
                                 commands.append(command)
                             updated = finding.model_copy(update={
                                 "reproduction_commands": commands,
-                                "observed_result": (
-                                    "Observed output includes:\n"
-                                    f"{(raw_dump.data or '').strip()}"
-                                ),
+                                "observed_result": raw_dump.data or "",
                                 "verification_status": "Verified",
                                 "verification_state": "verified",
                                 "finding_category": "AI-Powered",

@@ -134,6 +134,23 @@ class ExcessivePermissionsAgent(BaseAgent):
                     "type": "permission_check",
                     "permission": perm,
                 },
+                source_tags=[
+                    "Android Manifest Permission",
+                    "Sensitive Permission",
+                ],
+                context_factors={
+                    "exposure": "Installed-app permission footprint",
+                    "controls": "Platform permission dialog or policy review",
+                    "impact": rationale,
+                    "likelihood": "Medium" if severity != Severity.INFO else "Low",
+                },
+                severity_rationale=(
+                    f"{severity.value.upper()} because the manifest declares "
+                    f"{perm}, which expands the runtime privilege footprint: "
+                    f"{rationale}. Dynamic verification must confirm the "
+                    "permission is present on the installed package before "
+                    "the report treats it as runtime evidence."
+                ),
                 recommendation=(
                     f"Confirm a documented feature requires '{perm}'. "
                     "If the permission was added speculatively or for a "

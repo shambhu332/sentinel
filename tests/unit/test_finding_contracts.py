@@ -216,9 +216,10 @@ def test_p015_handles_string_only_activity_manifest(tmp_path: Path):
 
 def test_p015_emits_new_djini_fields(tmp_path: Path):
     """P_015 must populate severity_rationale, verification_status,
-    source_tags, reproduction_commands, observed_result, code_snippets
+    source_tags, dynamic_target, and code_snippets
     on every emitted finding so the new FindingDetailView has data to
-    render."""
+    render. Runtime proof fields stay empty until the ADB truth engine
+    executes the dynamic target."""
     from sentinel.agents.platform.p015_deep_link_mapper import DeepLinkMapperAgent
 
     apk = tmp_path / "app.apk"
@@ -252,9 +253,11 @@ def test_p015_emits_new_djini_fields(tmp_path: Path):
         assert f.verification_status == "Code-level only"
         assert "Deep Link / URL Scheme" in f.source_tags
         assert f.severity_rationale and len(f.severity_rationale) > 40
-        assert f.reproduction_commands, "must include adb am start commands"
-        assert any("am start" in c for c in f.reproduction_commands)
-        assert f.observed_result and len(f.observed_result) > 20
+        assert f.dynamic_target
+        assert f.dynamic_target["type"] == "deep_link"
+        assert f.dynamic_target["scheme"] == "https"
+        assert f.reproduction_commands == []
+        assert f.observed_result is None
         assert f.code_snippets and f.code_snippets[0]["file"] == "AndroidManifest.xml"
         assert "<intent-filter" in f.code_snippets[0]["content"]
 
@@ -302,6 +305,8 @@ def test_p015_uses_manifest_deep_links(tmp_path: Path):
         "unguarded_action_view",
         "overly_broad_path",
     }
+    assert all(f.dynamic_target for f in findings)
+    assert all(f.reproduction_commands == [] for f in findings)
 
 
 def test_n002_emits_new_djini_fields(tmp_path: Path):
@@ -560,8 +565,8 @@ def test_triager_lifts_verdict_onto_finding_fields():
     """LLMTriager must populate severity_rationale + verification_status
     on the Finding itself (not just evidence._triage) so the bucket
     classifier can route the finding to AI-Powered AppSec."""
-    from sentinel.triage.triager import LLMTriager
     from sentinel.triage.models import TriageOutcome, TriageResult, TriageVerdict
+    from sentinel.triage.triager import LLMTriager
 
     f = _finding()
     # Reset the agent's defaults so we can prove the triager overrode them.
@@ -672,8 +677,8 @@ def test_pipeline_contract_new_fields_survive_every_hop(tmp_path: Path):
         "label": "before_traversal",
     }]
     # Pretend the LLM triager verified this finding.
-    from sentinel.triage.triager import LLMTriager
     from sentinel.triage.models import TriageOutcome, TriageResult, TriageVerdict
+    from sentinel.triage.triager import LLMTriager
     LLMTriager._attach_result(f, TriageResult(
         outcome=TriageOutcome.VERIFIED,
         verdict=TriageVerdict(

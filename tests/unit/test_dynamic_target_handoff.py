@@ -5,10 +5,11 @@ import asyncio
 from pathlib import Path
 
 from sentinel.agents.base.ai_autonomous_agent import Candidate
-from sentinel.agents.platform.p_001_deep_link_hijack import P001DeepLinkHijackAgent
 from sentinel.agents.platform.p005_excessive_permissions import (
     ExcessivePermissionsAgent,
 )
+from sentinel.agents.platform.p015_deep_link_mapper import DeepLinkMapperAgent
+from sentinel.agents.platform.p_001_deep_link_hijack import P001DeepLinkHijackAgent
 from sentinel.core.finding import BountyScope
 from sentinel.core.scan_context import ScanContext, generate_session_id
 
@@ -75,3 +76,33 @@ def test_p005_emits_permission_dynamic_target_not_repro_command(tmp_path):
         "permission": "android.permission.SYSTEM_ALERT_WINDOW",
     }
     assert finding.reproduction_commands == []
+
+
+def test_p015_emits_dynamic_targets_not_repro_commands(tmp_path):
+    ctx = _ctx(tmp_path)
+    ctx.manifest = {
+        "package": "com.example",
+        "activities": ["com.example.LinkActivity"],
+        "deep_links": [{
+            "activity": "com.example.LinkActivity",
+            "actions": "android.intent.action.VIEW",
+            "categories": "android.intent.category.BROWSABLE",
+            "auto_verify": False,
+            "data_elements": [{
+                "scheme": "https",
+                "host": "example.com",
+                "pathPrefix": "/oauth/callback",
+            }],
+        }],
+    }
+
+    findings = asyncio.run(DeepLinkMapperAgent(ctx, object()).analyze())
+
+    assert findings
+    for finding in findings:
+        assert finding.dynamic_target
+        assert finding.dynamic_target["type"] == "deep_link"
+        assert finding.dynamic_target["scheme"] == "https"
+        assert finding.dynamic_target["host"].startswith("example.com")
+        assert finding.reproduction_commands == []
+        assert finding.observed_result is None

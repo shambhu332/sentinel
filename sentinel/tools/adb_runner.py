@@ -751,9 +751,10 @@ class AdbRunner:
     async def capture_screenshot(
         self,
         session_id: str,
-        filename: str,
+        context_label: str | None = None,
         *,
         workspace: Path | object = _WORKSPACE_UNSET,
+        filename: str | None = None,
         caption: str | None = None,
         step_index: int | None = None,
         serial: Optional[str] = None,
@@ -770,14 +771,17 @@ class AdbRunner:
         (``<workspace>/<session_id>/evidence/screenshots/``) so dynamic
         agents and the Phase 4.5 dispatcher don't recompute that path.
 
-        ``filename`` is used as the underlying label — it goes through
+        ``context_label`` is used as the underlying label — it goes through
         the same safe-character sanitisation as ``screenshot()`` and is
         combined with a millisecond timestamp to keep captures unique.
         """
+        label = context_label or filename
+        if not label:
+            raise ValueError("capture_screenshot requires context_label or filename")
         if workspace is _WORKSPACE_UNSET:
             return await self._capture_png_screenshot_file(
                 session_id=session_id,
-                context_label=filename,
+                context_label=label,
                 workspace=Path("workspace"),
                 serial=serial,
             )
@@ -786,7 +790,7 @@ class AdbRunner:
         out_dir = workspace_path / session_id / "evidence" / "screenshots"
         return await self.capture_evidence(
             out_dir,
-            label=filename,
+            label=label,
             step_index=step_index,
             caption=caption,
             serial=serial,
@@ -1205,28 +1209,19 @@ class AdbRunner:
         screenshot_path: str | None = None
         verification_screenshot: str | None = None
         screenshot_error: str | None = None
-        if is_auth_gated:
-            try:
-                shot_path = await self._capture_png_screenshot_file(
-                    session_id=session_id,
-                    context_label="deep_link_verification",
-                    workspace=workspace,
-                    serial=serial,
-                )
+        try:
+            shot_path = await self._capture_png_screenshot_file(
+                session_id=session_id,
+                context_label="deep_link_verification",
+                workspace=workspace,
+                serial=serial,
+            )
+            if is_auth_gated:
                 screenshot_path = str(shot_path)
-            except Exception as exc:  # noqa: BLE001
-                screenshot_error = str(exc)
-        elif target_reached:
-            try:
-                shot_path = await self._capture_png_screenshot_file(
-                    session_id=session_id,
-                    context_label="deep_link_verification",
-                    workspace=workspace,
-                    serial=serial,
-                )
+            else:
                 verification_screenshot = str(shot_path)
-            except Exception as exc:  # noqa: BLE001
-                screenshot_error = str(exc)
+        except Exception as exc:  # noqa: BLE001
+            screenshot_error = str(exc)
 
         if screenshot_error:
             observed = (
@@ -1570,7 +1565,16 @@ class AdbRunner:
 
     @staticmethod
     def _is_auth_gate_activity(activity: str) -> bool:
-        return bool(re.search(r"(login|auth|splash|signin|sign[_-]?in)", activity or "", re.I))
+        # Djini truth-engine rule: only foreground runtime state decides
+        # whether the probe is auth-gated. Keep the match narrow and
+        # activity-name based; do not infer from LLM/report prose.
+        return bool(
+            re.search(
+                r"(login|auth|splash|signin|sign[_-]?in)",
+                activity or "",
+                re.I,
+            ),
+        )
 
     # ---------- Inner runner ----------
 

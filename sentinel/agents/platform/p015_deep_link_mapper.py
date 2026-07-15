@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from urllib.parse import urlsplit
 
 from sentinel.agents.base.base_agent import BaseAgent
 from sentinel.core.finding import Finding, Severity
@@ -140,19 +141,9 @@ class DeepLinkMapperAgent(BaseAgent):
                             "Deep Link / URL Scheme",
                             "Manifest Misconfiguration",
                         ],
-                        reproduction_commands=[
-                            "# Replay the deep link from another app context",
-                            f"adb shell am start -W -a android.intent.action.VIEW \\",
-                            f"  -d \"{sample_url}\" \\",
-                            f"  {activity_name.split('/')[-1] if '/' in activity_name else ''}".rstrip(),
-                            "# Pre-Android 12: a chooser dialog will appear if a",
-                            "# sibling app also claims the host (link hijacking).",
-                        ],
-                        observed_result=(
-                            f"Android resolves {sample_url!r} to {activity_name} "
-                            "without verifying the Digital Asset Links file. "
-                            "Any installed app that also claims this host can be "
-                            "selected from the disambiguation chooser."
+                        dynamic_target=_deep_link_dynamic_target(
+                            sample_url,
+                            activity_name,
                         ),
                         code_snippets=[{
                             "label": "Intent-filter declaration",
@@ -260,19 +251,9 @@ class DeepLinkMapperAgent(BaseAgent):
                         ),
                         verification_status="Code-level only",
                         source_tags=src_tags,
-                        reproduction_commands=[
-                            "# Any unprivileged app can deliver this intent:",
-                            f"adb shell am start -W -a android.intent.action.VIEW \\",
-                            f"  -d \"{sample_url}\" \\",
-                            f"  -n {self._context.manifest.get('package', '<pkg>')}/"
-                            f"{activity_name}",
-                        ],
-                        observed_result=(
-                            f"The activity launches with the supplied URI as "
-                            f"input. No permission check is enforced and the "
-                            f"calling package is not validated, so any app on "
-                            f"the device can invoke this code path with "
-                            f"attacker-controlled data."
+                        dynamic_target=_deep_link_dynamic_target(
+                            sample_url,
+                            activity_name,
                         ),
                         code_snippets=[{
                             "label": "Activity declaration",
@@ -293,6 +274,7 @@ class DeepLinkMapperAgent(BaseAgent):
                 # Check 3: Overly broad pathPrefix="/"
                 if "/" in paths and len(paths) == 1 and hosts:
                     primary_host = sorted(hosts)[0]
+                    sample_url = f"https://{primary_host}/unintended/endpoint"
                     findings.append(self._make_finding(
                         vuln_class=self.VULN_CLASS,
                         severity=Severity.LOW,
@@ -330,15 +312,9 @@ class DeepLinkMapperAgent(BaseAgent):
                             "Deep Link / URL Scheme",
                             "Path Wildcard",
                         ],
-                        reproduction_commands=[
-                            "# Any URL under the host now reaches this activity:",
-                            f"adb shell am start -W -a android.intent.action.VIEW \\",
-                            f"  -d \"https://{primary_host}/unintended/endpoint\"",
-                        ],
-                        observed_result=(
-                            f"The activity is launched for arbitrary paths "
-                            f"under {primary_host}, including endpoints "
-                            f"unrelated to its intended deep-link surface."
+                        dynamic_target=_deep_link_dynamic_target(
+                            sample_url,
+                            activity_name,
                         ),
                         code_snippets=[{
                             "label": "Intent-filter declaration",
@@ -402,6 +378,28 @@ def _iter_deep_link_activities(manifest: dict[str, Any]) -> list[dict[str, Any]]
             })
 
     return normalized
+
+
+def _deep_link_dynamic_target(
+    sample_url: str,
+    activity_name: str,
+) -> dict[str, str] | None:
+    """Convert a static sample URI into a DAST handoff payload.
+
+    Static agents must not invent ADB commands or observed device output.
+    The orchestrator owns command construction and runtime evidence capture.
+    """
+    parsed = urlsplit(sample_url)
+    if not parsed.scheme:
+        return None
+    host = f"{parsed.netloc}{parsed.path}".strip("/") or "showPage"
+    return {
+        "type": "deep_link",
+        "scheme": parsed.scheme,
+        "host": host,
+        "params": parsed.query,
+        "target_component": activity_name,
+    }
 
 
 def _render_intent_filter_xml(

@@ -74,10 +74,18 @@ def apply_runtime_result(finding: Finding, runtime_result: object | None) -> Fin
             "label": "auth_gated",
         })
     if verification_screenshot:
+        verification_caption = (
+            "Runtime evidence: target reached after proof command."
+            if target_reached else
+            "Runtime evidence: UI state captured after proof command."
+        )
         screenshots.append({
             "path": verification_screenshot,
-            "caption": "Runtime evidence: target reached after proof command.",
-            "label": "verified_exploited",
+            "caption": verification_caption,
+            "label": (
+                "verified_exploited" if target_reached
+                else "runtime_dispatch"
+            ),
         })
     if screenshots:
         updates["screenshots"] = screenshots

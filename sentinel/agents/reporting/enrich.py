@@ -1203,6 +1203,16 @@ def _strict_template_fallback(finding: Finding) -> dict[str, Any]:
     }
 
 
+def _has_runtime_locked_template(finding: Finding) -> bool:
+    target = finding.dynamic_target if isinstance(finding.dynamic_target, dict) else {}
+    status = (finding.verification_status or "").strip()
+    return (
+        status == "Auth_Gated" and target.get("type") == "deep_link"
+    ) or (
+        status == "Verified" and target.get("type") == "permission_check"
+    )
+
+
 def _fallback_narrative(finding: Finding) -> dict:
     evidence = finding.evidence or {}
     bp = {
@@ -1234,8 +1244,12 @@ def _fallback_narrative(finding: Finding) -> dict:
         )
 
     strict = _strict_template_fallback(finding)
-    repro = bp.get("repro_steps") or strict["repro_steps"]
-    poc = bp.get("poc_snippet", strict["poc_snippet"])
+    if _has_runtime_locked_template(finding):
+        repro = strict["repro_steps"]
+        poc = strict["poc_snippet"]
+    else:
+        repro = bp.get("repro_steps") or strict["repro_steps"]
+        poc = bp.get("poc_snippet", strict["poc_snippet"])
     impact = (
         bp.get("impact_bullets")
         or _DEFAULT_IMPACT_BY_SEVERITY.get(finding.severity, [])

@@ -309,6 +309,52 @@ def test_verify_deep_link_screenshot_failure_becomes_runtime_failed(tmp_path):
     assert "Screenshot capture failed" in updated.observed_result
 
 
+def test_verify_deep_link_captures_screenshot_for_wrong_activity(tmp_path):
+    runner = AdbRunner()
+    captured = SimpleNamespace(called=False)
+
+    async def fake_run(args, serial=None, timeout=None):
+        if args[:4] == ["shell", "am", "start", "-W"]:
+            return ToolResult.ok(AdbCommandResult(stdout="Status: ok", stderr="", exit_code=0))
+        return ToolResult.ok(
+            AdbCommandResult(
+                stdout="mCurrentFocus=Window{123 u0 com.other.app/.MainActivity}",
+                stderr="",
+                exit_code=0,
+            ),
+        )
+
+    async def fake_capture(*, session_id, context_label, workspace, serial=None):
+        captured.called = True
+        return "evidence/deep_link_verification.png"
+
+    runner._run_adb = fake_run  # type: ignore[method-assign]
+    runner._capture_png_screenshot_file = fake_capture  # type: ignore[method-assign]
+
+    result = asyncio.run(
+        runner.verify_deep_link(
+            "com.example.app",
+            "mhlcrypto",
+            "https://attacker.example/poc.html",
+            "truthsess1",
+            workspace=tmp_path,
+            settle_seconds=0,
+        ),
+    )
+
+    assert result.success
+    assert result.data
+    assert captured.called is True
+    assert result.data.target_reached is False
+    assert result.data.is_auth_gated is False
+    assert result.data.verification_screenshot == "evidence/deep_link_verification.png"
+
+    updated = apply_runtime_result(_finding(), result.data)
+    assert updated.verification_status == "Runtime_Failed"
+    assert updated.screenshots
+    assert updated.screenshots[0]["label"] == "runtime_dispatch"
+
+
 def test_verify_permissions_uses_exact_dumpsys_pipeline():
     runner = AdbRunner()
     calls: list[list[str]] = []
