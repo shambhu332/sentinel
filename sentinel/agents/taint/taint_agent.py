@@ -15,6 +15,7 @@ never tanks the scan pipeline.
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 
 from sentinel.agents.base.base_agent import BaseAgent
@@ -177,21 +178,30 @@ class TaintAgent(BaseAgent):
           R2/R3 (multi-hop, >=0.85)       → likely_confirmed
           default                         → likely
         """
-        # Collect all code snippets in the flow for reflection marker scan.
-        all_code: list[str] = []
-        if flow.source is not None:
-            all_code.append(flow.source.code or "")
-        for hop in flow.hops:
-            all_code.append(hop.code or "")
-        all_code.append(flow.sink.code or "")
-        combined = " ".join(all_code)
+        # Collect intermediate hop code only — not the source/sink themselves.
+        # Scanning source code for reflection markers produces false positives
+        # when the source method name happens to contain "invoke" (e.g.
+        # invokeMethod, invokePlatformMessage). Only hops between source and
+        # sink indicate that the flow *crosses* a reflection boundary.
+        hop_code = " ".join(h.code or "" for h in flow.hops)
+        # Also include sink code: reflection as a sink (e.g. Method.invoke
+        # as the dangerous call) is a real R6 trigger.
+        combined = hop_code + " " + (flow.sink.code or "")
 
-        # R6: Reflection or native boundary anywhere in the flow path.
-        _REFLECTION_MARKERS = (
-            "Class.forName", "getDeclaredMethod", "getMethod",
-            "invoke(", "loadLibrary", "dlopen", "System.load",
+        # R6: Reflection or native boundary anywhere in the hop/sink path.
+        # Each pattern is a compiled regex to avoid substring false positives:
+        #   \.invoke\(   — matches method.invoke(obj, args) not invokeMethod()
+        #   \bgetMethod\b — word boundary to avoid getMethodName etc.
+        _REFLECTION_PATTERNS = (
+            re.compile(r'Class\.forName\s*\('),
+            re.compile(r'\bgetDeclaredMethod\s*\('),
+            re.compile(r'(?<!\w)getMethod\s*\('),
+            re.compile(r'\.invoke\s*\('),          # .invoke( — not invokeMethod(
+            re.compile(r'\bloadLibrary\s*\('),
+            re.compile(r'\bdlopen\s*\('),
+            re.compile(r'System\.load\s*\('),
         )
-        if any(m in combined for m in _REFLECTION_MARKERS):
+        if any(pat.search(combined) for pat in _REFLECTION_PATTERNS):
             return (
                 "needs_dynamic_confirmation",
                 "Flow crosses a reflection or native boundary — static "

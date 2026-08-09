@@ -160,7 +160,7 @@ async def regenerate_report(
     if not _SESSION_ID.match(session_id):
         raise HTTPException(status_code=400, detail="invalid session_id")
 
-    from sentinel.agents.reporting.builder import build_report_data
+    from sentinel.agents.reporting.builder import build_coverage, build_report_data
     from sentinel.agents.reporting.enrich import enrich_sections
     from sentinel.agents.reporting.templates import render_html, render_markdown
     from sentinel.api.scan_runner import get_registry
@@ -195,6 +195,7 @@ async def regenerate_report(
         apk_sha256=job.apk_sha256 or "",
         apk_size_bytes=job.apk_size_bytes or 0,
         generated_at=datetime.now(timezone.utc),
+        coverage=build_coverage(job.findings),
     )
 
     router_obj = None

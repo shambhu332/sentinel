@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from sentinel.agents.base import BaseAgent
-from sentinel.agents.reporting.builder import build_report_data
+from sentinel.agents.reporting.builder import build_coverage, build_report_data
 from sentinel.agents.reporting.enrich import enrich_sections
 from sentinel.agents.reporting.models import (
     BUCKET_AI_POWERED,
@@ -75,6 +75,10 @@ class ReportGeneratorAgent(BaseAgent):
             apk_sha256=self.context.apk_sha256 or "",
             apk_size_bytes=self.context.apk_size_bytes or 0,
             generated_at=datetime.now(timezone.utc),
+            coverage=build_coverage(
+                all_findings,
+                app_profile=self.context.app_profile,
+            ),
         )
 
         # Narrative enrichment via the free LLM router (Groq → Cerebras

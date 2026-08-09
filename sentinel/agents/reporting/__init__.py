@@ -1,7 +1,7 @@
 """Reporting agents — generate professional VAPT reports."""
 from __future__ import annotations
 
-from sentinel.agents.reporting.builder import build_report_data
+from sentinel.agents.reporting.builder import build_coverage, build_report_data
 from sentinel.agents.reporting.models import (
     FindingSection,
     ReferenceBlock,
@@ -17,6 +17,7 @@ __all__ = [
     "ReportData",
     "ReportGeneratorAgent",
     "RiskScore",
+    "build_coverage",
     "build_report_data",
     "render_html",
     "render_markdown",

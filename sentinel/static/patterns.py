@@ -344,6 +344,13 @@ WEBVIEW_PATTERNS: tuple[GrepPattern, ...] = (
         "M4: Insufficient Input/Output Validation",
         "MASVS-RESILIENCE-4",
     ),
+    GrepPattern(
+        r'\.evaluateJavascript\s*\(',
+        "evaluateJavascript call — inspect payload for untrusted content",
+        Severity.MEDIUM,
+        "M4: Insufficient Input/Output Validation",
+        "MASVS-PLATFORM-2",
+    ),
 )
 
 # ── Authentication ────────────────────────────────────────────────────────────
@@ -489,6 +496,42 @@ PATTERNS_BY_CATEGORY: dict[str, tuple[GrepPattern, ...]] = {
 ALL_PATTERNS: tuple[GrepPattern, ...] = tuple(
     p for group in PATTERNS_BY_CATEGORY.values() for p in group
 )
+
+def scan_text(text: str, *categories: str) -> list[dict]:
+    """Scan ``text`` against patterns in the named categories.
+
+    Returns a list of match dicts, one per pattern that matched::
+
+        {
+            "category": "webview",
+            "label":    "JavaScript enabled in WebView",
+            "severity": Severity.MEDIUM,
+            "owasp":    "M4: ...",
+            "masvs":    "MASVS-PLATFORM-2",
+            "pattern":  "<regex>",
+            "match":    "<matched text>",
+        }
+
+    If no categories are given, all patterns are scanned.
+    """
+    import re as _re
+    target_cats = set(categories) if categories else set(PATTERNS_BY_CATEGORY)
+    results: list[dict] = []
+    for cat in target_cats:
+        for pat in PATTERNS_BY_CATEGORY.get(cat, ()):
+            m = _re.search(pat.pattern, text)
+            if m:
+                results.append({
+                    "category": cat,
+                    "label":    pat.label,
+                    "severity": pat.severity,
+                    "owasp":    pat.owasp,
+                    "masvs":    pat.masvs,
+                    "pattern":  pat.pattern,
+                    "match":    m.group(0)[:120],
+                })
+    return results
+
 
 __all__ = [
     "GrepPattern",

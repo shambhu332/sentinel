@@ -147,3 +147,51 @@ def _severity_counts(sections: list[FindingSection]) -> dict[str, int]:
             s.finding.severity.value, 0,
         ) + 1
     return counts
+
+
+def build_coverage(
+    findings: list[Finding],
+    app_profile: dict | None = None,
+) -> dict:
+    """Derive scan coverage declaration from findings and app_profile.
+
+    Keys match the DragonJAR agent contract used in ReportData.coverage:
+      static_analysis    — any SAST/static agent produced a finding
+      dynamic_analysis   — any DAST/dynamic agent produced a finding
+      taint_analysis     — TAINT_001 ran and produced findings
+      rasp_present       — D_091 (RASP detector) found RASP defences
+      framework          — detected app framework string
+      obfuscation_detected — obfuscation was detected (META_005 / profiler)
+      native_code        — native libraries present
+      agent_count        — number of distinct agent IDs in findings
+    """
+    profile = app_profile or {}
+    agent_ids: set[str] = {f.agent_id for f in findings if f.agent_id}
+
+    _DAST_PREFIXES = ("DAST_", "D0", "D_0", "DYN_")
+    _SAST_PREFIXES = ("A_", "C_", "N_", "WV_", "LOG_", "STG_", "META_",
+                      "TAINT_", "SCA_", "RES_", "REFL_", "OST_")
+
+    static_ran = any(
+        any(aid.startswith(p) for p in _SAST_PREFIXES) for aid in agent_ids
+    )
+    dynamic_ran = any(
+        any(aid.startswith(p) for p in _DAST_PREFIXES) for aid in agent_ids
+    )
+
+    framework = (
+        profile.get("frameworks", [None])[0]
+        if profile.get("frameworks")
+        else "unknown"
+    )
+
+    return {
+        "static_analysis": static_ran,
+        "dynamic_analysis": dynamic_ran,
+        "taint_analysis": "TAINT_001" in agent_ids,
+        "rasp_present": "D_091" in agent_ids,
+        "framework": str(framework or "unknown").lower(),
+        "obfuscation_detected": bool(profile.get("obfuscation_level")),
+        "native_code": bool(profile.get("native_libs_info")),
+        "agent_count": len(agent_ids),
+    }

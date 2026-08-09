@@ -27,6 +27,7 @@ import re
 
 from sentinel.agents.base.base_agent import BaseAgent
 from sentinel.core.finding import Finding, Severity
+from sentinel.static.patterns import scan_text as _scan_text
 
 logger = logging.getLogger(__name__)
 
@@ -88,12 +89,27 @@ class InsecureWebViewAgent(BaseAgent):
             except (OSError, UnicodeDecodeError):
                 continue
 
+            # Core patterns (fine-tuned, kept as-is)
             counts = {
                 "add_js_interface": len(_ADD_JS_INTERFACE_RE.findall(text)),
                 "js_enabled": len(_JS_ENABLED_RE.findall(text)),
                 "file_access": len(_FILE_ACCESS_RE.findall(text)),
                 "load_http": len(_LOAD_URL_HTTP_RE.findall(text)),
             }
+
+            # Supplemental patterns from centralized catalog that this
+            # agent doesn't cover with its own regexes.
+            extras = _scan_text(text, "webview")
+            extra_labels = {m["label"] for m in extras}
+            counts["evaluate_javascript"] = sum(
+                1 for m in extras if "evaluateJavascript" in m["label"]
+            )
+            counts["debug_enabled"] = sum(
+                1 for m in extras if "remote debugging" in m["label"].lower()
+            )
+            counts["js_injection_url"] = sum(
+                1 for m in extras if "javascript:" in m["label"].lower()
+            )
 
             if any(counts.values()):
                 rel = str(path.relative_to(ctx.decompiled_dir))
@@ -104,8 +120,11 @@ class InsecureWebViewAgent(BaseAgent):
             return []
 
         # Aggregate signals across all files
-        total = {k: sum(f[k] for f in per_file.values())
-                 for k in ("add_js_interface", "js_enabled", "file_access", "load_http")}
+        _all_keys = (
+            "add_js_interface", "js_enabled", "file_access", "load_http",
+            "evaluate_javascript", "debug_enabled", "js_injection_url",
+        )
+        total = {k: sum(f.get(k, 0) for f in per_file.values()) for k in _all_keys}
 
         # Severity logic
         if total["add_js_interface"] > 0 and total["js_enabled"] > 0 and total["file_access"] > 0:
