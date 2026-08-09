@@ -167,6 +167,70 @@ class TaintAgent(BaseAgent):
         return ladder[min(idx + 1, len(ladder) - 1)]
 
     @staticmethod
+    def _classify_flow(flow: TaintFlow) -> tuple[str, str]:
+        """Apply the 8 DragonJAR decision rules and return (status, note).
+
+        Rules applied in priority order:
+          R6 (reflection/native boundary) → needs_dynamic_confirmation
+          R7 (confidence < 0.7)           → unverified
+          R1 (depth 0, high confidence)   → confirmed
+          R2/R3 (multi-hop, >=0.85)       → likely_confirmed
+          default                         → likely
+        """
+        # Collect all code snippets in the flow for reflection marker scan.
+        all_code: list[str] = []
+        if flow.source is not None:
+            all_code.append(flow.source.code or "")
+        for hop in flow.hops:
+            all_code.append(hop.code or "")
+        all_code.append(flow.sink.code or "")
+        combined = " ".join(all_code)
+
+        # R6: Reflection or native boundary anywhere in the flow path.
+        _REFLECTION_MARKERS = (
+            "Class.forName", "getDeclaredMethod", "getMethod",
+            "invoke(", "loadLibrary", "dlopen", "System.load",
+        )
+        if any(m in combined for m in _REFLECTION_MARKERS):
+            return (
+                "needs_dynamic_confirmation",
+                "Flow crosses a reflection or native boundary — static "
+                "analysis cannot fully resolve the target; confirm with "
+                "runtime instrumentation (jni-tracer.js or method-tracer.js).",
+            )
+
+        # R7: Confidence below 0.7 (depth ≥ 3) — inter-procedural speculation.
+        if flow.confidence < 0.7:
+            return (
+                "unverified",
+                f"IPA depth {flow.depth} yields confidence {flow.confidence:.1f} "
+                "— flow is speculative; prioritise manually after depth-0 findings.",
+            )
+
+        # R1: Direct in-method flow at high confidence.
+        if flow.depth == 0 and flow.confidence >= 0.85:
+            return (
+                "confirmed",
+                "Source and sink are in the same method with no intermediate "
+                "hops — highest-confidence finding; no runtime confirmation needed.",
+            )
+
+        # R2/R3: Multi-hop but confidence still ≥ 0.85.
+        if flow.confidence >= 0.85:
+            return (
+                "likely_confirmed",
+                f"Inter-procedural flow ({flow.depth} hop(s)) with confidence "
+                f"{flow.confidence:.1f} — strong static signal; spot-check at "
+                "runtime to rule out unreachable code paths.",
+            )
+
+        return (
+            "likely",
+            f"Confidence {flow.confidence:.1f} at IPA depth {flow.depth} — "
+            "plausible flow; triage after confirmed/likely_confirmed findings.",
+        )
+
+    @staticmethod
     def _render_evidence(flow: TaintFlow) -> dict:
         """Pack the trace into a Finding.evidence dict.
 
@@ -189,6 +253,8 @@ class TaintAgent(BaseAgent):
         trace_entries.append(_hop_dict(flow.sink))
         readable.append(_hop_str(flow.sink))
 
+        status, triage_note = TaintAgent._classify_flow(flow)
+
         ev: dict = {
             "vuln_class": flow.vuln_class,
             "source_label": (
@@ -204,6 +270,8 @@ class TaintAgent(BaseAgent):
             "source_line": flow.source.line if flow.source else 0,
             "sink_file": flow.sink.file,
             "sink_line": flow.sink.line,
+            "verification_status": status,
+            "triage_note": triage_note,
         }
         return ev
 

@@ -234,6 +234,7 @@ from sentinel.agents.dynamic.d083_mobile_ssrf import MobileSsrfAgent
 from sentinel.agents.dynamic.d084_webview_xss import WebViewUniversalXssAgent
 from sentinel.agents.dynamic.d085_provider_lfi import ProviderLfiAgent
 from sentinel.agents.dynamic.d086_intent_xss import IntentXssAgent
+from sentinel.agents.dynamic.d091_rasp_detector import D091RaspDetectorAgent
 from sentinel.agents.dynamic.data_in_transit_agent import DataInTransitAgent
 from sentinel.agents.dynamic.improper_tls_agent import ImproperTLSAgent
 from sentinel.agents.dynamic.runtime_crypto_agent import RuntimeCryptoAgent
@@ -325,4 +326,5 @@ __all__ = [
     "WebViewRuntimeAgent",
     "WebViewUniversalXssAgent",
     "ZipPathTraversalAgent",
+    "D091RaspDetectorAgent",
 ]

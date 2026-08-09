@@ -895,6 +895,8 @@ async def _run_scan(
         else:
             console.print("[dim]No findings produced.[/]")
 
+        _print_masvs_score(result.findings)
+
         if generate_patch and router is not None and result.findings:
             written = await _generate_and_write_patches(
                 router=router,
@@ -1173,6 +1175,19 @@ def _print_findings(findings, show_filtered: bool = False) -> None:
         )
 
 
+def _score_masvs(findings) -> dict:
+    from sentinel.compliance.masvs_scorer import MavsScorer
+    return MavsScorer().score(findings).as_dict()
+
+
+def _print_masvs_score(findings) -> None:
+    from sentinel.compliance.masvs_scorer import MavsScorer
+    masvs = MavsScorer().score(findings)
+    grade_colours = {"A": "green", "B": "green", "C": "yellow", "D": "yellow", "F": "red"}
+    colour = grade_colours.get(masvs.grade, "white")
+    console.print(f"\n[bold][{colour}]{masvs.summary_text()}[/][/]")
+
+
 def _write_json_output(output: Path, ctx, result) -> None:
     """Write scan summary as JSON for downstream consumption."""
     import json
@@ -1190,6 +1205,7 @@ def _write_json_output(output: Path, ctx, result) -> None:
         "error": result.error,
         "warnings": result.warnings,
         "triage_breakdown": _count_triage_outcomes(result.findings),
+        "masvs_compliance": _score_masvs(result.findings),
         "findings": [
             {
                 "finding_id": f.finding_id,

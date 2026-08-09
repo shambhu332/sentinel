@@ -107,6 +107,11 @@ class ReportData:
     risk: RiskScore = field(
         default_factory=lambda: RiskScore(score=0, band="low", summary=""),
     )
+    masvs_compliance: dict = field(default_factory=dict)
+    # Coverage declaration per DragonJAR agent contract.
+    # Keys: static_analysis, dynamic_analysis, framework, obfuscation,
+    #       native_code, rasp — values are status strings set by scan_runner.
+    coverage: dict = field(default_factory=dict)
 
     @property
     def total_findings(self) -> int:

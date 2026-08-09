@@ -58,6 +58,7 @@ from sentinel.agents.crypto import (
 )
 from sentinel.agents.data_storage import WorldReadableStorageAgent
 from sentinel.agents.dynamic import (
+    D091RaspDetectorAgent,
     DeepLinkBombAgent,
     FileProviderFuzzerAgent,
     HiddenApiHunterAgent,
@@ -183,6 +184,7 @@ SAST_AGENTS = [
     NativeLibraryAgent,
     LoadLibraryTaintAgent,
     AntiTamperAgent,
+    D091RaspDetectorAgent,
     SCAAgent,
     TaintAgent,
     ReactNativeAgent,

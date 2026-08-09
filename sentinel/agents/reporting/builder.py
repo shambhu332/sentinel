@@ -22,6 +22,7 @@ from sentinel.agents.reporting.models import (
     ReportData,
     RiskScore,
 )
+from sentinel.compliance.masvs_scorer import MavsScorer
 from sentinel.core.finding import Finding, Severity
 
 _SOURCE_BY_PREFIX: tuple[tuple[str, str], ...] = (
@@ -42,6 +43,7 @@ def build_report_data(
     apk_sha256: str = "",
     apk_size_bytes: int = 0,
     generated_at: datetime | None = None,
+    coverage: dict | None = None,
 ) -> ReportData:
     """Build a ``ReportData`` ready for any renderer."""
     sections = _build_sections(findings)
@@ -53,6 +55,7 @@ def build_report_data(
         medium=counts.get("Medium", 0),
         low=counts.get("Low", 0),
     )
+    masvs_compliance = MavsScorer().score(findings).as_dict()
     return ReportData(
         package=package or "(unknown)",
         version=version or "(unknown)",
@@ -64,6 +67,8 @@ def build_report_data(
         references=references,
         severity_counts=counts,
         risk=risk,
+        masvs_compliance=masvs_compliance,
+        coverage=coverage or {},
     )
 
 
