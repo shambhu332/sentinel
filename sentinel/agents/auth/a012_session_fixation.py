@@ -165,7 +165,7 @@ class SessionFixationAgent(BaseAgent):
                         "the server-issued response. Treat deep-link "
                         "parameters as untrusted."
                     ),
-                    owasp="M2: Inadequate Supply Chain Security",
+                    owasp="M3: Insecure Authentication/Authorization",
                     masvs="MSTG-AUTH-3",
                     cvss_vector=(
                         "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:H/I:H/A:N"

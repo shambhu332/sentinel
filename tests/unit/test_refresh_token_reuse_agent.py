@@ -159,7 +159,7 @@ class A {
 """)
     agent = RefreshTokenReuseAgent(context=ctx, memory=memory)
     f = (await agent.analyze())[0]
-    assert f.owasp == "M2: Inadequate Supply Chain Security"
+    assert f.owasp == "M3: Insecure Authentication/Authorization"
     assert f.masvs == "MSTG-AUTH-7"
     assert f.cvss_vector and f.cvss_vector.startswith("CVSS:3.1/")
     assert f.recommendation

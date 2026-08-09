@@ -254,47 +254,57 @@ class ProductionMemory(MemoryInterface):
         except Exception:  # noqa: BLE001
             return None
 
-    # ---------- Tier 2 / Tier 3 — not yet implemented ----------
+    # ---------- Tier 2 / Tier 3 — graceful degradation ----------
+    # Qdrant and Neo4j wiring is not yet implemented. These methods log a
+    # warning and return empty results rather than crashing the scan. Any
+    # agent or pipeline step that calls them will silently get nothing,
+    # which is always better than an unhandled exception killing the session.
 
     async def add_embedding(
         self, session_id: str, finding_id: str, text: str, metadata: dict[str, Any],
     ) -> None:
-        raise NotImplementedError(
-            "Tier 2 (Qdrant / pgvector) not yet implemented — "
-            "use LightweightMemory for semantic search."
+        logger.warning(
+            "[memory] Tier 2 (Qdrant) not available in ProductionMemory — "
+            "embedding for %s skipped. Configure LightweightMemory for vector search.",
+            finding_id,
         )
 
     async def search_similar(
         self, query_text: str, session_id: str | None = None, limit: int = 10,
     ) -> list[dict[str, Any]]:
-        raise NotImplementedError(
-            "Tier 2 (Qdrant / pgvector) not yet implemented — "
-            "use LightweightMemory for semantic search."
+        logger.warning(
+            "[memory] Tier 2 (Qdrant) not available in ProductionMemory — "
+            "similarity search returning empty. Configure LightweightMemory for vector search."
         )
+        return []
 
     async def add_graph_node(
         self, session_id: str, node_id: str, node_type: str, attrs: dict[str, Any],
     ) -> None:
-        raise NotImplementedError(
-            "Tier 3 (Neo4j) not yet implemented — "
-            "use LightweightMemory for graph operations."
+        logger.warning(
+            "[memory] Tier 3 (Neo4j) not available in ProductionMemory — "
+            "graph node %s skipped. Configure LightweightMemory for graph operations.",
+            node_id,
         )
 
     async def add_graph_edge(
         self, session_id: str, src: str, dst: str, edge_type: str, attrs: dict[str, Any],
     ) -> None:
-        raise NotImplementedError(
-            "Tier 3 (Neo4j) not yet implemented — "
-            "use LightweightMemory for graph operations."
+        logger.warning(
+            "[memory] Tier 3 (Neo4j) not available in ProductionMemory — "
+            "graph edge %s→%s skipped.",
+            src, dst,
         )
 
     async def find_paths(
         self, session_id: str, src: str, dst: str, max_length: int = 5,
     ) -> list[list[str]]:
-        raise NotImplementedError(
-            "Tier 3 (Neo4j) not yet implemented — "
-            "use LightweightMemory for graph operations."
+        logger.warning(
+            "[memory] Tier 3 (Neo4j) not available in ProductionMemory — "
+            "path search %s→%s returning empty.",
+            src, dst,
         )
+        return []
 
     # ---------- Health ----------
 

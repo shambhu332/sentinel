@@ -1,6 +1,11 @@
-"""C_006: ECB Cipher Mode Detection.
+"""C_006: ECB Cipher Mode Detection — DEPRECATED.
 
-Detects use of ECB mode which leaks plaintext patterns.
+Superseded by C_001 (C001ECBModeAgent), the AI-autonomous ECB detector
+that adds LLM confirmation on top of the same regex pre-filter.
+
+This module is kept for backward-compatibility with any external tooling
+that may reference it, but the class no longer has an AGENT_ID so the
+auto-discovery walker will skip it.
 """
 from __future__ import annotations
 
@@ -15,9 +20,10 @@ if TYPE_CHECKING:
 
 
 class EcbModeAgent(BaseAgent):
-    """Detect ECB cipher mode usage."""
+    """Detect ECB cipher mode usage — superseded by C001ECBModeAgent."""
 
-    AGENT_ID = "C_006"
+    # No AGENT_ID: intentionally omitted so _discover_all_agents() skips
+    # this class. Use C001ECBModeAgent (C_001) instead.
     VULN_CLASS = "ECB Cipher Mode"
     PHASE = "Phase 2"
 
@@ -60,7 +66,7 @@ class EcbModeAgent(BaseAgent):
                             "ECB mode encrypts identical plaintext blocks to identical ciphertext, "
                             "revealing patterns. Use AES/GCM/NoPadding for authenticated encryption."
                         ),
-                        owasp="M2: Inadequate Supply Chain Security",
+                        owasp="M10: Insufficient Cryptography",
                         masvs="MSTG-CRYPTO-2",
                         cvss_vector="CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
                         poc=(
@@ -87,7 +93,7 @@ class EcbModeAgent(BaseAgent):
                             "Default transformation may use ECB mode on some platforms. "
                             "Use explicit transformation like 'AES/GCM/NoPadding'."
                         ),
-                        owasp="M2: Inadequate Supply Chain Security",
+                        owasp="M10: Insufficient Cryptography",
                         masvs="MSTG-CRYPTO-2",
                     ))
 

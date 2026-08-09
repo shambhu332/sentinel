@@ -353,7 +353,7 @@ class CleartextTrafficAgent(BaseAgent):
             "# 2. Route the device's traffic through the laptop:",
             "adb shell settings put global http_proxy $(hostname -I | awk '{print $1}'):8080",
             "",
-            f"# 3. Launch the target app:",
+            "# 3. Launch the target app:",
             f"adb shell monkey -p {package} -c android.intent.category.LAUNCHER 1",
             "",
             "# 4. Confirm the request is visible in plaintext:",

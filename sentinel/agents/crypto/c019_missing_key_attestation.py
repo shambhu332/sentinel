@@ -31,11 +31,9 @@ server.
 from __future__ import annotations
 
 import re
-from pathlib import Path
 
 from sentinel.agents.base import BaseAgent
 from sentinel.core.finding import Finding, Severity
-
 
 _BUILDER_CTOR = re.compile(
     r"new\s+KeyGenParameterSpec\s*\.\s*Builder\s*\(([^)]*)\)",

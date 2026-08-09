@@ -245,7 +245,7 @@ class TestFindingFields:
                    'String KEY = "sk_live_51HxZ9l2eZvKYlo2C0xYz9AbC";')
         agent = A001AIHardcodedCredsAgent(ctx, memory, llm_analyzer=_mock_analyzer(_make_verdict()))
         findings = await agent.analyze()
-        assert findings[0].agent_id == "A_001"
+        assert findings[0].agent_id == "A_015"
 
     @pytest.mark.asyncio
     async def test_severity_maps_correctly(self, ctx, memory):

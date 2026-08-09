@@ -183,7 +183,7 @@ class FcmTokenDisclosureAgent(BaseAgent):
                 "subscribing to FCM topics over storing the token "
                 "server-side."
             ),
-            owasp="M2: Inadequate Supply Chain Security",
+            owasp="M6: Inadequate Privacy Controls",
             masvs="MSTG-STORAGE-3",
             cvss_vector="CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
         )

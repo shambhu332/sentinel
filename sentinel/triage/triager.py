@@ -91,9 +91,14 @@ class LLMTriager:
                 continue
 
             # Rate-limit: sleep before each LLM call (except the first) to stay
-            # within free-tier RPM limits. Skipped findings don't count.
+            # within free-tier RPM limits (Groq: 30 RPM, Cerebras: variable).
+            # Local providers (vLLM, Ollama) have no external rate limit — skip
+            # the delay when they answered the previous call.
             if not first_llm_call and self._inter_call_delay > 0:
-                await asyncio.sleep(self._inter_call_delay)
+                if not self._router.last_provider_is_local:
+                    await asyncio.sleep(self._inter_call_delay)
+                else:
+                    logger.debug("[triage] local provider answered last call — skipping rate-limit sleep")
             first_llm_call = False
 
             result = await self._triage_one(finding, context)
@@ -407,7 +412,8 @@ class LLMTriager:
         handles gracefully.
         """
         from sentinel.llm.severity_rationale import (
-            RationaleInput, generate_auth_gated_rationale,
+            RationaleInput,
+            generate_auth_gated_rationale,
         )
 
         targets = [

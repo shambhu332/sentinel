@@ -149,7 +149,7 @@ class PlaintextPasswordFileAgent(BaseAgent):
                         "refresh token instead of the user's "
                         "password."
                     ),
-                    owasp="M2: Inadequate Supply Chain Security",
+                    owasp="M9: Insecure Data Storage",
                     masvs="MSTG-STORAGE-1",
                     cvss_vector=(
                         "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"

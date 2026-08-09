@@ -394,7 +394,7 @@ class ReactNativeAgent(BaseAgent):
                 vuln_class=VC_SECRET,
                 severity=sev,
                 confidence=conf,
-                owasp="M2: Inadequate Supply Chain Security",
+                owasp="M1: Improper Credential Usage",
                 masvs="MASVS-CODE-3",
                 evidence={
                     "title": f"Hardcoded secret in JS bundle: {label}",

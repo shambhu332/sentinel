@@ -113,7 +113,7 @@ class TestAnalyzeEvents:
     async def test_agent_id_is_d003(self, ctx, memory):
         events = [_weakness("ecb_mode", algorithm="AES/ECB")]
         findings = await _agent(ctx, memory).analyze_events(events, ctx)
-        assert all(f.agent_id == "D_003" for f in findings)
+        assert all(f.agent_id == "DAST_003" for f in findings)
 
     @pytest.mark.asyncio
     async def test_no_device_returns_info(self, ctx, memory):

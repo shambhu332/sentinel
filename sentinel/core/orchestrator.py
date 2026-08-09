@@ -1,23 +1,24 @@
 """Orchestrator — runs a scan through the multi-phase pipeline.
 
-Pipeline phases:
-- Phase 0: Ingestion (hash, workspace setup)
-- Phase 1: Recon — runs JADX, Androguard, apktool, manifest in PARALLEL
-           (Sprint 7.6.3). Each tool is crash-proof and contributes
-           independently to ctx.sources. Scan continues with whatever
-           succeeded.
-- Phase 4: Dynamic analysis (Sprint 8.1) — mitmproxy + adb. Runs ONLY
-           when --dynamic is passed. Installs APK on connected device,
-           captures HTTP/HTTPS traffic via mitmproxy, stores in
-           ctx.sources['mitmproxy'] for N_003/N_004 to consume.
-           When --no-proxy is passed, the mitmproxy + device proxy
-           steps are skipped (useful for apps with anti-MITM detection).
+Execution order (not the same as phase numbers):
+- Phase 0:   Ingestion (hash, workspace setup)
+- Phase 1:   Recon — runs JADX, Androguard, apktool, manifest in PARALLEL
+             (Sprint 7.6.3). Each tool is crash-proof and contributes
+             independently to ctx.sources. Scan continues with whatever
+             succeeded.
+- Phase 1.5: Profile + AST cache setup.
+- Phase 4:   Dynamic analysis (Sprint 8.1) — runs BEFORE Phase 2 so that
+             mitmproxy/Frida evidence is in ctx.sources when SAST agents
+             run. Only when --dynamic is passed. Installs APK, captures
+             HTTP/HTTPS via mitmproxy into ctx.sources['mitmproxy'] for
+             N_003/N_004. When --no-proxy is passed the proxy steps are
+             skipped (useful for apps with anti-MITM detection).
 - Phase 4.5: Frida sub-phase (Sprint 8.2) — runs WITHIN phase 4 after
-           the mitmproxy capture. Hooks runtime crypto (A_003) and
-           cert pinning bypass (N_005). Stores capture in
-           ctx.sources['frida']. Only runs when --frida is also passed.
-- Phase 2: Static + dynamic analysis agents
-- Phase 3: LLM triage (Sprint 7) — filters false positives, optional
+             the mitmproxy capture. Hooks runtime crypto (A_003) and
+             cert pinning bypass (N_005). Stores capture in
+             ctx.sources['frida']. Only runs when --frida is also passed.
+- Phase 2:   Static + dynamic analysis agents (consumes Phase 4 output).
+- Phase 3:   LLM triage (Sprint 7) — filters false positives, optional.
 
 Later sprints add:
 - Phase 4 extensions: emulator automation (Sprint 8.3)
@@ -218,6 +219,9 @@ class Orchestrator:
             result.phase_timings["phase1_5"] = asyncio.get_event_loop().time() - start
 
             # Phase 4: Dynamic analysis (Sprint 8.1)
+            # Intentionally runs BEFORE Phase 2: mitmproxy/Frida populate
+            # ctx.sources so SAST agents can correlate static findings with
+            # live network/runtime evidence during their own analysis pass.
             if self._dynamic_enabled:
                 start = asyncio.get_event_loop().time()
                 try:

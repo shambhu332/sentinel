@@ -108,7 +108,7 @@ def test_engine_register_default_wires_all_shipped(tmp_path):
     engine = VerifyEngine()
     engine.register_default_verifiers()
     for agent_id in ("META_002", "P_005", "STG_007", "STG_009",
-                     "N_002", "A_003", "N_005"):
+                     "N_002", "D_075", "N_005"):
         assert agent_id in engine.supported_agents
 
 
@@ -366,7 +366,7 @@ async def test_a_003_verified_when_algorithm_in_events(tmp_path):
         _FakeFridaEvent("crypto.cipher", {"algorithm": "DES/ECB/NoPadding"}),
     ])}
     finding = _finding(
-        agent_id="A_003",
+        agent_id="D_075",
         evidence={"algorithm": "des"},
     )
     result = await RuntimeCryptoVerifier().verify(
@@ -379,7 +379,7 @@ async def test_a_003_verified_when_algorithm_in_events(tmp_path):
 async def test_a_003_unsupported_without_capture(tmp_path):
     scan = _ctx(tmp_path)
     result = await RuntimeCryptoVerifier().verify(
-        _finding(agent_id="A_003", evidence={"algorithm": "des"}),
+        _finding(agent_id="D_075", evidence={"algorithm": "des"}),
         VerifierContext(scan=scan),
     )
     assert result.outcome == VerificationOutcome.UNSUPPORTED

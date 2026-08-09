@@ -117,17 +117,15 @@ async def test_get_finding_missing_returns_none(memory):
 
 
 @pytest.mark.asyncio
-async def test_tier2_tier3_raise_not_implemented(memory):
-    with pytest.raises(NotImplementedError):
-        await memory.add_embedding("s", "f", "t", {})
-    with pytest.raises(NotImplementedError):
-        await memory.search_similar("q")
-    with pytest.raises(NotImplementedError):
-        await memory.add_graph_node("s", "n", "t", {})
-    with pytest.raises(NotImplementedError):
-        await memory.add_graph_edge("s", "a", "b", "e", {})
-    with pytest.raises(NotImplementedError):
-        await memory.find_paths("s", "a", "b")
+async def test_tier2_tier3_degrade_gracefully(memory):
+    # Tier 2/3 are not yet implemented in ProductionMemory — they log a
+    # warning and return empty results instead of raising, so a missing
+    # vector/graph backend never kills a scan.
+    await memory.add_embedding("s", "f", "t", {})          # must not raise
+    assert await memory.search_similar("q") == []
+    await memory.add_graph_node("s", "n", "t", {})         # must not raise
+    await memory.add_graph_edge("s", "a", "b", "e", {})    # must not raise
+    assert await memory.find_paths("s", "a", "b") == []
 
 
 @pytest.mark.asyncio

@@ -81,7 +81,7 @@ class TestAnalyzeEvents:
         events = [_event("file_exists", path="/proc/self/maps")]
         findings = await _agent(ctx, memory).analyze_events(events, ctx)
         assert len(findings) == 1
-        assert findings[0].agent_id == "D_001"
+        assert findings[0].agent_id == "DAST_001"
 
     @pytest.mark.asyncio
     async def test_debugger_check_detected(self, ctx, memory):

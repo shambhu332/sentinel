@@ -179,7 +179,7 @@ class SQLCipherKeyDerivationAgent(BaseAgent):
                         "misuse. Never ship a hardcoded passphrase or a "
                         "BuildConfig constant."
                     ),
-                    owasp="M2: Inadequate Supply Chain Security",
+                    owasp="M10: Insufficient Cryptography",
                     masvs="MSTG-CRYPTO-1",
                     cvss_vector=(
                         "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N"

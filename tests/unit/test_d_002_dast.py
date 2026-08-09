@@ -104,7 +104,7 @@ class TestAnalyzeEvents:
     @pytest.mark.asyncio
     async def test_agent_id_correct(self, ctx, memory):
         findings = await _agent(ctx, memory).analyze_events([], ctx)
-        assert findings[0].agent_id == "D_002"
+        assert findings[0].agent_id == "DAST_002"
 
     @pytest.mark.asyncio
     async def test_no_device_returns_info(self, ctx, memory):

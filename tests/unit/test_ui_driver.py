@@ -159,7 +159,10 @@ async def test_monkey_launch_and_login_ignores_credentials(monkeypatch):
 # ---------- Appium placeholder ----------
 
 @pytest.mark.asyncio
-async def test_appium_placeholder_raises_not_implemented():
+async def test_appium_placeholder_returns_false():
+    # AppiumUIDriver is not yet implemented — setup() must return False
+    # (not raise) so the orchestrator falls back to no-op instead of
+    # crashing the scan when --ui-driver appium is passed.
     d = AppiumUIDriver(target_package="com.example")
-    with pytest.raises(NotImplementedError):
-        await d.setup()
+    result = await d.setup()
+    assert result is False

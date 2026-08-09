@@ -147,7 +147,7 @@ class RefreshTokenReuseAgent(BaseAgent):
                         "EncryptedSharedPreferences. Treat logout as a "
                         "destructive operation, not just a UI navigation."
                     ),
-                    owasp="M2: Inadequate Supply Chain Security",
+                    owasp="M3: Insecure Authentication/Authorization",
                     masvs="MSTG-AUTH-7",
                     cvss_vector=(
                         "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"

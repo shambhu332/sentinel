@@ -394,6 +394,10 @@ class FreeProviderRouter:
     Pass force_local=True to skip cloud providers (--private mode).
     """
 
+    # Providers that have no external rate limit — sleep between calls is
+    # unnecessary when these answer, so triager can skip the inter-call delay.
+    _LOCAL_PROVIDER_NAMES: frozenset[str] = frozenset({"local-vllm", "ollama"})
+
     def __init__(self, force_local: bool = False) -> None:
         self._force_local = force_local
         self._client: httpx.AsyncClient | None = None
@@ -403,8 +407,18 @@ class FreeProviderRouter:
             CerebrasProvider(),
             OllamaProvider(),
         ]
+        self._last_provider_name: str | None = None
         from sentinel.cache.redis_cache import get_llm_cache
         self._cache = get_llm_cache()
+
+    @property
+    def last_provider_is_local(self) -> bool:
+        """True when the last successful query was answered by a local provider.
+
+        Local providers (local-vllm, ollama) have no external rate limit, so
+        callers like LLMTriager can skip the inter-call sleep when this is True.
+        """
+        return self._last_provider_name in self._LOCAL_PROVIDER_NAMES
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
@@ -458,6 +472,7 @@ class FreeProviderRouter:
                 )
                 if result is not None:
                     provider.record_success()
+                    self._last_provider_name = provider.name
                     logger.debug("[router] %s answered (model=%s)",
                                  provider.name, result.get("model"))
                     await self._cache.set(messages, result.get("model", ""), temperature, result)

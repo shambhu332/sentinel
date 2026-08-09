@@ -173,7 +173,7 @@ def test_dynamic_roster_only_adds_frida_agents_when_frida_enabled():
     assert "N_003" in dynamic_ids
     assert "A_003" not in dynamic_ids
     assert "D_001" not in dynamic_ids
-    assert "A_003" in frida_ids
+    assert "D_075" in frida_ids
     assert "D_001" in frida_ids
     assert static_ids < dynamic_ids < frida_ids
 

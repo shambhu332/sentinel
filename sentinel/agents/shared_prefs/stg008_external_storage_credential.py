@@ -168,7 +168,7 @@ class ExternalStorageCredentialAgent(BaseAgent):
                         "world-readable on API ≤ 28 and persist across "
                         "uninstall on every release."
                     ),
-                    owasp="M2: Inadequate Supply Chain Security",
+                    owasp="M9: Insecure Data Storage",
                     masvs="MSTG-STORAGE-2",
                     cvss_vector=(
                         "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"

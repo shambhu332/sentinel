@@ -112,7 +112,7 @@ class TestAnalyzeEvents:
     async def test_agent_id_is_d004(self, ctx, memory):
         events = [_flow("x", "sqlite_exec")]
         findings = await _agent(ctx, memory).analyze_events(events, ctx)
-        assert findings[0].agent_id == "D_004"
+        assert findings[0].agent_id == "DAST_004"
 
     @pytest.mark.asyncio
     async def test_no_device_returns_info(self, ctx, memory):

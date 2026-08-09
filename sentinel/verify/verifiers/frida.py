@@ -6,13 +6,13 @@ from typing import Any
 from sentinel.core.finding import Finding
 from sentinel.verify.models import VerificationResult, VerifierContext
 
-# ---------- A_003 — runtime crypto ----------
+# ---------- D_075 — runtime crypto ----------
 
 
 class RuntimeCryptoVerifier:
     """Cross-check the agent's claimed algorithm against Frida events."""
 
-    AGENT_IDS = ("A_003",)
+    AGENT_IDS = ("D_075",)
 
     _CIPHER_EVENT_KINDS = ("crypto.cipher", "crypto.digest", "crypto.keygen")
 

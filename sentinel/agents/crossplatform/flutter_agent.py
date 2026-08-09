@@ -303,7 +303,7 @@ class FlutterAgent(BaseAgent):
                 vuln_class=VC_FL_SECRET,
                 severity=sev,
                 confidence=conf,
-                owasp="M2: Inadequate Supply Chain Security",
+                owasp="M1: Improper Credential Usage",
                 masvs="MASVS-CODE-3",
                 evidence={
                     "title": f"Hardcoded secret in libapp.so: {label}",

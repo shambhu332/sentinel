@@ -338,42 +338,49 @@ class PostgresMemory(MemoryInterface):
                 request_id, duration_ms,
             )
 
-    # ---------- Tier 2 / Tier 3 not implemented here ----------
+    # ---------- Tier 2 / Tier 3 — graceful degradation ----------
+    # pgvector / Qdrant and Neo4j wiring is not yet implemented. Return
+    # empty results and log so callers never crash; they just get nothing.
 
     async def add_embedding(
         self, session_id: str, finding_id: str, text: str, metadata: dict[str, Any],
     ) -> None:
-        raise NotImplementedError(
-            "PostgresMemory is T1 only. Use QdrantMemory for Tier-2 semantic search."
+        logger.warning(
+            "[memory] PostgresMemory is Tier-1 only — embedding for %s skipped. "
+            "Enable pgvector or Qdrant for semantic search.",
+            finding_id,
         )
 
     async def search_similar(
         self, query_text: str, session_id: str | None = None, limit: int = 10,
     ) -> list[dict[str, Any]]:
-        raise NotImplementedError(
-            "PostgresMemory is T1 only. Use QdrantMemory for Tier-2 semantic search."
+        logger.warning(
+            "[memory] PostgresMemory is Tier-1 only — similarity search returning empty."
         )
+        return []
 
     async def add_graph_node(
         self, session_id: str, node_id: str, node_type: str, attrs: dict[str, Any],
     ) -> None:
-        raise NotImplementedError(
-            "PostgresMemory is T1 only. Use Neo4jMemory for Tier-3 graph."
+        logger.warning(
+            "[memory] PostgresMemory is Tier-1 only — graph node %s skipped.", node_id,
         )
 
     async def add_graph_edge(
         self, session_id: str, src: str, dst: str, edge_type: str, attrs: dict[str, Any],
     ) -> None:
-        raise NotImplementedError(
-            "PostgresMemory is T1 only. Use Neo4jMemory for Tier-3 graph."
+        logger.warning(
+            "[memory] PostgresMemory is Tier-1 only — graph edge %s→%s skipped.", src, dst,
         )
 
     async def find_paths(
         self, session_id: str, src: str, dst: str, max_length: int = 5,
     ) -> list[list[str]]:
-        raise NotImplementedError(
-            "PostgresMemory is T1 only. Use Neo4jMemory for Tier-3 graph."
+        logger.warning(
+            "[memory] PostgresMemory is Tier-1 only — path search %s→%s returning empty.",
+            src, dst,
         )
+        return []
 
     # ---------- Health ----------
 

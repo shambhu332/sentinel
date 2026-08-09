@@ -120,7 +120,7 @@ class HardcodedMtlsKeyAgent(BaseAgent):
                         ),
                     },
                     recommendation=self._recommendation(),
-                    owasp="M2: Inadequate Supply Chain Security",
+                    owasp="M10: Insufficient Cryptography",
                     masvs="MSTG-CRYPTO-1",
                     cvss_vector=(
                         "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:N"
@@ -148,7 +148,7 @@ class HardcodedMtlsKeyAgent(BaseAgent):
                     ),
                 },
                 recommendation=self._recommendation(),
-                owasp="M2: Inadequate Supply Chain Security",
+                owasp="M10: Insufficient Cryptography",
                 masvs="MSTG-CRYPTO-1",
                 cvss_vector=(
                     "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N"
@@ -176,7 +176,7 @@ class HardcodedMtlsKeyAgent(BaseAgent):
                     ),
                 },
                 recommendation=self._recommendation(),
-                owasp="M2: Inadequate Supply Chain Security",
+                owasp="M10: Insufficient Cryptography",
                 masvs="MSTG-CRYPTO-1",
             ))
 

@@ -290,7 +290,7 @@ class TestMakeFinding:
             confidence=0.95,
         )
         finding = agent._make_finding(m, True, Severity.CRITICAL)
-        assert finding.agent_id == "A_002"
+        assert finding.agent_id == "A_016"
         assert finding.severity == Severity.CRITICAL
         assert "CWE-287" in finding.compliance_tags
         assert "CWE-347" in finding.compliance_tags

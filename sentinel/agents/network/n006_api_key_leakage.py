@@ -108,7 +108,7 @@ class ApiKeyLeakageAgent(BaseAgent):
                         "Use a backend proxy to make API calls with keys stored server-side. "
                         "Rotate this key immediately if it's a production credential."
                     ),
-                    owasp="M2: Inadequate Supply Chain Security",
+                    owasp="M1: Improper Credential Usage",
                     masvs="MSTG-STORAGE-14",
                     cvss_vector="CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N",
                     poc=(
@@ -140,7 +140,7 @@ class ApiKeyLeakageAgent(BaseAgent):
                             "Review this high-entropy string. If it's an API key or secret, "
                             "move it to server-side and use a proxy pattern."
                         ),
-                        owasp="M2: Inadequate Supply Chain Security",
+                        owasp="M1: Improper Credential Usage",
                         masvs="MSTG-STORAGE-14",
                     ))
 

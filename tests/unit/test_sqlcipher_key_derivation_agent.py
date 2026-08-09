@@ -176,7 +176,7 @@ class Bad {
     agent = SQLCipherKeyDerivationAgent(context=ctx, memory=memory)
     f = (await agent.analyze())[0]
     assert f.vuln_class == "Insecure SQLCipher Key Derivation"
-    assert f.owasp == "M2: Inadequate Supply Chain Security"
+    assert f.owasp == "M10: Insufficient Cryptography"
     assert f.masvs == "MSTG-CRYPTO-1"
     assert f.cvss_vector and f.cvss_vector.startswith("CVSS:3.1/")
     assert f.recommendation

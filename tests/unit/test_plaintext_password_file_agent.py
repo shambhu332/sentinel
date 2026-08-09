@@ -153,7 +153,7 @@ class S { void w(String password) throws IOException {
 """)
     agent = PlaintextPasswordFileAgent(context=ctx, memory=memory)
     f = (await agent.analyze())[0]
-    assert f.owasp == "M2: Inadequate Supply Chain Security"
+    assert f.owasp == "M9: Insecure Data Storage"
     assert f.masvs == "MSTG-STORAGE-1"
     assert f.cvss_vector and f.cvss_vector.startswith("CVSS:3.1/")
     assert f.recommendation

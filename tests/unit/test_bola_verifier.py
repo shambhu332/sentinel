@@ -137,7 +137,7 @@ async def test_emits_critical_finding_on_bola(memory, tmp_path, monkeypatch):
 
     assert len(findings) == 1
     finding = findings[0]
-    assert finding.agent_id == "API_002"
+    assert finding.agent_id == "API_005"
     assert finding.severity == Severity.CRITICAL
     assert finding.evidence["host"] == "api.example.com"
     assert finding.evidence["endpoint"] == "/v1/users/42"

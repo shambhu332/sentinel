@@ -65,8 +65,8 @@ class KeystoreMisuseAgent(BaseAgent):
                             "Call setUserAuthenticationRequired(true) or setUserAuthenticationParameters() "
                             "on KeyGenParameterSpec.Builder. This ensures keys are protected by device lock."
                         ),
-                        owasp="M2: Inadequate Supply Chain Security",
-                        masvs="MSTG-STORAGE-1",
+                        owasp="M3: Insecure Authentication/Authorization",
+                        masvs="MSTG-AUTH-8",
                     ))
 
             # Check for missing StrongBox backing
@@ -89,8 +89,8 @@ class KeystoreMisuseAgent(BaseAgent):
                             "security module. Handle UnsupportedOperationException for devices "
                             "without StrongBox support."
                         ),
-                        owasp="M2: Inadequate Supply Chain Security",
-                        masvs="MSTG-STORAGE-1",
+                        owasp="M10: Insufficient Cryptography",
+                        masvs="MSTG-CRYPTO-5",
                     ))
 
             # Check for keys without encryption requirement
@@ -109,8 +109,8 @@ class KeystoreMisuseAgent(BaseAgent):
                             "Encryption keys for sensitive data should require user authentication. "
                             "This prevents unauthorized decryption if the device is compromised."
                         ),
-                        owasp="M2: Inadequate Supply Chain Security",
-                        masvs="MSTG-STORAGE-1",
+                        owasp="M3: Insecure Authentication/Authorization",
+                        masvs="MSTG-AUTH-8",
                     ))
 
         return findings

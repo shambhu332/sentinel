@@ -111,7 +111,7 @@ class OkHttpLoggingAgent(BaseAgent):
                         "constant may also remain reachable via "
                         "reflection."
                     ),
-                    owasp="M2: Inadequate Supply Chain Security",
+                    owasp="M9: Insecure Data Storage",
                     masvs="MSTG-STORAGE-3",
                 ))
                 continue
@@ -152,7 +152,7 @@ class OkHttpLoggingAgent(BaseAgent):
                     "Set-Cookie headers regardless of build type, so "
                     "BODY-level diagnostics remain safe to ship."
                 ),
-                owasp="M2: Inadequate Supply Chain Security",
+                owasp="M9: Insecure Data Storage",
                 masvs="MSTG-STORAGE-3",
                 cvss_vector=(
                     "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N"

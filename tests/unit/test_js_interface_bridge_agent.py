@@ -90,7 +90,7 @@ public class Bridge {
     assert len(findings) == 1
     f = findings[0]
     assert f.severity == Severity.CRITICAL
-    assert f.agent_id == "C_008"
+    assert f.agent_id == "WV_003"
     assert f.confidence == pytest.approx(0.92)
     assert f.evidence["method"] == "run"
     assert f.evidence["class"] == "Bridge"

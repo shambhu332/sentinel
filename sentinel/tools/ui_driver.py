@@ -359,26 +359,33 @@ class MonkeyUIDriver(UIDriver):
 
 
 class AppiumUIDriver(UIDriver):
-    """Placeholder for the Appium-backed driver.
+    """Appium-backed UI driver — not yet implemented.
 
-    Kept in-tree so the ``--ui-driver appium`` flag can be validated at
-    parse time even though the implementation lives in a follow-up.
+    ``setup()`` returns False so the orchestrator falls back to no-op
+    traffic capture instead of crashing the scan. Swap in a real
+    Appium client here when the wiring lands.
     """
 
     name = "appium"
 
     async def setup(self) -> bool:
-        raise NotImplementedError(
-            "AppiumUIDriver is a placeholder; use --ui-driver monkey|off",
+        logger.warning(
+            "[ui-driver] AppiumUIDriver is not yet implemented. "
+            "Falling back to no-op capture. Use --ui-driver monkey for automated traffic."
         )
+        return False
 
     async def launch_and_login(
         self, credentials: UICredentials | None,
-    ) -> bool:  # pragma: no cover
-        raise NotImplementedError
+    ) -> bool:
+        return False
 
-    async def execute_flow(self, duration_sec: int) -> UIDriverResult:  # pragma: no cover
-        raise NotImplementedError
+    async def execute_flow(self, duration_sec: int) -> UIDriverResult:
+        return UIDriverResult(
+            ok=False,
+            driver_name=self.name,
+            reason="AppiumUIDriver not implemented — no traffic generated",
+        )
 
 
 # ---------- Factory ----------

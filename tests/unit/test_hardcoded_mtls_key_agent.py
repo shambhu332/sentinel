@@ -149,6 +149,6 @@ class S { void l() throws Exception {
 """)
     agent = HardcodedMtlsKeyAgent(context=ctx, memory=memory)
     f = (await agent.analyze())[0]
-    assert f.owasp == "M2: Inadequate Supply Chain Security"
+    assert f.owasp == "M10: Insufficient Cryptography"
     assert f.masvs == "MSTG-CRYPTO-1"
     assert "Android Keystore" in f.recommendation

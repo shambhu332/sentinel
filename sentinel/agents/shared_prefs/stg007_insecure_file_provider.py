@@ -299,7 +299,7 @@ class InsecureFileProviderAgent(BaseAgent):
                 "Avoid <root-path> — there is essentially no legitimate "
                 "use case for it in shipping code."
             ),
-            owasp="M2: Inadequate Supply Chain Security",
+            owasp="M9: Insecure Data Storage",
             masvs="MSTG-STORAGE-2",
             cvss_vector="CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:U/C:H/I:L/A:N",
             severity_rationale=(

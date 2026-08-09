@@ -98,7 +98,7 @@ async def test_custom_scheme_without_host_is_flagged(memory, tmp_path):
     findings = await agent.analyze()
     assert len(findings) == 1
     f = findings[0]
-    assert f.agent_id == "P_001"
+    assert f.agent_id == "P_002"
     assert f.severity == Severity.MEDIUM
     assert f.evidence["vector"] == "custom-scheme-no-host"
     assert f.evidence["schemes"] == ["myapp"]

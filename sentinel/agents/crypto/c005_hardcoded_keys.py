@@ -60,7 +60,7 @@ class HardcodedCryptoKeysAgent(BaseAgent):
                             "and store keys securely. For user-specific encryption, derive keys "
                             "from user credentials using PBKDF2 with proper salt."
                         ),
-                        owasp="M2: Inadequate Supply Chain Security",
+                        owasp="M10: Insufficient Cryptography",
                         masvs="MSTG-CRYPTO-1",
                         cvss_vector="CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N",
                     ))
@@ -83,7 +83,7 @@ class HardcodedCryptoKeysAgent(BaseAgent):
                         "If this is a cryptographic key, move it to Android Keystore. "
                         "Base64-encoded keys in source are easily extractable."
                     ),
-                    owasp="M2: Inadequate Supply Chain Security",
+                    owasp="M10: Insufficient Cryptography",
                     masvs="MSTG-CRYPTO-1",
                 ))
 
@@ -103,7 +103,7 @@ class HardcodedCryptoKeysAgent(BaseAgent):
                         "Use Android Keystore to generate and store RSA keys. Never embed private keys "
                         "in application code."
                     ),
-                    owasp="M2: Inadequate Supply Chain Security",
+                    owasp="M10: Insufficient Cryptography",
                     masvs="MSTG-CRYPTO-1",
                     cvss_vector="CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N",
                 ))

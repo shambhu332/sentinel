@@ -184,7 +184,7 @@ class BackupRulesAgent(BaseAgent):
                     "android:allowBackup=\"false\" if the app does not "
                     "have a legitimate need for Auto-Backup."
                 ),
-                owasp="M2: Inadequate Supply Chain Security",
+                owasp="M9: Insecure Data Storage",
                 masvs="MSTG-STORAGE-8",
                 cvss_vector=(
                     "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:U/C:H/I:N/A:N"

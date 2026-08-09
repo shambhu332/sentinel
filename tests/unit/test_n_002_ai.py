@@ -130,7 +130,7 @@ class TestFastPreFilter:
         c = candidates[0]
         assert c.file_path
         assert c.line_number >= 1
-        assert c.rule_triggered == "N_002"
+        assert c.rule_triggered == "N_017"
         assert 0.0 < c.rule_confidence <= 1.0
         assert c.context_window
 
@@ -181,7 +181,7 @@ class TestFindingFields:
                    'class CustomTrust implements X509TrustManager { }')
         agent = N002MissingPinningAgent(ctx, memory, llm_analyzer=_mock_analyzer(_make_verdict()))
         findings = await agent.analyze()
-        assert findings[0].agent_id == "N_002"
+        assert findings[0].agent_id == "N_017"
 
     @pytest.mark.asyncio
     async def test_cwe_in_compliance_tags(self, ctx, memory):
