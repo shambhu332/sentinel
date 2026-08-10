@@ -126,7 +126,8 @@ class InsecureWebViewAgent(BaseAgent):
         )
         total = {k: sum(f.get(k, 0) for f in per_file.values()) for k in _all_keys}
 
-        # Severity logic
+        # Severity logic — ordered from most to least severe.
+        # All three conditions checked before falling through to supplemental signals.
         if total["add_js_interface"] > 0 and total["js_enabled"] > 0 and total["file_access"] > 0:
             severity = Severity.CRITICAL
             confidence = 0.90
@@ -152,10 +153,36 @@ class InsecureWebViewAgent(BaseAgent):
                 "WebView allows file:// URLs or universal access from file URLs "
                 "— enables file-protocol-based exfiltration attacks"
             )
-        else:
+        elif total["js_injection_url"] > 0:
+            severity = Severity.HIGH
+            confidence = 0.80
+            summary = (
+                "loadUrl called with javascript: URI — direct JS injection into WebView"
+            )
+        elif total["evaluate_javascript"] > 0:
+            severity = Severity.MEDIUM
+            confidence = 0.65
+            summary = (
+                "evaluateJavascript calls detected — verify payload is not "
+                "attacker-controlled (deep link data, Intent extras, server response)"
+            )
+        elif total["debug_enabled"] > 0:
+            severity = Severity.MEDIUM
+            confidence = 0.70
+            summary = (
+                "setWebContentsDebuggingEnabled(true) — exposes WebView to Chrome DevTools; "
+                "must not be present in release builds"
+            )
+        elif total["load_http"] > 0:
             severity = Severity.LOW
             confidence = 0.60
             summary = "WebView loads HTTP URLs — vulnerable to MitM injection"
+        else:
+            # Shouldn't be reachable since per_file only stores files with hits,
+            # but guard against edge cases.
+            severity = Severity.INFO
+            confidence = 0.50
+            summary = "WebView usage detected; no high-risk pattern confirmed"
 
         return [self._make_finding(
             vuln_class=self.VULN_CLASS,
