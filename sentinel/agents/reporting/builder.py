@@ -168,7 +168,7 @@ def build_coverage(
     profile = app_profile or {}
     agent_ids: set[str] = {f.agent_id for f in findings if f.agent_id}
 
-    _DAST_PREFIXES = ("DAST_", "D0", "D_0", "DYN_")
+    _DAST_PREFIXES = ("DAST_", "D_", "DYN_")
     _SAST_PREFIXES = ("A_", "C_", "N_", "WV_", "LOG_", "STG_", "META_",
                       "TAINT_", "SCA_", "RES_", "REFL_", "OST_")
 
