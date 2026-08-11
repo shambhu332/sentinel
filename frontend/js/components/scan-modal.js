@@ -32,6 +32,10 @@ export function openScanModal(prefill = {}) {
       fridaDuration: 30,
       fuzzTime: 60,
       mlModelPath: "",
+      uiDriver: 'off',
+      appiumUrl: 'http://127.0.0.1:4723',
+      testUsername: '',
+      testPassword: '',
     },
     scope: '',
   };
@@ -195,22 +199,22 @@ function renderStepOptions() {
       'High-signal static checks for scanning many APKs quickly',
       { scanProfile: 'fast', dynamic: false, frida: false, noProxy: false,
         llmTriage: false, allowLivePoc: false, planner: false, fuzz: false,
-        mlStrategy: false, dynamicDuration: 10, fridaDuration: 10 }),
+        mlStrategy: false, dynamicDuration: 10, fridaDuration: 10, uiDriver: 'off' }),
     mkPreset('SAST only',
       'Full static roster — no device required',
       { scanProfile: 'standard', dynamic: false, frida: false,
         noProxy: false, llmTriage: false, allowLivePoc: false,
-        planner: false, fuzz: false, mlStrategy: false }),
+        planner: false, fuzz: false, mlStrategy: false, uiDriver: 'off' }),
     mkPreset('Full VAPT',
-      'SAST + DAST + Frida hybrid dispatch + runnable PoC scripts + adaptive planner + ML strategy + AFL++ fuzzing (device + frida-server + AFL++ toolchain required)',
+      'SAST + DAST + Frida + Appium self-login/navigation + PoC scripts + planner + ML + fuzzing (device + frida-server + Appium required)',
       { scanProfile: 'deep', dynamic: true, frida: true, noProxy: false, llmTriage: true,
         allowLivePoc: true, planner: true, fuzz: true, mlStrategy: true,
-        dynamicDuration: 60, fridaDuration: 45, fuzzTime: 60 }),
+        dynamicDuration: 60, fridaDuration: 45, fuzzTime: 60, uiDriver: 'appium' }),
     mkPreset('Stealth VAPT',
-      'Full VAPT with anti-MITM apps — skips proxy, still emits PoCs + fuzzes',
+      'Full VAPT with anti-MITM apps — skips proxy, uses Monkey driver, still emits PoCs + fuzzes',
       { scanProfile: 'deep', dynamic: true, frida: true, noProxy: true, llmTriage: true,
         allowLivePoc: true, planner: true, fuzz: true, mlStrategy: true,
-        dynamicDuration: 60, fridaDuration: 45, fuzzTime: 60 }),
+        dynamicDuration: 60, fridaDuration: 45, fuzzTime: 60, uiDriver: 'monkey' }),
     mkPreset('Privacy mode',
       'Local LLM only, no cloud egress for triage',
       { privacy: true, llmTriage: true }),
@@ -270,6 +274,86 @@ function renderStepOptions() {
       oninput: (e) => { state.options.deviceSerial = e.target.value.trim(); },
     }),
   ));
+
+  // UI Driver section
+  const driverSection = el('div', { style: 'margin-top: 20px;' });
+  driverSection.appendChild(el('div', { class: 'field-label', style: 'margin-bottom: 6px;' }, 'UI Driver'));
+  driverSection.appendChild(el('div', { class: 'text-muted', style: 'font-size: 12px; margin-bottom: 10px;' },
+    'Autonomous app interaction during dynamic phase — self-login, navigation, and scrolling.'));
+
+  const driverPills = el('div', { style: 'display: flex; gap: 8px; margin-bottom: 12px;' });
+  [
+    { val: 'off',    label: 'Off',    desc: 'No automation — manual or pre-recorded traffic only' },
+    { val: 'monkey', label: 'Monkey', desc: 'Blind random events via adb monkey — no login, no targeted nav' },
+    { val: 'appium', label: 'Appium', desc: 'Smart: auto-detects login fields, self-navigates, self-scrolls across any app' },
+  ].forEach(({ val, label, desc }) => {
+    const active = state.options.uiDriver === val;
+    const pill = el('button', {
+      class: `btn btn-sm ${active ? 'btn-primary' : 'btn-ghost'}`,
+      title: desc,
+    }, label);
+    pill.addEventListener('click', () => {
+      state.options.uiDriver = val;
+      renderStep();
+    });
+    driverPills.appendChild(pill);
+  });
+  driverSection.appendChild(driverPills);
+
+  // Driver-specific hint
+  const driverHint = {
+    off:    { icon: 'minus-circle',  text: 'No UI automation. Rely on manual device interaction or a pre-captured traffic file.' },
+    monkey: { icon: 'shuffle',       text: 'Random touch/swipe events. Cannot log in or reach specific screens.' },
+    appium: { icon: 'bot',           text: 'Requires Appium server running on port 4723. Detects login fields automatically — works on any app.' },
+  }[state.options.uiDriver];
+
+  const hint = el('div', {
+    class: 'card',
+    style: 'padding: 10px 14px; display: flex; align-items: flex-start; gap: 10px; margin-bottom: 10px; background: var(--accent-bg-soft);',
+  },
+    el('i', { 'data-lucide': driverHint.icon, style: 'flex-shrink: 0; margin-top: 2px; color: var(--accent-primary);' }),
+    el('span', { style: 'font-size: 13px; color: var(--text-secondary);' }, driverHint.text),
+  );
+  driverSection.appendChild(hint);
+
+  // Appium-specific extra fields
+  if (state.options.uiDriver === 'appium') {
+    const appiumFields = el('div', { style: 'display: grid; grid-template-columns: 1fr 1fr; gap: 12px;' });
+    appiumFields.append(
+      el('div', { class: 'field' },
+        el('label', { class: 'field-label' }, 'Appium server URL'),
+        el('input', {
+          class: 'input', type: 'text',
+          placeholder: 'http://127.0.0.1:4723',
+          value: state.options.appiumUrl,
+          oninput: (e) => { state.options.appiumUrl = e.target.value.trim(); },
+        }),
+      ),
+      el('div', { class: 'field' },
+        el('label', { class: 'field-label' }, 'Test username (auto-login)'),
+        el('input', {
+          class: 'input', type: 'text',
+          placeholder: 'test@example.com',
+          value: state.options.testUsername,
+          oninput: (e) => { state.options.testUsername = e.target.value.trim(); },
+        }),
+      ),
+      el('div', { class: 'field' },
+        el('label', { class: 'field-label' }, 'Test password'),
+        el('input', {
+          class: 'input', type: 'password',
+          placeholder: 'leave blank to skip auto-login',
+          value: state.options.testPassword,
+          oninput: (e) => { state.options.testPassword = e.target.value; },
+        }),
+      ),
+    );
+    driverSection.appendChild(appiumFields);
+
+    driverSection.appendChild(el('div', { class: 'text-muted', style: 'font-size: 11px; margin-top: 8px;' },
+      'Credentials are stored only for this scan session and never logged. Use test accounts only.'));
+  }
+  wrap.appendChild(driverSection);
 
   wrap.appendChild(el('div', { style: 'display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px;' },
     el('div', { class: 'field' },
@@ -337,6 +421,11 @@ function renderStepReview() {
     ['AFL++ fuzz',      state.options.fuzz ? `Enabled (${state.options.fuzzTime}s/harness)` : 'Disabled'],
     ['ML strategy',     state.options.mlStrategy ? (state.options.mlModelPath || 'Bootstrap classifier') : 'Rule-based map'],
     ['Device serial',   state.options.deviceSerial || 'Pool round-robin'],
+    ['UI Driver',       {
+      off:    'Off (manual / pre-recorded)',
+      monkey: 'Monkey (blind random events)',
+      appium: `Appium — self-login, navigate, scroll${state.options.testUsername ? ` · user: ${state.options.testUsername}` : ''}`,
+    }[state.options.uiDriver] || state.options.uiDriver],
     ['Scope',           state.scope ? truncate(state.scope, 60) : 'None'],
   ];
   rows.forEach(([k, v]) => {
@@ -368,6 +457,15 @@ function buildCliPreview() {
   if (state.options.mlStrategy) flags.push('--ml-strategy');
   if (state.options.mlModelPath) flags.push(`--ml-model-path ${state.options.mlModelPath}`);
   if (state.options.deviceSerial) flags.push(`--device-serial ${state.options.deviceSerial}`);
+  if (state.options.uiDriver && state.options.uiDriver !== 'off') {
+    flags.push(`--ui-driver ${state.options.uiDriver}`);
+    if (state.options.uiDriver === 'appium' && state.options.appiumUrl && state.options.appiumUrl !== 'http://127.0.0.1:4723') {
+      flags.push(`--appium-url ${state.options.appiumUrl}`);
+    }
+    if (state.options.uiDriver === 'appium' && state.options.testUsername) {
+      flags.push(`--test-username ${state.options.testUsername}`);
+    }
+  }
   if (state.scope) flags.push('--scope-text "' + truncate(state.scope, 40) + '"');
   const cli = 'poetry run sentinel scan \\\n  ' + flags.join(' \\\n  ');
   return codeBlock(cli, { showLineNumbers: false });
@@ -405,6 +503,10 @@ async function startScan() {
       device_serial: state.options.deviceSerial || "",
       dynamic_duration: state.options.dynamicDuration,
       frida_duration: state.options.fridaDuration,
+      ui_driver: state.options.uiDriver || "off",
+      appium_url: state.options.appiumUrl || "http://127.0.0.1:4723",
+      test_username: state.options.testUsername || "",
+      test_password: state.options.testPassword || "",
       scope_text: state.scope || null,
     };
 
