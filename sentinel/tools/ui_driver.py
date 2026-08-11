@@ -486,7 +486,7 @@ class AppiumUIDriver(UIDriver):
     def _create_session(self) -> Any:
         """Synchronous — runs in executor thread."""
         from appium import webdriver as appium_wd
-        from appium.options import UiAutomator2Options
+        from appium.options.android import UiAutomator2Options
 
         opts = UiAutomator2Options()
         opts.platform_name        = "Android"
