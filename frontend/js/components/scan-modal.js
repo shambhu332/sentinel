@@ -27,6 +27,7 @@ export function openScanModal(prefill = {}) {
       planner: false,
       fuzz: false,
       mlStrategy: false,
+      deviceType: 'physical',
       deviceSerial: "",
       dynamicDuration: 30,
       fridaDuration: 30,
@@ -265,15 +266,99 @@ function renderStepOptions() {
     ),
   ));
 
-  // Optional device picker — populated by /devices when reachable.
-  wrap.appendChild(el('div', { class: 'field', style: 'margin-top: 12px;' },
-    el('label', { class: 'field-label' }, 'Device serial (optional)'),
+  // Device type + serial
+  const DEVICE_TYPES = [
+    {
+      val: 'physical',
+      label: 'Physical device',
+      icon: 'smartphone',
+      serial: '',
+      serialPlaceholder: 'leave blank for round-robin (e.g. R9ZR900AEJT)',
+      hint: 'Connect via USB and confirm adb devices shows the serial. Enable USB debugging in Developer Options.',
+      warn: null,
+    },
+    {
+      val: 'avd',
+      label: 'Android Studio AVD',
+      icon: 'monitor-smartphone',
+      serial: 'emulator-5554',
+      serialPlaceholder: 'emulator-5554',
+      hint: 'Start the AVD in Android Studio or with: emulator -avd <name>. Default serial is emulator-5554.',
+      warn: null,
+    },
+    {
+      val: 'genymotion',
+      label: 'Genymotion',
+      icon: 'layers',
+      serial: '192.168.56.101:5555',
+      serialPlaceholder: '192.168.56.101:5555',
+      hint: 'Start your Genymotion VM, then run: adb connect 192.168.56.101:5555. Default IP shown — check Genymotion settings if different.',
+      warn: 'Ensure ARM Translation is installed in your Genymotion VM (Settings → Android → ARM Translation) for apps that use native ARM libraries.',
+    },
+  ];
+
+  const currentType = DEVICE_TYPES.find(d => d.val === state.options.deviceType) || DEVICE_TYPES[0];
+
+  const deviceSection = el('div', { style: 'margin-top: 16px;' });
+  deviceSection.appendChild(el('div', { class: 'field-label', style: 'margin-bottom: 6px;' }, 'Device / Emulator'));
+
+  // Type pills
+  const typePills = el('div', { style: 'display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap;' });
+  DEVICE_TYPES.forEach(({ val, label, icon, serial: defaultSerial }) => {
+    const active = state.options.deviceType === val;
+    const pill = el('button', {
+      class: `btn btn-sm ${active ? 'btn-primary' : 'btn-ghost'}`,
+      style: 'display: flex; align-items: center; gap: 6px;',
+    },
+      el('i', { 'data-lucide': icon }),
+      label,
+    );
+    pill.addEventListener('click', () => {
+      state.options.deviceType = val;
+      // Auto-fill serial with the device type default when user hasn't typed one
+      if (defaultSerial && !state.options.deviceSerial) {
+        state.options.deviceSerial = defaultSerial;
+      } else if (defaultSerial) {
+        state.options.deviceSerial = defaultSerial;
+      }
+      renderStep();
+    });
+    typePills.appendChild(pill);
+  });
+  deviceSection.appendChild(typePills);
+
+  // Contextual hint
+  deviceSection.appendChild(el('div', {
+    class: 'card',
+    style: 'padding: 10px 14px; display: flex; align-items: flex-start; gap: 10px; margin-bottom: 10px; background: var(--accent-bg-soft);',
+  },
+    el('i', { 'data-lucide': currentType.icon, style: 'flex-shrink: 0; margin-top: 2px; color: var(--accent-primary);' }),
+    el('span', { style: 'font-size: 13px; color: var(--text-secondary);' }, currentType.hint),
+  ));
+
+  // Genymotion ARM translation warning
+  if (currentType.warn) {
+    deviceSection.appendChild(el('div', {
+      class: 'card',
+      style: 'padding: 10px 14px; display: flex; align-items: flex-start; gap: 10px; margin-bottom: 10px; background: var(--sev-medium-bg, #2d2200); border-left: 3px solid var(--sev-medium, #f59e0b);',
+    },
+      el('i', { 'data-lucide': 'alert-triangle', style: 'flex-shrink: 0; margin-top: 2px; color: var(--sev-medium, #f59e0b);' }),
+      el('span', { style: 'font-size: 13px; color: var(--text-secondary);' }, currentType.warn),
+    ));
+  }
+
+  // Serial input
+  deviceSection.appendChild(el('div', { class: 'field' },
+    el('label', { class: 'field-label' }, 'Device serial'),
     el('input', {
-      class: 'input', type: 'text', placeholder: 'leave blank for round-robin',
+      class: 'input', type: 'text',
+      placeholder: currentType.serialPlaceholder,
       value: state.options.deviceSerial || '',
       oninput: (e) => { state.options.deviceSerial = e.target.value.trim(); },
     }),
   ));
+
+  wrap.appendChild(deviceSection);
 
   // UI Driver section
   const driverSection = el('div', { style: 'margin-top: 20px;' });
@@ -420,6 +505,7 @@ function renderStepReview() {
     ['Planner',         state.options.planner ? 'Adaptive' : 'Procedural'],
     ['AFL++ fuzz',      state.options.fuzz ? `Enabled (${state.options.fuzzTime}s/harness)` : 'Disabled'],
     ['ML strategy',     state.options.mlStrategy ? (state.options.mlModelPath || 'Bootstrap classifier') : 'Rule-based map'],
+    ['Device type',     { physical: 'Physical device', avd: 'Android Studio AVD', genymotion: 'Genymotion' }[state.options.deviceType] || 'Physical device'],
     ['Device serial',   state.options.deviceSerial || 'Pool round-robin'],
     ['UI Driver',       {
       off:    'Off (manual / pre-recorded)',
@@ -456,6 +542,7 @@ function buildCliPreview() {
   if (state.options.fuzz) flags.push(`--fuzz --fuzz-time ${state.options.fuzzTime}`);
   if (state.options.mlStrategy) flags.push('--ml-strategy');
   if (state.options.mlModelPath) flags.push(`--ml-model-path ${state.options.mlModelPath}`);
+  if (state.options.deviceType && state.options.deviceType !== 'physical') flags.push(`--device-type ${state.options.deviceType}`);
   if (state.options.deviceSerial) flags.push(`--device-serial ${state.options.deviceSerial}`);
   if (state.options.uiDriver && state.options.uiDriver !== 'off') {
     flags.push(`--ui-driver ${state.options.uiDriver}`);
@@ -500,6 +587,7 @@ async function startScan() {
       fuzz_time: state.options.fuzzTime,
       ml_strategy: state.options.mlStrategy,
       ml_model_path: state.options.mlModelPath || "",
+      device_type: state.options.deviceType || "physical",
       device_serial: state.options.deviceSerial || "",
       dynamic_duration: state.options.dynamicDuration,
       frida_duration: state.options.fridaDuration,
