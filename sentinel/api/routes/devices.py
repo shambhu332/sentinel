@@ -12,6 +12,8 @@ from fastapi import (
     Form,
     HTTPException,
     UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
     status,
 )
 from fastapi.responses import JSONResponse
@@ -22,6 +24,7 @@ from sentinel.core.config import get_settings
 from sentinel.devices import get_device_manager
 from sentinel.tools.adb_runner import AdbRunner
 from sentinel.tools.preflight import run_preflight
+from sentinel.tools.screen_mirror import ScreenMirror
 
 router = APIRouter(prefix="/devices", tags=["devices"])
 
@@ -38,6 +41,19 @@ class LaunchRequest(BaseModel):
         default=None,
         description="Optional Activity class or full package/activity component",
     )
+
+
+class ConnectRequest(BaseModel):
+    """ADB TCP connect request (used for Genymotion / WiFi ADB)."""
+
+    address: str = Field(..., min_length=7, description="host:port, e.g. 192.168.56.101:5555")
+
+
+class TapRequest(BaseModel):
+    """Normalised tap coordinates from the screen mirror canvas."""
+
+    x: float = Field(..., ge=0.0, le=1.0, description="0-1 normalised x position")
+    y: float = Field(..., ge=0.0, le=1.0, description="0-1 normalised y position")
 
 
 def _serial(serial: str) -> str:
@@ -427,3 +443,84 @@ async def read_logcat(
         timeout=20,
     )
     return _action_response(serial, [action])
+
+
+@router.post("/connect")
+async def adb_connect(
+    request: ConnectRequest,
+    current_user=Depends(get_current_active_user),
+) -> dict[str, Any]:
+    """Run ``adb connect <address>`` — used to connect Genymotion / WiFi ADB devices."""
+    import re
+    addr = request.address.strip()
+    # Basic safety check — only allow host:port format
+    if not re.match(r'^[\w.\-]+:\d{2,5}$', addr):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="address must be host:port (e.g. 192.168.56.101:5555)",
+        )
+    runner = AdbRunner()
+    result = await runner._run_adb(["connect", addr], timeout=10)
+    out = result.data.stdout.strip() if result.success and result.data else ""
+    ok  = result.success and "connected" in out.lower()
+    return {
+        "ok":      ok,
+        "address": addr,
+        "stdout":  out,
+        "error":   result.error if not result.success else None,
+    }
+
+
+@router.post("/{serial}/tap")
+async def inject_tap(
+    serial: str,
+    request: TapRequest,
+    current_user=Depends(get_current_active_user),
+) -> dict[str, Any]:
+    """Inject a tap at normalised coordinates from the screen mirror canvas."""
+    mirror = ScreenMirror(_serial(serial))
+    ok = await mirror.inject_tap(request.x, request.y)
+    return {"ok": ok, "serial": _serial(serial), "x": request.x, "y": request.y}
+
+
+@router.websocket("/{serial}/mirror")
+async def screen_mirror(websocket: WebSocket, serial: str) -> None:
+    """WebSocket screen mirror — streams PNG frames at 8 fps.
+
+    Frame envelope: ``{"type": "frame", "data": "<base64-png>", "fps": 8}``
+    Client can send: ``{"type": "tap", "x": 0.5, "y": 0.5}`` to inject taps,
+    or ``{"type": "stop"}`` to end the session cleanly.
+    """
+    await websocket.accept()
+    mirror = ScreenMirror(_serial(serial))
+
+    import asyncio
+
+    async def recv_loop() -> None:
+        """Handle incoming control messages while stream runs."""
+        try:
+            while True:
+                msg = await websocket.receive_json()
+                if msg.get("type") == "stop":
+                    mirror.stop()
+                    break
+                elif msg.get("type") == "tap":
+                    await mirror.inject_tap(
+                        float(msg.get("x", 0.5)),
+                        float(msg.get("y", 0.5)),
+                    )
+        except (WebSocketDisconnect, Exception):
+            mirror.stop()
+
+    recv_task = asyncio.create_task(recv_loop())
+    try:
+        await mirror.stream(websocket)
+    except WebSocketDisconnect:
+        pass
+    finally:
+        mirror.stop()
+        recv_task.cancel()
+        try:
+            await recv_task
+        except (asyncio.CancelledError, Exception):
+            pass

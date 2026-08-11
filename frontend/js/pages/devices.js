@@ -2,6 +2,9 @@
 import { api, ApiError } from '../api.js';
 import { el, refreshIcons, toast } from '../utils.js';
 
+// Active mirror sessions keyed by serial — ensures only one per device.
+const _mirrors = new Map();
+
 const GENYMOTION_SERIAL_RE = /^192\.168\.\d+\.\d+:\d+$/;
 const AVD_SERIAL_RE        = /^emulator-\d+$/;
 
@@ -254,7 +257,114 @@ function buildDeviceCard(d) {
         ), disabled),
       ),
     ),
+    buildMirrorPanel(d.serial, online),
     output,
+  );
+}
+
+function buildMirrorPanel(serial, online) {
+  const canvas    = el('canvas', {
+    style: 'display:none; width:100%; border-radius:6px; border:1px solid var(--border); cursor:crosshair; margin-top:10px; background:#000;',
+  });
+  const statusEl  = el('span', { style: 'font-size:11px; color:var(--text-muted);' }, '');
+  const fpsEl     = el('span', { style: 'font-size:11px; color:var(--text-muted); margin-left:8px;' }, '');
+
+  let mirrorHandle = null;
+  let frameCount   = 0;
+  let fpsTimer     = null;
+
+  const startBtn = el('button', {
+    class: 'btn btn-secondary btn-sm',
+    disabled: online ? null : true,
+    style: 'display:flex; align-items:center; gap:6px;',
+  },
+    el('i', { 'data-lucide': 'monitor' }),
+    'Start Mirror',
+  );
+
+  startBtn.addEventListener('click', () => {
+    if (mirrorHandle) {
+      // Stop
+      mirrorHandle.stop();
+      _mirrors.delete(serial);
+      mirrorHandle = null;
+      canvas.style.display = 'none';
+      statusEl.textContent = '';
+      fpsEl.textContent    = '';
+      clearInterval(fpsTimer);
+      startBtn.innerHTML   = '';
+      startBtn.appendChild(el('i', { 'data-lucide': 'monitor' }));
+      startBtn.appendChild(document.createTextNode(' Start Mirror'));
+      refreshIcons();
+      return;
+    }
+
+    // Start
+    canvas.style.display = 'block';
+    statusEl.textContent = 'Connecting…';
+    startBtn.innerHTML   = '';
+    startBtn.appendChild(el('i', { 'data-lucide': 'monitor-off' }));
+    startBtn.appendChild(document.createTextNode(' Stop Mirror'));
+    refreshIcons();
+
+    const ctx = canvas.getContext('2d');
+
+    mirrorHandle = api.mirrorScreen(serial, {
+      onStatus: (s) => {
+        statusEl.textContent = s;
+        if (s === 'error' || s === 'disconnected') {
+          fpsEl.textContent = '';
+          clearInterval(fpsTimer);
+        }
+      },
+      onFrame: (b64, fps) => {
+        frameCount++;
+        const img = new Image();
+        img.onload = () => {
+          if (canvas.width !== img.naturalWidth || canvas.height !== img.naturalHeight) {
+            canvas.width  = img.naturalWidth;
+            canvas.height = img.naturalHeight;
+          }
+          ctx.drawImage(img, 0, 0);
+        };
+        img.src = 'data:image/png;base64,' + b64;
+        if (!fpsTimer) {
+          fpsTimer = setInterval(() => {
+            fpsEl.textContent = `${frameCount} fps`;
+            frameCount = 0;
+          }, 1000);
+        }
+      },
+    });
+
+    _mirrors.set(serial, mirrorHandle);
+
+    // Tap forwarding — click on canvas sends normalised coords
+    canvas.addEventListener('click', (e) => {
+      if (!mirrorHandle) return;
+      const rect = canvas.getBoundingClientRect();
+      const x = (e.clientX - rect.left) / rect.width;
+      const y = (e.clientY - rect.top)  / rect.height;
+      mirrorHandle.sendTap(x, y);
+    });
+  });
+
+  return el('div', { class: 'device-panel' },
+    el('div', { class: 'device-panel-title' },
+      el('i', { 'data-lucide': 'monitor' }),
+      'Screen Mirror',
+      el('span', { style: 'margin-left:auto; display:flex; align-items:center; gap:4px;' },
+        statusEl,
+        fpsEl,
+      ),
+    ),
+    el('div', { style: 'display:flex; align-items:center; gap:8px; margin-bottom:4px;' },
+      startBtn,
+      el('span', { class: 'text-muted', style: 'font-size:12px;' },
+        online ? 'Click canvas to tap the device' : 'Device offline',
+      ),
+    ),
+    canvas,
   );
 }
 

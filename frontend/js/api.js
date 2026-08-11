@@ -149,6 +149,48 @@ export const api = {
   readLogcat(serial, { lines = 250 } = {}) {
     return request(`/devices/${encodeURIComponent(serial)}/logcat?lines=${encodeURIComponent(lines)}`);
   },
+  adbConnect(address) {
+    return request('/devices/connect', { method: 'POST', body: { address } });
+  },
+  injectTap(serial, x, y) {
+    return request(`/devices/${encodeURIComponent(serial)}/tap`, {
+      method: 'POST', body: { x, y },
+    });
+  },
+  // Open a WebSocket screen mirror session.
+  // Returns a handle: { stop(), onFrame(cb), onError(cb) }
+  mirrorScreen(serial, { onFrame, onStatus } = {}) {
+    const wsBase = API_BASE.replace(/^http/, 'ws');
+    const url    = `${wsBase}/devices/${encodeURIComponent(serial)}/mirror`;
+    let ws       = null;
+    let active   = true;
+
+    function connect() {
+      ws = new WebSocket(url);
+      ws.onopen  = () => onStatus?.('connected');
+      ws.onerror = () => onStatus?.('error');
+      ws.onclose = () => { if (active) onStatus?.('disconnected'); };
+      ws.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data);
+          if (msg.type === 'frame') onFrame?.(msg.data, msg.fps);
+          else if (msg.type === 'error') onStatus?.('error: ' + msg.message);
+        } catch (_) {}
+      };
+    }
+
+    connect();
+    return {
+      stop() {
+        active = false;
+        try { ws?.send(JSON.stringify({ type: 'stop' })); } catch (_) {}
+        ws?.close();
+      },
+      sendTap(x, y) {
+        try { ws?.send(JSON.stringify({ type: 'tap', x, y })); } catch (_) {}
+      },
+    };
+  },
   getScan(id)    { return request(`/scans/${id}`); },
   getFindings(id){ return request(`/scans/${id}/findings`); },
   getResult(id)  { return request(`/scans/${id}/result`); },
