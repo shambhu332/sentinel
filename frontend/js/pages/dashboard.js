@@ -4,12 +4,23 @@ import { SCANS as MOCK_SCANS } from '../data/scans.js';
 import { openScanModal } from '../components/scan-modal.js';
 import { sevRow, statusBadge } from '../components/severity-badge.js';
 import { offlineBanner } from '../components/offline-banner.js';
+import { buildMirrorWidget } from '../components/mirror-widget.js';
 import { api } from '../api.js';
 
 let SCANS = [];
 let apiOnline = false;
 
 export async function renderDashboard(main) {
+  // Two-column layout: main content left, live device mirror right
+  const leftCol  = el('div', { class: 'dash-left-col' });
+  const rightCol = el('div', { class: 'dash-right-col' },
+    buildMirrorWidget({ title: 'Live Device', compact: true }),
+  );
+  main.appendChild(el('div', { class: 'dash-mirror-layout' }, leftCol, rightCol));
+
+  // Re-target remaining appends to the left column
+  main = leftCol;
+
   // Welcome row
   main.appendChild(el('div', { class: 'welcome-row' },
     el('div', { class: 'welcome' },

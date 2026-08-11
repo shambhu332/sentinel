@@ -6,11 +6,18 @@ import { el, refreshIcons, toast } from '../utils.js';
 const _mirrors = new Map();
 
 const GENYMOTION_SERIAL_RE = /^192\.168\.\d+\.\d+:\d+$/;
+const GENYMOTION_LOCAL_RE  = /^(127\.0\.0\.1|localhost):\d+$/;
 const AVD_SERIAL_RE        = /^emulator-\d+$/;
 
-function detectEmulatorType(serial) {
-  if (GENYMOTION_SERIAL_RE.test(serial)) return 'genymotion';
-  if (AVD_SERIAL_RE.test(serial))        return 'avd';
+function detectEmulatorType(serial, manufacturer) {
+  const mfr = (manufacturer || '').toLowerCase();
+  if (
+    GENYMOTION_SERIAL_RE.test(serial) ||
+    GENYMOTION_LOCAL_RE.test(serial)  ||
+    mfr.includes('genymobile') ||
+    mfr.includes('genymotion')
+  ) return 'genymotion';
+  if (AVD_SERIAL_RE.test(serial)) return 'avd';
   return null; // physical or unknown
 }
 
@@ -37,7 +44,7 @@ export function renderDevicesPage(main) {
       ),
       el('button', {
         class: 'btn btn-secondary btn-sm',
-        title: 'Run: adb connect 192.168.56.101:5555 (default Genymotion address)',
+        title: 'Run adb connect for a Genymotion / WiFi ADB device',
         onclick: () => connectGenymotion(container),
       },
         el('i', { 'data-lucide': 'layers' }),
@@ -154,7 +161,7 @@ function buildDeviceCard(d) {
     el('div', { class: 'text-muted', style: 'font-size: 12px;' },
       'SDK ', (d.sdk || '?'), ' · ABI ', (d.abi || '?'),
       (() => {
-        const emuType = detectEmulatorType(d.serial);
+        const emuType = detectEmulatorType(d.serial, d.manufacturer);
         if (emuType === 'genymotion') return ' · Genymotion';
         if (emuType === 'avd')        return ' · AVD';
         if (d.is_emulator === 'true') return ' · emulator';
@@ -415,14 +422,19 @@ async function checkAppiumServer(statusEl) {
 }
 
 async function connectGenymotion(container) {
-  toast('Connecting to Genymotion at 192.168.56.101:5555…', 'info');
+  const addr = window.prompt(
+    'Enter Genymotion / WiFi ADB address (host:port)',
+    '127.0.0.1:6562',
+  );
+  if (!addr) return;
+  toast(`Connecting to ${addr}…`, 'info');
   try {
-    const result = await api.adbConnect('192.168.56.101:5555');
+    const result = await api.adbConnect(addr.trim());
     if (result && result.ok) {
-      toast('Genymotion connected — click Refresh to see the device', 'success');
+      toast(`Connected to ${addr} — refreshing device list`, 'success');
       loadAndRender(container);
     } else {
-      toast(result?.error || 'adb connect failed — is Genymotion running?', 'error', 5000);
+      toast(result?.error || `adb connect failed — is Genymotion running at ${addr}?`, 'error', 5000);
     }
   } catch (e) {
     const msg = e instanceof ApiError ? e.message : String(e);

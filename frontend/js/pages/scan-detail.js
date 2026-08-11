@@ -3,7 +3,8 @@ import { el, refreshIcons, formatDate, formatDuration, statusLabel, toast } from
 import { sevBadge, statusBadge, triageBadge, verifyBadge } from '../components/severity-badge.js';
 import { codeBlock } from '../components/code-block.js';
 import { renderProfileSummary } from '../components/profile-summary.js';
-import { api, ApiError } from '../api.js';
+import { api, ApiError }        from '../api.js';
+import { buildMirrorWidget }   from '../components/mirror-widget.js';
 
 const POLL_MS = 1500;
 const ACTIVE_STATES = new Set(['queued', 'running']);
@@ -158,6 +159,20 @@ async function paint(scanId, summary) {
   shell.innerHTML = '';
   shell.appendChild(buildHeader(summary, findings));
   shell.appendChild(buildProgress(summary));
+
+  // Live mirror panel — shown while the scan is actively running so the
+  // analyst can watch the app being driven by Monkey / Appium in real time.
+  const isActive = ['queued', 'running'].includes(summary.status);
+  const deviceSerial = summary.options?.device_serial || summary.device_serial || null;
+  const mirrorWidget = buildMirrorWidget({
+    serial: deviceSerial || undefined,
+    title:  'Live Device Mirror',
+    compact: false,
+  });
+  mirrorWidget.style.marginBottom = '20px';
+  mirrorWidget.style.display      = isActive ? '' : 'none';
+  mirrorWidget.dataset.scanMirror = '1';
+  shell.appendChild(mirrorWidget);
 
   // Phase 1.5 profile card (frameworks, native libs, obfuscation, API types,
   // agent skip count). Only renders when META_005 emitted a profile finding.

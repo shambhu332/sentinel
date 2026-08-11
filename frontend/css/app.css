@@ -389,6 +389,70 @@
   }
 }
 
+/* Dashboard two-column layout with live mirror sidebar */
+.dash-mirror-layout {
+  display: grid;
+  grid-template-columns: 1fr 480px;
+  gap: 20px;
+  align-items: start;
+}
+
+.dash-right-col {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.dash-right-col .mirror-widget {
+  width: 100%;
+  height: 100%;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.dash-right-col .mirror-widget .card-header {
+  flex-shrink: 0;
+}
+
+.dash-right-col .mirror-widget > div:last-child {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 10px;
+  overflow: hidden;
+}
+
+.dash-right-col .mirror-widget canvas {
+  flex: 1;
+  width: 100% !important;
+  max-height: none !important;
+  height: auto !important;
+  object-fit: contain;
+}
+
+@media (max-width: 1300px) {
+  .dash-mirror-layout {
+    grid-template-columns: 1fr 360px;
+  }
+}
+
+@media (max-width: 1100px) {
+  .dash-mirror-layout {
+    grid-template-columns: 1fr;
+  }
+  .dash-right-col {
+    position: static;
+    height: auto;
+  }
+  .dash-right-col .mirror-widget canvas {
+    max-height: 400px !important;
+  }
+}
+
 .chart-card {
   height: 320px;
   display: flex;
