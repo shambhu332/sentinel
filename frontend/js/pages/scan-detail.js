@@ -12,7 +12,19 @@ const PHASE_LABELS = {
   phase1: 'Phase 1 · Recon (parallel)',
   phase2: 'Phase 2 · Agents',
   phase3: 'Phase 3 · LLM triage',
-  phase4: 'Phase 4 · Dynamic / Frida',
+  phase4: 'Phase 4 · Dynamic / Frida / UI Driver',
+};
+
+const DRIVER_LABELS = {
+  off:    'Off (manual)',
+  monkey: 'Monkey (blind random)',
+  appium: 'Appium (self-login · navigate · scroll)',
+};
+
+const DEVICE_TYPE_LABELS = {
+  physical:   'Physical device',
+  avd:        'Android Studio AVD',
+  genymotion: 'Genymotion',
 };
 
 let pollHandle = null;
@@ -316,32 +328,76 @@ function renderSummaryPane(summary, findings, result) {
 
   // APK metadata
   const m = summary.manifest || {};
+  const opts = summary.options || {};
   const metaCard = el('div', { class: 'card' },
     el('div', { class: 'card-header' },
       el('div', { class: 'card-title' }, el('i', { 'data-lucide': 'package' }), 'APK metadata'),
     ),
     el('div', { class: 'kv-grid' },
-      kv('Package',    m.package || '—'),
-      kv('Version',    m.version_name || '—'),
-      kv('Target SDK', m.target_sdk ? String(m.target_sdk) : '—'),
+      kv('Package',     m.package || '—'),
+      kv('Version',     m.version_name || '—'),
+      kv('Target SDK',  m.target_sdk ? String(m.target_sdk) : '—'),
       kv('Permissions', m.permissions_count != null ? String(m.permissions_count) : '—'),
       kv('Activities',  m.activities_count  != null ? String(m.activities_count)  : '—'),
       kv('SHA-256',     summary.apk_sha256 ? summary.apk_sha256.slice(0, 16) + '…' : '—'),
       kv('Size',        summary.apk_size_bytes ? humanBytes(summary.apk_size_bytes) : '—'),
       kv('Started',     summary.started_at ? formatDate(summary.started_at) : '—'),
+      kv('Device type', DEVICE_TYPE_LABELS[opts.device_type] || opts.device_type || '—'),
+      kv('Device serial', opts.device_serial || 'Pool round-robin'),
+      kv('UI Driver',   DRIVER_LABELS[opts.ui_driver] || opts.ui_driver || 'Off'),
     ),
   );
   pane.appendChild(metaCard);
 
+  // UI Driver events card — only shown when a real driver was used
+  if (opts.ui_driver && opts.ui_driver !== 'off') {
+    const driverEvents = (result && result.ui_driver_events) || [];
+    const driverOk     = result ? result.ui_driver_ok : null;
+    const driverIcon   = opts.ui_driver === 'appium' ? 'bot' : 'shuffle';
+    const statusColor  = driverOk === true ? 'var(--success)' : driverOk === false ? 'var(--sev-high)' : 'var(--text-muted)';
+    const statusText   = driverOk === true ? 'Succeeded' : driverOk === false ? 'Failed / partial' : 'Pending';
+
+    const eventsCard = el('div', { class: 'card', style: 'margin-top: 16px;' },
+      el('div', { class: 'card-header' },
+        el('div', { class: 'card-title' },
+          el('i', { 'data-lucide': driverIcon }),
+          `UI Driver · ${DRIVER_LABELS[opts.ui_driver] || opts.ui_driver}`,
+        ),
+        el('span', { class: 'badge', style: `color: ${statusColor}; background: color-mix(in srgb, ${statusColor} 12%, transparent); border: 1px solid color-mix(in srgb, ${statusColor} 30%, transparent);` },
+          statusText),
+      ),
+      driverEvents.length
+        ? el('div', { style: 'padding: 8px 0;' },
+            ...driverEvents.map((ev, i) =>
+              el('div', { style: 'display: flex; gap: 10px; align-items: flex-start; padding: 5px 16px; font-size: 13px; border-bottom: 1px solid var(--border);' },
+                el('span', { class: 'mono text-muted', style: 'flex-shrink: 0; font-size: 11px; padding-top: 1px;' }, String(i + 1).padStart(2, '0')),
+                el('span', { style: 'color: var(--text-secondary);' }, ev),
+              ),
+            ),
+          )
+        : el('div', { class: 'text-muted', style: 'padding: 12px 16px; font-size: 13px;' },
+            summary.status === 'completed' || summary.status === 'failed'
+              ? 'No driver events recorded.'
+              : 'Driver events will appear here once Phase 4 starts.',
+          ),
+    );
+    pane.appendChild(eventsCard);
+  }
+
   // If still running, helpful hint
   if (ACTIVE_STATES.has(summary.status)) {
+    const driverName = DRIVER_LABELS[opts.ui_driver] || null;
+    const inPhase4   = summary.phase === 'phase4';
     pane.appendChild(el('div', { class: 'card', style: 'margin-top: 16px; border-color: var(--accent-primary); padding: 14px 16px;' },
       el('div', { style: 'display: flex; gap: 12px; align-items: center;' },
         el('div', { class: 'spinner-sm' }),
         el('div', {},
           el('div', { style: 'font-weight: 600;' }, 'Scan running'),
           el('div', { class: 'text-muted', style: 'font-size: 12px;' },
-            'Live updates via SSE stream. Findings populate as agents finish.'),
+            inPhase4 && driverName && opts.ui_driver !== 'off'
+              ? `Phase 4 active — UI Driver (${driverName}) is exercising the app. Findings populate as agents finish.`
+              : 'Live updates via SSE stream. Findings populate as agents finish.',
+          ),
         ),
       ),
     ));

@@ -2,14 +2,44 @@
 import { api, ApiError } from '../api.js';
 import { el, refreshIcons, toast } from '../utils.js';
 
+const GENYMOTION_SERIAL_RE = /^192\.168\.\d+\.\d+:\d+$/;
+const AVD_SERIAL_RE        = /^emulator-\d+$/;
+
+function detectEmulatorType(serial) {
+  if (GENYMOTION_SERIAL_RE.test(serial)) return 'genymotion';
+  if (AVD_SERIAL_RE.test(serial))        return 'avd';
+  return null; // physical or unknown
+}
+
+const APPIUM_DEFAULT_URL = 'http://127.0.0.1:4723';
+
 export function renderDevicesPage(main) {
+  const appiumStatusEl = el('span', { class: 'text-muted', style: 'font-size: 12px; align-self: center;' }, '');
+
   main.appendChild(el('div', { class: 'page-header' },
     el('div', {},
       el('div', { class: 'page-title' }, 'Devices'),
       el('div', { class: 'page-subtitle', id: 'devices-subtitle' },
         'Attached Android targets and runtime controls.'),
     ),
-    el('div', { class: 'page-actions' },
+    el('div', { class: 'page-actions', style: 'flex-wrap: wrap; gap: 8px;' },
+      appiumStatusEl,
+      el('button', {
+        class: 'btn btn-secondary btn-sm',
+        title: `Check if Appium server is running at ${APPIUM_DEFAULT_URL}`,
+        onclick: () => checkAppiumServer(appiumStatusEl),
+      },
+        el('i', { 'data-lucide': 'bot' }),
+        'Check Appium',
+      ),
+      el('button', {
+        class: 'btn btn-secondary btn-sm',
+        title: 'Run: adb connect 192.168.56.101:5555 (default Genymotion address)',
+        onclick: () => connectGenymotion(container),
+      },
+        el('i', { 'data-lucide': 'layers' }),
+        'Connect Genymotion',
+      ),
       el('button', { class: 'btn btn-secondary btn-sm', id: 'devices-refresh' },
         el('i', { 'data-lucide': 'refresh-cw' }),
         'Refresh',
@@ -120,7 +150,13 @@ function buildDeviceCard(d) {
       (d.manufacturer || '?'), ' · ', (d.model || 'unknown')),
     el('div', { class: 'text-muted', style: 'font-size: 12px;' },
       'SDK ', (d.sdk || '?'), ' · ABI ', (d.abi || '?'),
-      d.is_emulator === 'true' ? ' · emulator' : ''),
+      (() => {
+        const emuType = detectEmulatorType(d.serial);
+        if (emuType === 'genymotion') return ' · Genymotion';
+        if (emuType === 'avd')        return ' · AVD';
+        if (d.is_emulator === 'true') return ' · emulator';
+        return '';
+      })()),
     d.fingerprint
       ? el('div', { class: 'mono text-muted', style: 'font-size: 11px; margin-top: 8px; word-break: break-all;' },
           d.fingerprint)
@@ -242,6 +278,45 @@ async function runDeviceAction(serial, output, pendingText, fn) {
     toast(msg, 'error', 4000);
   } finally {
     refreshIcons();
+  }
+}
+
+async function checkAppiumServer(statusEl) {
+  statusEl.textContent = 'Checking Appium…';
+  statusEl.style.color = 'var(--text-muted)';
+  try {
+    const r = await fetch(`${APPIUM_DEFAULT_URL}/status`, { signal: AbortSignal.timeout(4000) });
+    if (r.ok) {
+      const data = await r.json().catch(() => ({}));
+      const ver = data?.value?.build?.version || '';
+      statusEl.textContent = `Appium ${ver} · ready`;
+      statusEl.style.color = 'var(--success)';
+      toast(`Appium server is running${ver ? ' v' + ver : ''}`, 'success');
+    } else {
+      statusEl.textContent = `Appium · HTTP ${r.status}`;
+      statusEl.style.color = 'var(--sev-high)';
+      toast('Appium server responded with an error', 'error');
+    }
+  } catch (_) {
+    statusEl.textContent = 'Appium · not reachable';
+    statusEl.style.color = 'var(--sev-high)';
+    toast(`Appium not running at ${APPIUM_DEFAULT_URL} — start with: appium --port 4723`, 'error', 5000);
+  }
+}
+
+async function connectGenymotion(container) {
+  toast('Connecting to Genymotion at 192.168.56.101:5555…', 'info');
+  try {
+    const result = await api.adbConnect('192.168.56.101:5555');
+    if (result && result.ok) {
+      toast('Genymotion connected — click Refresh to see the device', 'success');
+      loadAndRender(container);
+    } else {
+      toast(result?.error || 'adb connect failed — is Genymotion running?', 'error', 5000);
+    }
+  } catch (e) {
+    const msg = e instanceof ApiError ? e.message : String(e);
+    toast(`Connect failed: ${msg}`, 'error', 5000);
   }
 }
 
